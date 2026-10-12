@@ -1,0 +1,11 @@
+{
+  "manifest_version": 3,
+  "name": "LFD Inquiry",
+  "description": "自动识别船公司和 MBL，自定义 Demurrage / Detention 邮件与 JSON 配置，保留 Gmail 签名。",
+  "version": "0.2.9",
+  "minimum_chrome_version": "116",
+  "permissions": ["storage", "scripting", "unlimitedStorage"],
+  "host_permissions": ["https://mail.google.com/*", "https://www.kdocs.cn/*"],
+  "background": {"service_worker": "worker.js", "type": "module"},
+  "action": {"default_title": "LFD Inquiry", "default_popup": "app.html"}
+}

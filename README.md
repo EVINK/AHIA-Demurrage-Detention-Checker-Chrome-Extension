@@ -1,0 +1,207 @@
+# LFD Inquiry v0.2.9 — Chrome 插件使用说明
+
+输入柜号，插件从金山文档「提柜」查出 MBL 和船公司，再按所选 Demurrage / Detention 类型准备查询邮件，保留 Gmail 原签名。支持 Maersk、MSC 和自行添加的船公司，收件邮箱与邮件模板均可配置。
+
+默认处于**测试模式：只生成草稿，不发送邮件**。查表用于取得 MBL 和船公司；LFD 日期仍需等待船公司邮件回复。
+
+插件使用已登录的 Gmail、金山文档页面及只读 AirScript，不需要 API 密钥、Google OAuth 配置或外部服务器。Chrome 与两个网站的账号需保持登录。
+
+## v0.2.5 更新
+
+- 粘贴查询优先使用本地缓存；发送不再重复查表。
+- 柜号输入框内有「查询」按钮，MBL 可手动填写，航司可手动选择。
+- 删除额外抄送开关，仅使用航司 To/Cc。
+- 模板占位符改为 `{{steam shipping line}}`；旧 `{{greeting}}` 自动兼容转换，JSON 中原有 greeting 字段继续兼容。
+- 70 项 Node 测试通过，本地界面验证了手动补填预览；未发送真实邮件。
+
+## 已安装用户升级
+
+1. 确认原插件目录已经更新为 v0.2.9 文件。如果使用压缩包，将文件解压到原来加载的目录。
+2. 在 Chrome 手动打开 `chrome://extensions`，找到 **LFD Inquiry**，点击刷新图标。
+3. 点击工具栏上的 LFD Inquiry 图标，打开新版弹窗；确认底部显示 `v0.2.9`、顶部显示「测试模式 · 不发送」。
+
+新版使用真正的工具栏弹窗，尺寸为 780 × 600，包含「查询 / 配置 / 记录」三个页面，不再为主界面新开标签页。v0.2.6 新增 unlimitedStorage，解除 chrome.storage.local 默认容量配额；实际仍受磁盘空间和性能限制。缓存逻辑保持不变。原有连接设置、草稿和发送锁定记录保留。
+
+本机已加载的源目录：
+
+```text
+C:\Users\AMERI\Documents\Codex\2026-10-08\chrome-2\demurrage-lfd-extension
+```
+
+首次安装：打开 `chrome://extensions`，开启「开发者模式」，选择「加载已解压的扩展程序」，选中包含 `manifest.json` 的目录，再固定插件图标。
+
+## 查询与生成草稿
+
+1. 在「查询」粘贴完整柜号，例如 `MRSU4786640`。格式为 4 个英文字母加 7 位数字；停止输入约 700 毫秒后，自动执行只读查表与船公司识别。
+2. 查看匹配的 MBL、船公司、来源行号以及邮件预览。选择 **Demurrage** 或 **Detention**，正文和主题中的类型会随之更新。
+3. 如出现首次配置提示，点击「配置此船公司」，补全收件邮箱、正文和主题，保存后继续。
+4. 点击「生成草稿（测试模式）」或「仅生成草稿」。插件在后台新建 Gmail 写信页并填入邮件。
+5. 完成后点击「打开 Gmail 草稿」，检查收件人、表格、签名与 Gmail 保存状态。也可在「记录」中打开草稿。
+
+查表会创建一个独立的后台临时标签，不操作用户已经打开的表格；后台仍通过只读脚本取得结果，无需用户保持脚本编辑器打开。查询成功或失败后自动关闭临时标签。Chrome 或扩展意外退出时可能留下临时标签，可手动关闭。准备草稿时也不会切换当前标签页焦点。关闭弹窗后，已提交的任务继续由后台处理；再次点击图标可查看进度或结果，不会因重开弹窗重复生成草稿。若 Chrome 后台中断，会提示核对记录与 Gmail 草稿，不自动重新执行。
+
+柜号区域滚动时吸顶；输入框内的「查询」按钮优先读取本地缓存，仅在柜号未命中时读取指定金山文档的「提柜」表并保存结果。粘贴柜号后先查本地缓存，未命中才联网；发送或生成草稿只使用当前匹配或手动填写的 MBL，不再次查表。缺少 MBL 时请手动填写，未识别航司时请手动选择并补全配置。手动更改不会写回提柜表。
+
+测试模式由后台强制执行，包括主按钮和 Enter 提交。只有在「配置 → 连接与默认选项」关闭测试模式并保存后，主按钮及 Enter 才会实际发送；「仅生成草稿」始终不发送。
+
+## 如何识别船公司
+
+- 优先使用提柜表的船公司字段，与配置中的 ID、名称、别名匹配。例如 `MSK`、`MAERSK`、`马士基` 对应 Maersk；`MSC`、`地中海` 对应 MSC。
+- 表中没有船公司字段或该行字段为空时，按已配置的 **MBL 前缀**辅助识别。内置规则为 `MAEU` → Maersk、`MEDU` → MSC。
+- **不根据柜号前缀识别船公司。**
+- 表中名称无法识别、匹配多个配置，或表中船公司与 MBL 前缀冲突时，会提示核对，不自行选一个发信。可在查询页手动选择船公司，或修改相应别名、前缀。
+
+表格中的有效船公司名称有优先级；一个未知的非空名称不会被 MBL 前缀静默覆盖。手动选择会覆盖自动识别结果，请先核对实际承运船公司。
+
+## 自定义船公司、邮箱和邮件
+
+在「配置」选择现有船公司，或点击「新增船公司」。可编辑名称、邮件称呼、To、Cc、表中名称/别名、MBL 前缀、主题及正文。多个邮箱、别名或前缀用逗号分隔。
+
+MSC 已有识别规则与标准模板，**默认 To 为空**，需要填写你们实际使用的 MSC 查询邮箱；填写前不会生成或发送查询邮件，也不会使用 Maersk 的邮箱代替。新建的自定义船公司需完成收件邮箱和模板配置；可以点击「使用标准模板」后再修改。
+
+Maersk 默认 To 为 `us.customerexperience@maersk.com`，默认 Cc 为 `truck@darwinpacific.com`、`service@darwinpacific.com`。Cc 完全由航司配置决定，不再额外追加邮箱。旧配置中的 extraCc 会被忽略，已手动填入航司 Cc 的地址会保留。
+
+正文填写纯文本，换行会保留；插件生成 Container# / MBL# 两列表格，再保留 Gmail 新邮件自带的原签名。不要把签名复制进正文模板，避免重复。
+
+标准主题：
+
+```text
+{{Type}} LFD Inquiry - Container#{{container}} MBL#{{mbl}}
+```
+
+标准正文：
+
+```text
+Dear {{steam shipping line}},
+
+Could you please advise the {{type}} LFD for the container below?
+
+{{table}}
+```
+
+| 占位符 | 内容 |
+| --- | --- |
+| `{{carrier}}` | 配置的船公司名称 |
+| `{{steam shipping line}}` | 邮件称呼，例如 `MSK` 或 `MSC Team` |
+| `{{type}}` | 小写 `demurrage` 或 `detention` |
+| `{{Type}}` | 首字母大写 `Demurrage` 或 `Detention` |
+| `{{container}}` | 本次柜号 |
+| `{{mbl}}` | 查表得到的 MBL |
+| `{{table}}` | 柜号与 MBL 表格，仅限正文 |
+
+正文必须包含且仅包含一个 `{{table}}`；正文与主题都需包含 `{{type}}` 或 `{{Type}}`，确保切换查询类型后文字同步。主题还需包含 `{{container}}` 和 `{{mbl}}`。可以保存尚未填写的空模板，但补全前不能生成或发送邮件；非空模板会检查占位符。
+
+## JSON 配置导入与导出
+
+在「配置 → 导入 / 导出配置」点击「导出 JSON」，会下载 `lfd-inquiry-config.json`。文件包含船公司、邮箱、模板、识别规则、连接与默认选项。
+
+导入时选择 JSON 文件，插件先校验并显示摘要；点击「应用导入配置」后才替换现有配置。**导入会开启测试模式**，即使文件写着 `"testMode": false` 也不会直接启用发送。现有操作记录和锁定继续保留。
+
+文件格式固定为 `format: "lfd-inquiry-config"`、`version: 1`，最大 256 KiB，支持 UTF-8 和 UTF-8 BOM。不含 `ledger`、操作历史、归档、Gmail 签名、登录密码或 API 凭据；配置文件仍包含邮箱和文档地址，分享前可自行检查。未知根字段、无效邮箱、链接、版本或模板会被拒绝。
+
+下面是包含内置两家船公司的示例。MSC 的 `to` 保持空数组，使用前自行填写；`bodyTemplate` 中的 `\n` 表示换行。
+
+```json
+{
+  "format": "lfd-inquiry-config",
+  "version": 1,
+  "settings": {
+    "sheetUrl": "https://www.kdocs.cn/l/ce3LmgRtHK2F",
+    "account": "amerihua.op001@gmail.com",
+    "gmailIndex": 0,
+    "testMode": true,
+    "defaultCarrierId": "auto",
+    "defaultInquiryType": "demurrage",
+    "carriers": [
+      {
+        "id": "maersk",
+        "name": "Maersk",
+        "greeting": "MSK",
+        "to": ["us.customerexperience@maersk.com"],
+        "cc": ["truck@darwinpacific.com", "service@darwinpacific.com"],
+        "aliases": ["MAERSK", "MSK", "马士基"],
+        "mblPrefixes": ["MAEU"],
+        "bodyTemplate": "Dear {{steam shipping line}},\n\nCould you please advise the {{type}} LFD for the container below?\n\n{{table}}",
+        "subjectTemplate": "{{Type}} LFD Inquiry - Container#{{container}} MBL#{{mbl}}"
+      },
+      {
+        "id": "msc",
+        "name": "MSC",
+        "greeting": "MSC",
+        "to": [],
+        "cc": ["truck@darwinpacific.com", "service@darwinpacific.com"],
+        "aliases": ["MSC", "地中海"],
+        "mblPrefixes": ["MEDU"],
+        "bodyTemplate": "Dear {{steam shipping line}},\n\nCould you please advise the {{type}} LFD for the container below?\n\n{{table}}",
+        "subjectTemplate": "{{Type}} LFD Inquiry - Container#{{container}} MBL#{{mbl}}"
+      }
+    ]
+  }
+}
+```
+
+船公司 ID 需唯一，使用小写英文字母开头，可包含数字、下划线和连字符；`auto` 专用于自动选择，不能作为船公司 ID。设置最多保留 50 家船公司。导入为替换配置，不会自动合并同名船公司；需要保留现有自定义项时，先导出再编辑该文件。
+
+## 金山文档只读脚本
+
+当前文档 `https://www.kdocs.cn/l/ce3LmgRtHK2F` 的「我的脚本」中，`LFD_ReadOnly_v1` 已更新为 **v2 输出格式**，新增船公司字段。脚本名称继续使用 `LFD_ReadOnly_v1`，便于已有插件定位。
+
+换表或换金山账号时，在对应文档「效率 → 高级开发 → AirScript 脚本编辑器 → 我的脚本」中新建同名脚本，粘贴 `airscript/LFD_ReadOnly.js` 并保存，使用 AirScript 2.0/Beta 环境。也可从插件配置页复制或下载脚本。
+
+脚本明确读取名为「提柜」的工作表，按表头识别柜号、MBL 和可选的船公司列，在「取消DO / 取消D/O」标题处停止。它只读数据，不修改单元格、不排序、不切换工作表。输出包含柜号、MBL、来源行号、船公司及分段完整性标识；插件每次验证新日志全部齐全，缺段或截断就停止。旧版脚本输出仍可读取，船公司缺失时使用 MBL 前缀辅助识别。
+
+本地 chrome.storage.local 保存提柜表中柜号、MBL、航司和来源行号的完整查询快照，以及读取时间；重启浏览器后仍保留。缓存按文档和账号隔离，不自动过期，查询按钮同样优先使用缓存；目前没有强制刷新入口。缓存不包含表格其他列，也不随配置 JSON 导出。另保留操作状态和防重复记录。表格超过 30,000 行或 200 列时停止，并提示检查。
+
+## 发送、保存与重复保护
+
+- 柜号不存在、重复记录中无完整行、MBL 为空、船公司无法确认、模板或邮箱未配置、签名缺失、账号或收件人不符时停止。
+- 只操作插件新建的 Gmail 写信页，不修改已有邮件或用户正在写的草稿。草稿填好后仍应在 Gmail 确认保存状态。
+- 点击发送前再次核验账号、收件人、主题和完整正文；签名或正文被改动时停止。
+- 本地锁按发件账号、柜号、MBL、船公司、查询类型区分。Demurrage 与 Detention 分开记录；v0.1 的旧 Maersk Demurrage 锁继续生效。
+- 生成草稿同样登记锁定，避免手动发出后插件再次发送；重复点击、并发请求或重开弹窗不会重复生成。
+- 只有检测到 Gmail 明确的发送成功提示才标记已发送。网络中断、标签页关闭或结果无法确认时保留「待核实」记录，不自动重试。
+- 需要再次查询时，先检查 Gmail 已发送和草稿，再在「记录」解除对应锁定；旧记录归档保留。导入 JSON 不清除这些记录。
+
+防重复范围限当前 Chrome 配置文件的插件记录，不能识别其他设备、安装前或手动发送的相同查询。
+
+## 权限与数据位置
+
+申请 `storage`、`scripting`、`unlimitedStorage`，以及 `https://www.kdocs.cn/*`、`https://mail.google.com/*` 的页面访问。未申请所有网站、浏览历史、Cookie、调试器或剪贴板权限。
+
+配置与操作记录保存在本机 Chrome 插件存储，文档读取和邮件操作发生在已登录的 KDocs / Gmail 页面。插件没有额外的数据上传服务器，不读取或保存登录密码与 API 令牌。
+
+## 已验证范围与后续验证
+
+- 本次线上 `LFD_ReadOnly_v1` 已更新为 v2，实测读取 544 条记录、91 个完整日志分段。
+- 实时匹配结果：`MRSU4786640` → `MAEU276301677`，船公司字段 `MSK`，当时为第 355 行；`MSMU8984372` → `MEDUYI141936`，船公司字段 `MSC`，当时为第 45 行。行号可能随表格更新改变。
+- v0.1 安装后生成的真实测试草稿已通过 Gmail 搜索确认保存，三个 Cc 和原签名完整，未发送。
+- v0.2.1 弹窗尺寸已由用户截图确认。v0.2.5 改为独立后台标签查表并自动关闭，修复脚本编辑器菜单和“我的脚本”分组误点外层容器的问题，并等待脚本列表加载；12 项后台测试和 15 项浏览器适配测试通过，安装后的完整查询仍需重新加载验证。未发送测试邮件，未验证真实 MSC 发信。
+- 本次只读查表确认：MSDU6134964 → MEDUACU76689，船公司 MSC，第 82 行。
+- Gmail 或金山文档页面结构、语言改变可能导致停止，需要更新适配器。其他插件额外修改收件人或正文时，本插件会停止，不更改其全局规则。
+
+## 本地验证命令
+
+在本插件目录运行，无需安装 npm 依赖：
+
+```powershell
+npm test
+npm run dev
+```
+
+`npm test` 运行 `tests/*.test.js`，包含核心流程、配置 JSON、后台任务及防重复保护等 Node 测试。也可单独运行：
+
+```powershell
+node --test tests/config.test.js
+node --test tests/worker.test.js
+```
+
+开发服务只监听 `127.0.0.1:5179`。打开 `/app.html` 是明确标记的本地界面演示，不连接在线表格或生成真实邮件；打开 `/tests/browser.html` 在模拟 DOM 中验证 Gmail 与 KDocs 适配代码，不连接真实邮箱。
+
+## 文件说明
+
+`core.js`：查表匹配、船公司识别和邮件模板；`config.js`：配置校验与 JSON 格式；`service.js`：业务流程与持久化锁；`worker.js`：Chrome 接入、后台任务与状态恢复；`kdocs.js` / `gmail.js`：页面适配；`app.*`：工具栏弹窗；`airscript/`：线上只读脚本；`tests/`：自动化测试。
+
+
+## v0.2.9 缓存去重
+
+同一柜号有多行时，按文档行号从上往下选取第一条 MBL 和 SSL（航司）均不为空的行，整条保留，不拼接不同记录。生成新缓存和读取旧缓存时均使用该规则，其他重复项仅从本地缓存移除。金山文档保持原样。缺少 MBL 或 SSL 的记录（包括单条记录）不写入缓存，旧缓存读取时也清理这些记录。配置页提供“清除本地缓存”，仅清除查表缓存和当前查询状态，保留航司配置、邮件记录及归档。清除后下次查询重新读取金山文档提柜表。74 项自动化测试通过。
