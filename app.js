@@ -151,7 +151,7 @@ function renderHistory(ledger={}){
     const state=document.createElement('div');state.className='history-state';state.textContent=statuses[entry.status]||entry.status;content.append(state);
     if(entry.detail){const note=document.createElement('p');note.textContent=entry.detail;content.append(note);}
     const buttons=document.createElement('div');buttons.className='history-buttons';
-    if(entry.status==='draft'&&Number.isInteger(entry.tabId)){const open=document.createElement('button');open.textContent='打开草稿';open.disabled=busy;open.addEventListener('click',()=>openDraft(entry.tabId));buttons.append(open);}
+    if(['draft','uncertain'].includes(entry.status)&&Number.isInteger(entry.tabId)){const open=document.createElement('button');open.textContent=entry.status==='draft'?'打开草稿':'打开写信页';open.disabled=busy;open.addEventListener('click',()=>openDraft(entry.tabId));buttons.append(open);}
     const release=document.createElement('button');release.textContent='解除锁定';release.disabled=busy;
     release.addEventListener('click',async()=>{if(busy||!confirm(`请先检查 Gmail 已发送和草稿。\n\n解除 ${entry.container} 的锁定会允许再次生成同类邮件。确认已核实并需要重新生成？`))return;try{await rpc({type:'release',key});await refreshState();status('已解除该条记录的锁定。');}catch(error){status(error.message,'error');}});
     buttons.append(release);row.append(content,buttons);root.append(row);

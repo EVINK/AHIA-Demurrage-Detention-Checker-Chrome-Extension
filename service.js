@@ -79,7 +79,7 @@ export function createService({storage, readSheet, prepareMail, sendMail, now = 
     } catch (error) {
       entry.status = transmissionStarted ? 'uncertain' : 'needs_review'; entry.detail = error.message;
       await storage.set({ledger});
-      throw new Error(transmissionStarted ? '发送结果待核实，已阻止重试。请查看 Gmail 已发送和草稿后，再处理记录。' : `${error.message} 自动发送已停止，请检查 Gmail 草稿。`);
+      throw new Error(transmissionStarted ? `发送结果待核实（${error.message}），已阻止重试。请查看 Gmail 已发送和草稿后，再处理记录。` : `${error.message} 自动发送已停止，请检查 Gmail 草稿。`);
     }
   }
   return {run:(value,mode,options)=>serial(()=>run(value,mode,options)),release:key=>serial(async()=>{

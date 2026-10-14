@@ -70,7 +70,7 @@ export async function gmailPage(action,payload){
   let evidence='';
   const observer=new MutationObserver(()=>{
     const alerts=[...document.querySelectorAll('[role="alert"],[role="status"],.vh,.bAq')].filter(visible);
-    const found=alerts.find(e=>/邮件已发送|已发送邮件|Message sent/i.test(e.textContent));
+    const found=alerts.find(e=>/邮件已发送|Message sent/i.test(e.textContent));
     if(found)evidence=found.textContent.trim().slice(0,200);
   });
   observer.observe(document.body,{childList:true,subtree:true,characterData:true});

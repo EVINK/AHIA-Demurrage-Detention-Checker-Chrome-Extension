@@ -10,6 +10,12 @@ async function execute(tabId,func,args=[]){
   if(!response.ok)throw new Error(response.error||'页面操作失败。');
   return response.data;
 }
+const pause=ms=>new Promise(r=>setTimeout(r,ms));
+// Gmail closes its full-screen compose tab only after the message has really left
+// (after any Undo Send delay). The "Message sent" toast alone can appear while the
+// send is still pending, e.g. when Chrome throttles or freezes the background tab.
+const SEND_CLOSE_TIMEOUT=60000;
+async function closedByGmail(tabId){const end=Date.now()+SEND_CLOSE_TIMEOUT;while(Date.now()<end){try{await chrome.tabs.get(tabId);}catch{return true;}await pause(500);}return false;}
 async function loaded(tabId){const end=Date.now()+25000;while(Date.now()<end){if((await chrome.tabs.get(tabId)).status==='complete')return;await new Promise(r=>setTimeout(r,200));}throw new Error('页面加载超时。');}
 const store={get:async keys=>{const result=await chrome.storage.local.get(keys);result.settings=validateSettings(result.settings||{});return result;},set:data=>chrome.storage.local.set(data)};
 const service=createService({storage:store,
@@ -28,7 +34,11 @@ const service=createService({storage:store,
     const tab=await chrome.tabs.create({url:url.href,active:false});await loaded(tab.id);
     const result=await execute(tab.id,gmailPage,['prepare',payload]);return {...result,tabId:tab.id};
   },
-  sendMail:(prepared,payload)=>execute(prepared.tabId,gmailPage,['send',{...payload,bodyHash:prepared.bodyHash}])
+  sendMail:async(prepared,payload)=>{
+    const sent=await execute(prepared.tabId,gmailPage,['send',{...payload,bodyHash:prepared.bodyHash}]);
+    if(!await closedByGmail(prepared.tabId))throw new Error('Gmail 出现了发送提示，但写信页未自动关闭，邮件可能没有真正发出。已保留该标签页供核实');
+    return sent;
+  }
 });
 // Popup lifetime is shorter than a lookup. Persist its job so closing/reopening
 // the popup never repeats the query or creates a second draft.
@@ -69,7 +79,7 @@ chrome.runtime.onMessage.addListener((message,sender,respond)=>{
     }
     if(message.type==='openDraft'){
       const {ledger={}}=await store.get(['ledger']);
-      if(!Number.isInteger(message.tabId)||!Object.values(ledger).some(entry=>entry.tabId===message.tabId&&entry.status==='draft'))throw new Error('草稿标签页不在插件记录中。请到 Gmail 草稿中查看。');
+      if(!Number.isInteger(message.tabId)||!Object.values(ledger).some(entry=>entry.tabId===message.tabId&&['draft','uncertain'].includes(entry.status)))throw new Error('草稿标签页不在插件记录中。请到 Gmail 草稿中查看。');
       const tab=await chrome.tabs.get(message.tabId);
       if(!tab.url?.startsWith('https://mail.google.com/'))throw new Error('原草稿标签页已变更，请到 Gmail 草稿中查看。');
       await chrome.tabs.update(message.tabId,{active:true});return true;

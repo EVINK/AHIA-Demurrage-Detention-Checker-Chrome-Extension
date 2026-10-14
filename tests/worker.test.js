@@ -56,7 +56,7 @@ function setup({data={},run=async()=>({status:'draft',tabId:42}),read=async valu
     const accepted=listener(message,from,value=>{if(!ignoreResponse)resolve(clone(value));});
     return {accepted,response};
   }
-  return {send,calls,deps,db:()=>clone(db)};
+  return {send,calls,deps,db:()=>clone(db),removeTab:tabId=>chrome.tabs.remove(tabId)};
 }
 
 test('lookup persists running before work and completes after popup response is ignored',async()=>{
@@ -238,4 +238,15 @@ test('clear cache preserves settings, ledger and archive and refuses during a jo
   await until(()=>t.calls.run.length===1);
   assert.equal((await t.send({type:'clearCache'}).response).ok,false);
   gate.resolve({});await job.response;
+});
+
+test('send is confirmed only after Gmail closes its own compose tab',async()=>{
+  const t=setup({tabs:[{id:42,url:'https://mail.google.com/mail/u/0/?view=cm'}]});
+  let settled=false;
+  const sending=t.deps.sendMail({tabId:42,bodyHash:'hash'},{requestId:'r'}).then(value=>{settled=true;return value;});
+  await new Promise(resolve=>setTimeout(resolve,700));
+  assert.equal(settled,false,'A toast alone must not mark the message sent while the compose tab is still open.');
+  await t.removeTab(42);
+  assert.deepEqual(await sending,{bodyHash:'unchanged-signature',confirmed:true});
+  assert.equal(t.calls.scripts.at(-1).args[0],'send');
 });
