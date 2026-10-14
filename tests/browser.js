@@ -1,9 +1,11 @@
 import {gmailPage as gmailAdapter} from '../gmail.js';
-import {messageTemplate} from '../core.js';
+import {messageTemplate,portalTemplate,normalizeCarriers} from '../core.js';
+import {coscoPage as coscoAdapter} from '../cosco.js';
 import {readKdocsPage as kdocsAdapter} from '../kdocs.js';
 async function unwrap(result){const r=await result;if(!r.ok)throw new Error(r.error);return r.data;}
 const gmailPage=(...args)=>unwrap(gmailAdapter(...args));
 const readKdocsPage=(...args)=>unwrap(kdocsAdapter(...args));
+const coscoPage=(...args)=>unwrap(coscoAdapter(...args));
 const results=document.querySelector('#results'),fixture=document.querySelector('#fixture');
 const record={container:'MRSU4786640',mbl:'MAEU276301677'};
 const payload={...messageTemplate(record),...record,account:'me@example.com',requestId:'fixture-test'};
@@ -112,5 +114,64 @@ await test('opens a closed editor through SVG-styled toolbar labels and expands 
   const result=await readKdocsPage();
   assert(opened===1,'editor should open exactly once');
   assert(result.records[0].carrier==='MSC'&&result.records[0].mbl==='MEDUACU76689','fresh carrier result missing');
+});
+
+const coscoRecord={container:'MSMU7504817',mbl:'MEDUAFS11232'};
+const ticket={...portalTemplate(coscoRecord,{carrier:normalizeCarriers().find(p=>p.id==='cosco')}),...coscoRecord,requestId:'cosco-test',captchaTimeout:3000};
+let ticketSubmits=0;
+function coscoForm({requester=''}={}){
+  ticketSubmits=0;
+  fixture.innerHTML=`<form id="new_helpdesk_ticket" onsubmit="return false">
+    <div class="control-group"><label for="helpdesk_ticket_email">Requester <span>*</span></label><div class="controls"><input type="email" id="helpdesk_ticket_email" name="helpdesk_ticket[email]"></div></div>
+    <div class="control-group"><label for="helpdesk_ticket_ticket_type">Shipment Type *</label><div class="controls"><select id="helpdesk_ticket_ticket_type"><option value="">...</option><option value="Export">Export</option><option value="Per Diem">Per Diem</option></select></div></div>
+    <div id="section"></div>
+    <div class="control-group"><label>Description *</label><div class="controls"><div class="redactor_box"><div class="redactor_editor" contenteditable="true"><p><br></p></div><textarea name="helpdesk_ticket[ticket_body_attributes][description_html]" style="display:none"></textarea></div></div></div>
+    <textarea name="g-recaptcha-response" style="display:none"></textarea>
+    <button type="submit">Submit</button><button type="button">Cancel</button></form>`;
+  fixture.querySelector('#helpdesk_ticket_email').value=requester;
+  // Like Freshdesk, the Per Diem section only appears after the type changes.
+  fixture.querySelector('#helpdesk_ticket_ticket_type').addEventListener('change',event=>setTimeout(()=>{
+    fixture.querySelector('#section').innerHTML=event.target.value!=='Per Diem'?'':`<div class="control-group"><label for="cf_service">Per Diem Services *</label><div class="controls"><select id="cf_service"><option value="">...</option><option>Last Free Day</option><option>Perdiem Inquiry</option></select></div></div>
+      <div class="control-group"><label for="cf_ref">PD INV /BL /BKG /HOU # /SCAC Code *</label><div class="controls"><input id="cf_ref"></div></div>`;
+  },300));
+  fixture.querySelector('button[type=submit]').addEventListener('click',()=>ticketSubmits++);
+}
+await test('COSCO ticket: fills every field, waits for the user captcha, then submits once',async()=>{
+  coscoForm();
+  await coscoPage('fill',ticket);
+  assert(fixture.querySelector('#helpdesk_ticket_email').value==='service@darwinpacific.com','requester');
+  assert(fixture.querySelector('#helpdesk_ticket_ticket_type').value==='Per Diem','type');
+  assert(fixture.querySelector('#cf_service').value==='Last Free Day','service');
+  assert(fixture.querySelector('#cf_ref').value==='AHIA','reference');
+  const editor=fixture.querySelector('[contenteditable]');
+  assert(editor.querySelector('table')&&editor.innerText.includes('MSMU7504817')&&editor.innerText.includes('MEDUAFS11232'),'table');
+  assert(/Dear Cosco/.test(editor.innerText)&&/detention LFD/.test(editor.innerText),'body');
+  assert(fixture.querySelector('textarea[name*=description]').value.includes('MSMU7504817'),'textarea sync');
+  assert(ticketSubmits===0,'fill must not submit');
+  const submitting=coscoPage('submit',ticket);
+  await new Promise(r=>setTimeout(r,500));assert(ticketSubmits===0,'submitted before captcha');
+  fixture.querySelector('textarea[name="g-recaptcha-response"]').value='user-solved-token';
+  const result=await submitting;assert(result.clicked&&ticketSubmits===1,'not submitted exactly once');
+});
+await test('COSCO ticket: captcha never completed means nothing is submitted',async()=>{
+  coscoForm();await coscoPage('fill',ticket);let error='';
+  try{await coscoPage('submit',{...ticket,captchaTimeout:400});}catch(e){error=e.message;}
+  assert(/人机验证超时/.test(error)&&ticketSubmits===0,'timed out submit');
+});
+await test('COSCO ticket: edited field after fill blocks submit',async()=>{
+  coscoForm();await coscoPage('fill',ticket);fixture.querySelector('#cf_ref').value='OTHER';
+  fixture.querySelector('textarea[name="g-recaptcha-response"]').value='token';let error='';
+  try{await coscoPage('submit',ticket);}catch(e){error=e.message;}
+  assert(/SCAC/.test(error)&&ticketSubmits===0,'edited form submitted');
+});
+await test('COSCO ticket: a different prefilled requester is not overwritten',async()=>{
+  coscoForm({requester:'someone@else.com'});let error='';
+  try{await coscoPage('fill',ticket);}catch(e){error=e.message;}
+  assert(/Requester/.test(error)&&fixture.querySelector('#helpdesk_ticket_email').value==='someone@else.com','requester overwritten');
+});
+await test('COSCO ticket: missing option stops instead of choosing something else',async()=>{
+  coscoForm();let error='';
+  try{await coscoPage('fill',{...ticket,service:'Nonexistent'});}catch(e){error=e.message;}
+  assert(/没有选项/.test(error),'missing option accepted: '+error);
 });
 fixture.replaceChildren();document.title='Browser adapter tests — complete';

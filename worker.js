@@ -1,6 +1,7 @@
 import {createService} from './service.js';
 import {readKdocsPage} from './kdocs.js';
 import {gmailPage} from './gmail.js';
+import {coscoPage} from './cosco.js';
 import {validateSettings} from './config.js';
 chrome.storage.local.setAccessLevel({accessLevel:'TRUSTED_CONTEXTS'});
 async function execute(tabId,func,args=[]){
@@ -15,6 +16,7 @@ const pause=ms=>new Promise(r=>setTimeout(r,ms));
 // (after any Undo Send delay). The "Message sent" toast alone can appear while the
 // send is still pending, e.g. when Chrome throttles or freezes the background tab.
 const SEND_CLOSE_TIMEOUT=60000;
+const COSCO_TICKET_URL='https://support.cosco-usa.com/support/tickets/new';
 async function closedByGmail(tabId){const end=Date.now()+SEND_CLOSE_TIMEOUT;while(Date.now()<end){try{await chrome.tabs.get(tabId);}catch{return true;}await pause(500);}return false;}
 async function loaded(tabId){const end=Date.now()+25000;while(Date.now()<end){if((await chrome.tabs.get(tabId)).status==='complete')return;await new Promise(r=>setTimeout(r,200));}throw new Error('页面加载超时。');}
 const store={get:async keys=>{const result=await chrome.storage.local.get(keys);result.settings=validateSettings(result.settings||{});return result;},set:data=>chrome.storage.local.set(data)};
@@ -33,6 +35,28 @@ const service=createService({storage:store,
     url.search=new URLSearchParams({view:'cm',fs:'1',to:payload.to.join(','),cc:payload.cc.join(','),su:payload.subject});
     const tab=await chrome.tabs.create({url:url.href,active:false});await loaded(tab.id);
     const result=await execute(tab.id,gmailPage,['prepare',payload]);return {...result,tabId:tab.id};
+  },
+  prepareTicket:async payload=>{
+    // Submitting needs the user to complete the reCAPTCHA, so that tab is opened in front.
+    const tab=await chrome.tabs.create({url:COSCO_TICKET_URL,active:payload.submit===true});await loaded(tab.id);
+    await execute(tab.id,coscoPage,['fill',payload]);return {tabId:tab.id};
+  },
+  submitTicket:async(prepared,payload)=>{
+    let before;
+    try{before=(await chrome.tabs.get(prepared.tabId)).url;await execute(prepared.tabId,coscoPage,['submit',payload]);}
+    catch(error){error.notTransmitted=true;throw error;}
+    const end=Date.now()+30000;
+    while(Date.now()<end){
+      let tab;try{tab=await chrome.tabs.get(prepared.tabId);}catch{throw new Error('COSCO 工单页在提交后被关闭，无法确认是否提交成功');}
+      if(tab.status==='complete'&&tab.url!==before)break;
+      await pause(500);
+    }
+    const result=await execute(prepared.tabId,coscoPage,['result']);
+    if(result.confirmed)return result;
+    const error=new Error(`未检测到 COSCO 工单提交成功${result.reason?'：'+result.reason:''}`);
+    // Still on the form with validation errors: the ticket was not accepted.
+    if(result.formStillOpen&&result.reason)error.notTransmitted=true;
+    throw error;
   },
   sendMail:async(prepared,payload)=>{
     const sent=await execute(prepared.tabId,gmailPage,['send',{...payload,bodyHash:prepared.bodyHash}]);
@@ -79,9 +103,9 @@ chrome.runtime.onMessage.addListener((message,sender,respond)=>{
     }
     if(message.type==='openDraft'){
       const {ledger={}}=await store.get(['ledger']);
-      if(!Number.isInteger(message.tabId)||!Object.values(ledger).some(entry=>entry.tabId===message.tabId&&['draft','uncertain'].includes(entry.status)))throw new Error('草稿标签页不在插件记录中。请到 Gmail 草稿中查看。');
+      if(!Number.isInteger(message.tabId)||!Object.values(ledger).some(entry=>entry.tabId===message.tabId&&['draft','uncertain','needs_review'].includes(entry.status)))throw new Error('草稿标签页不在插件记录中。请到 Gmail 草稿中查看。');
       const tab=await chrome.tabs.get(message.tabId);
-      if(!tab.url?.startsWith('https://mail.google.com/'))throw new Error('原草稿标签页已变更，请到 Gmail 草稿中查看。');
+      if(!['https://mail.google.com/','https://support.cosco-usa.com/'].some(origin=>tab.url?.startsWith(origin)))throw new Error('原草稿标签页已变更，请到 Gmail 草稿中查看。');
       await chrome.tabs.update(message.tabId,{active:true});return true;
     }
     if(message.type==='settings'){

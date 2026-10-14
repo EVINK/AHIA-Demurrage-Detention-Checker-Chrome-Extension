@@ -1,4 +1,4 @@
-# LFD Inquiry v0.2.10 — Chrome 插件使用说明
+# LFD Inquiry v0.3.0 — Chrome 插件使用说明
 
 输入柜号，插件从金山文档「提柜」查出 MBL 和船公司，再按所选 Demurrage / Detention 类型准备查询邮件，保留 Gmail 原签名。支持 Maersk、MSC 和自行添加的船公司，收件邮箱与邮件模板均可配置。
 
@@ -16,9 +16,9 @@
 
 ## 已安装用户升级
 
-1. 确认原插件目录已经更新为 v0.2.10 文件。如果使用压缩包，将文件解压到原来加载的目录。
+1. 确认原插件目录已经更新为 v0.3.0 文件。如果使用压缩包，将文件解压到原来加载的目录。
 2. 在 Chrome 手动打开 `chrome://extensions`，找到 **LFD Inquiry**，点击刷新图标。
-3. 点击工具栏上的 LFD Inquiry 图标，打开新版弹窗；确认底部显示 `v0.2.10`、顶部显示「测试模式 · 不发送」。
+3. 点击工具栏上的 LFD Inquiry 图标，打开新版弹窗；确认底部显示 `v0.3.0`、顶部显示「测试模式 · 不发送」。
 
 新版使用真正的工具栏弹窗，尺寸为 780 × 600，包含「查询 / 配置 / 记录」三个页面，不再为主界面新开标签页。v0.2.6 新增 unlimitedStorage，解除 chrome.storage.local 默认容量配额；实际仍受磁盘空间和性能限制。缓存逻辑保持不变。原有连接设置、草稿和发送锁定记录保留。
 
@@ -209,3 +209,16 @@ node --test tests/worker.test.js
 ## v0.2.10 发送确认加严
 
 修复偶发“记录显示已发送，但 Gmail 实际未发出、写信标签页也没关闭”。以前只要页面出现“邮件已发送 / Message sent”提示就记为已发送；但 Gmail 在“撤消发送”等待期内就会显示该提示，后台标签页若被 Chrome 节流或冻结，真正发送和自动关闭标签页都不会发生。现在点击发送并看到提示后，还必须等到 Gmail 自己关闭写信标签页（最长 60 秒）才记为“Gmail 已确认发送”；否则记为“发送结果待核实”并保留该标签页，记录中可点“打开写信页”核实。同时去掉了会与“已发送邮件”文件夹名称混淆的匹配文字。75 项自动化测试通过；尚未在真实 Gmail 中复测。
+
+## v0.3.0 COSCO 工单网站
+
+COSCO 不发邮件，改为在 https://support.cosco-usa.com/support/tickets/new 提交工单。查表识别到 SSL「COS / COSCO / 中远」或 MBL 前缀 COSU，或手动选择 COSCO 后：
+
+1. 插件打开工单页，自动填写 Requester `service@darwinpacific.com`、Shipment Type `Per Diem`、Per Diem Services `Last Free Day`、PD INV /BL /BKG /HOU # /SCAC Code `AHIA`，Description 使用默认邮件模板（Dear Cosco… detention LFD… Container# / MBL# 表格）。查询类型固定为 Detention。
+2. **人机验证由用户手动完成**（插件不会也不应自动通过 reCAPTCHA）。正式模式下工单页在前台打开，验证完成后插件自动点击 Submit；3 分钟内未完成验证则不提交，记录为“工单未提交”，页面保留，可手动提交。
+3. 提交后跳转到工单页（/support/tickets/编号）或出现提交成功提示才记为“COSCO 工单已提交”，并记录工单号；否则为“待核实”，并保持防重复锁定。
+4. 测试模式只在后台填写工单，不提交。
+
+已有配置中没有 COSCO：在查询结果中点「新增或选择船公司」或在配置页新增船公司，名称填 COSCO 或将发送方式选为「COSCO 工单网站」即可自动带出上述默认值。以上字段均可在配置页修改。新增 host 权限 support.cosco-usa.com。
+
+验证范围：86 项 Node 测试与 20 项浏览器模拟测试（含 5 项 COSCO 表单模拟）通过；**尚未在真实 COSCO 网站上提交过工单**，表单结构依据 2026-10-14 抓取的页面 HTML。

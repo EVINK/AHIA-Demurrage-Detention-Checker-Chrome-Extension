@@ -1,6 +1,7 @@
 # LFD Inquiry — Agent 交接文档
 
-更新时间：2026-10-09（America/Los_Angeles）。代码版本：**0.2.10**（2026-10-14 发送确认加严，见第 6 节）。
+更新时间：2026-10-09（America/Los_Angeles）。代码版本：**0.3.0**（2026-10-14：发送确认加严、COSCO 工单网站，见第 6 节）。
+Chrome 现直接从 WSL 目录 `/home/evink/demurrage-lfd-extension` 加载；git 分支 `fix/gmail-send-confirmation`。
 本文件依据本次对话及当前源码整理；它是工程交接，不代表安装在 Chrome 中的版本已自动更新。
 
 ## 1. 接手起点
@@ -171,6 +172,7 @@ kdocs 适配器要求新的 START、同 id、分段连续、条数正确和 END�
 | 0.2.7 | 柜号吸顶、输入框内按钮、按钮也缓存优先 |
 | 0.2.8 | 按第一条完整行去重，仅删除本地重复项 |
 | 0.2.9 | 不完整记录不缓存、旧缓存清理、配置页清缓存 |
+| 0.3.0 | COSCO 走 Freshdesk 工单网站（cosco.js）：自动填表，人机验证必须用户手动完成（已拒绝实现自动过 reCAPTCHA，勿添加），token 出现后自动 Submit；类型固定 Detention、正文用默认模板、AHIA 固定（可配置）；渠道字段 carrier.channel=email/cosco-portal + portal{requester,shipmentType,service,reference}。未真实提交验证 |
 | 0.2.10 | 修复“记录已发送但实际未发、标签未关”：发送提示出现后还须等 Gmail 自行关闭写信标签（≤60s，worker.closedByGmail）才记 sent，否则 uncertain 并保留标签，可“打开写信页”；成功提示去掉“已发送邮件”匹配。75 项测试通过，未真实发信复测 |
 
 - 74 项 Node 测试已在 v0.2.9 通过，覆盖新旧缓存过滤、去重行序、跨账号/文档隔离、手填、无重复查询、配置兼容、操作锁和清缓存保留配置/历史。

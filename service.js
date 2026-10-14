@@ -1,5 +1,5 @@
-import {containerNumber, mblNumber, lookup, cacheRecords, messageTemplate, normalizeCarriers, addressList, inquiryType, recognizeCarrier} from './core.js';
-export function createService({storage, readSheet, prepareMail, sendMail, now = Date.now, uuid = () => crypto.randomUUID()}) {
+import {containerNumber, mblNumber, lookup, cacheRecords, messageTemplate, portalTemplate, normalizeCarriers, addressList, inquiryType, recognizeCarrier, PORTAL_INQUIRY_TYPE} from './core.js';
+export function createService({storage, readSheet, prepareMail, sendMail, prepareTicket, submitTicket, now = Date.now, uuid = () => crypto.randomUUID()}) {
   let queue = Promise.resolve();
   function serial(action) {const work = queue.then(action); queue = work.catch(() => {}); return work;}
   async function run(value, mode, options={}) {
@@ -14,10 +14,12 @@ export function createService({storage, readSheet, prepareMail, sendMail, now = 
     let carrier=selected==='auto'?null:carriers.find(profile=>profile.id===selected);
     if(selected!=='auto'&&!carrier)throw new Error('选中的船公司不存在，请检查配置。');
     if(carrier&&mode!=='identify'){
-      addressList(carrier.to,{allowEmpty:false});
-      if(!carrier.bodyTemplate||!carrier.subjectTemplate)throw new Error('首次使用该船公司，请先配置正文模板和主题模板。');
+      if(carrier.channel==='email'){
+        addressList(carrier.to,{allowEmpty:false});
+        if(!carrier.bodyTemplate||!carrier.subjectTemplate)throw new Error('首次使用该船公司，请先配置正文模板和主题模板。');
+      }else if(!carrier.bodyTemplate||!carrier.portal.requester)throw new Error('首次使用该船公司，请先配置工单 Requester 和正文模板。');
     }
-    const type=inquiryType(options.inquiryType!==undefined?options.inquiryType:settings.defaultInquiryType);
+    let type=inquiryType(options.inquiryType!==undefined?options.inquiryType:settings.defaultInquiryType);
     const accounts=addressList(settings.account,{allowEmpty:false});
     if(accounts.length!==1)throw new Error('请配置唯一的 Gmail 发件账号。');
     const account=accounts[0];
@@ -55,30 +57,40 @@ export function createService({storage, readSheet, prepareMail, sendMail, now = 
       }
     }
     record.carrierSource=carrierSource;
-    if(mode==='identify')return {...record,carrierId:carrier.id,carrierName:carrier.name,inquiryType:type,
-      configurationMissing:[...(!carrier.to.length?['to']:[]),...(!carrier.bodyTemplate?['bodyTemplate']:[]),...(!carrier.subjectTemplate?['subjectTemplate']:[])]};
-    const message = messageTemplate(record,{carrier,inquiryType:type});
+    const portal=carrier.channel!=='email';
+    if(portal)type=PORTAL_INQUIRY_TYPE;
+    if(mode==='identify')return {...record,carrierId:carrier.id,carrierName:carrier.name,channel:carrier.channel,inquiryType:type,
+      configurationMissing:portal?[...(!carrier.portal.requester?['requester']:[]),...(!carrier.bodyTemplate?['bodyTemplate']:[])]:
+        [...(!carrier.to.length?['to']:[]),...(!carrier.bodyTemplate?['bodyTemplate']:[]),...(!carrier.subjectTemplate?['subjectTemplate']:[])]};
+    const message = portal?portalTemplate(record,{carrier}):messageTemplate(record,{carrier,inquiryType:type});
     if (mode === 'preview') return {...record, ...message};
     const key = JSON.stringify([account, record.container, record.mbl, carrier.id, type]);
     const legacyKey=JSON.stringify([account,record.container,record.mbl]);
     if (ledger[key]||(carrier.id==='maersk'&&type==='demurrage'&&ledger[legacyKey])) throw new Error('该柜号在所选船公司和查询类型下已有草稿、发送或待核实记录。请先核对发送记录，避免重复。');
-    const entry = {...record, account,carrierId:carrier.id,carrierName:carrier.name,inquiryType:type,to:[...message.to],cc:[...message.cc],subject:message.subject,requestId:uuid(),status:'preparing',time:now()};
+    const entry = {...record, account,carrierId:carrier.id,carrierName:carrier.name,channel:carrier.channel,inquiryType:type,
+      ...(portal?{requester:message.requester,reference:message.reference}:{to:[...message.to],cc:[...message.cc],subject:message.subject}),requestId:uuid(),status:'preparing',time:now()};
     ledger[key] = entry; await storage.set({ledger});
     let transmissionStarted = false;
     try {
-      const prepared = await prepareMail({...message, ...record, account, gmailIndex:settings.gmailIndex, requestId:entry.requestId});
+      const prepared = portal?await prepareTicket({...message,...record,requestId:entry.requestId,submit:mode==='send'})
+        :await prepareMail({...message, ...record, account, gmailIndex:settings.gmailIndex, requestId:entry.requestId});
       entry.tabId = prepared.tabId;
       entry.status = 'draft'; await storage.set({ledger});
       if (mode === 'draft') return entry;
       entry.status = 'sending'; await storage.set({ledger});
       transmissionStarted = true;
-      const sent = await sendMail(prepared, {...message,...record,account,requestId:entry.requestId});
-      if (!sent?.confirmed) throw new Error('没有检测到 Gmail 发送成功确认。');
+      const sent = portal?await submitTicket(prepared,{...message,...record,requestId:entry.requestId})
+        :await sendMail(prepared, {...message,...record,account,requestId:entry.requestId});
+      if (!sent?.confirmed) throw new Error(portal?'没有检测到 COSCO 工单提交成功。':'没有检测到 Gmail 发送成功确认。');
       entry.status = 'sent'; entry.confirmation = sent.evidence;
+      if(sent.ticketId)entry.ticketId=sent.ticketId;
       await storage.set({ledger}); return entry;
     } catch (error) {
+      // An adapter marks errors raised before anything was submitted (e.g. captcha never completed).
+      if(error?.notTransmitted===true)transmissionStarted=false;
       entry.status = transmissionStarted ? 'uncertain' : 'needs_review'; entry.detail = error.message;
       await storage.set({ledger});
+      if(portal&&!transmissionStarted)throw new Error(`${error.message} 工单未提交，页面已保留。`);
       throw new Error(transmissionStarted ? `发送结果待核实（${error.message}），已阻止重试。请查看 Gmail 已发送和草稿后，再处理记录。` : `${error.message} 自动发送已停止，请检查 Gmail 草稿。`);
     }
   }

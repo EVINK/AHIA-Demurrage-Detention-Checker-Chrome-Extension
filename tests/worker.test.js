@@ -5,7 +5,7 @@ import {readFileSync} from 'node:fs';
 
 const original=readFileSync(new URL('../worker.js',import.meta.url),'utf8');
 const imports=original.match(/^import .*;\r?$/gm)||[];
-assert.equal(imports.length,4,'Update the isolated worker harness if its imports change.');
+assert.equal(imports.length,5,'Update the isolated worker harness if its imports change.');
 const source=original.replace(/^import .*;\r?$/gm,'');
 const appUrl='chrome-extension://test-extension/app.html';
 const sender={id:'test-extension',url:appUrl};
@@ -21,7 +21,7 @@ function setup({data={},run=async()=>({status:'draft',tabId:42}),read=async valu
   let db={settings:{...defaults},ledger:{},...clone(data)},listener,deps,id=0;
   const calls={run:[],release:[],writes:[],created:[],updated:[],queries:[],scripts:[],access:[],removed:[]};
   const tabMap=new Map(tabs.map(tab=>[tab.id,clone(tab)]));
-  const readKdocsPage=()=>{},gmailPage=()=>{};
+  const readKdocsPage=()=>{},gmailPage=()=>{},coscoPage=()=>{};
   const chrome={
     storage:{local:{
       setAccessLevel:async value=>{calls.access.push(clone(value));},
@@ -44,7 +44,7 @@ function setup({data={},run=async()=>({status:'draft',tabId:42}),read=async valu
   };
   vm.runInNewContext(source,{
     chrome,URL,URLSearchParams,Date,setTimeout,
-    crypto:{randomUUID:()=>`operation-${++id}`},readKdocsPage,gmailPage,
+    crypto:{randomUUID:()=>`operation-${++id}`},readKdocsPage,gmailPage,coscoPage,
     validateSettings:value=>({...defaults,...clone(value)}),
     createService:dependencies=>{deps=dependencies;return {
       run:async(...args)=>{calls.run.push(clone(args));return run(...args);},
@@ -56,7 +56,7 @@ function setup({data={},run=async()=>({status:'draft',tabId:42}),read=async valu
     const accepted=listener(message,from,value=>{if(!ignoreResponse)resolve(clone(value));});
     return {accepted,response};
   }
-  return {send,calls,deps,db:()=>clone(db),removeTab:tabId=>chrome.tabs.remove(tabId)};
+  return {send,calls,deps,db:()=>clone(db),removeTab:tabId=>chrome.tabs.remove(tabId),updateTab:(tabId,options)=>chrome.tabs.update(tabId,options)};
 }
 
 test('lookup persists running before work and completes after popup response is ignored',async()=>{
@@ -249,4 +249,27 @@ test('send is confirmed only after Gmail closes its own compose tab',async()=>{
   await t.removeTab(42);
   assert.deepEqual(await sending,{bodyHash:'unchanged-signature',confirmed:true});
   assert.equal(t.calls.scripts.at(-1).args[0],'send');
+});
+
+test('COSCO submit waits for the post-submit page and reports the ticket',async()=>{
+  const t=setup({tabs:[{id:9,status:'complete',url:'https://support.cosco-usa.com/support/tickets/new'}]});
+  const submitting=t.deps.submitTicket({tabId:9},{requestId:'r'});
+  await until(()=>t.calls.scripts.length===1);
+  assert.deepEqual(t.calls.scripts.map(s=>s.args[0]),['submit']);
+  await t.updateTab(9,{url:'https://support.cosco-usa.com/support/tickets/123456'});
+  const result=await submitting;
+  assert.equal(result.confirmed,true);
+  assert.deepEqual(t.calls.scripts.map(s=>s.args[0]),['submit','result']);
+});
+
+test('COSCO submit errors raised in the page are marked as not submitted',async()=>{
+  const t=setup({tabs:[{id:9,status:'complete',url:'https://support.cosco-usa.com/support/tickets/new'}],scriptError:'等待人机验证超时'});
+  await assert.rejects(t.deps.submitTicket({tabId:9},{requestId:'r'}),error=>error.notTransmitted===true);
+});
+
+test('COSCO ticket tab opens in front only when it will be submitted',async()=>{
+  const t=setup();
+  await t.deps.prepareTicket({submit:false});await t.deps.prepareTicket({submit:true});
+  assert.deepEqual(t.calls.created.map(c=>[c.url,c.active]),[['https://support.cosco-usa.com/support/tickets/new',false],['https://support.cosco-usa.com/support/tickets/new',true]]);
+  assert.deepEqual(t.calls.scripts.map(s=>s.args[0]),['fill','fill']);
 });
