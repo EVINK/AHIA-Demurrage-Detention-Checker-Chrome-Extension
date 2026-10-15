@@ -19,7 +19,7 @@ async function until(predicate){
 
 function setup({data={},run=async()=>({status:'draft',tabId:42}),read=async value=>value,tabs=[],scriptError=null}={}){
   let db={settings:{...defaults},ledger:{},...clone(data)},listener,deps,id=0;
-  const calls={fetched:[],run:[],release:[],writes:[],created:[],updated:[],queries:[],scripts:[],access:[],removed:[]};
+  const calls={notifications:[],windows:[],windowUpdates:[],windowRemoved:[],fetched:[],run:[],release:[],writes:[],created:[],updated:[],queries:[],scripts:[],access:[],removed:[]};
   const tabMap=new Map(tabs.map(tab=>[tab.id,clone(tab)]));
   const readKdocsPage=()=>{},gmailPage=()=>{},coscoPage=()=>{},onePage=()=>{};
   const chrome={
@@ -28,6 +28,12 @@ function setup({data={},run=async()=>({status:'draft',tabId:42}),read=async valu
       get:async keys=>read(Object.fromEntries(keys.filter(key=>Object.hasOwn(db,key)).map(key=>[key,clone(db[key])])),keys),
       set:async value=>{const saved=clone(value);calls.writes.push(saved);db={...db,...saved};}
     }},
+    notifications:{create:async(id,options)=>{calls.notifications.push({id,...clone(options)});return id;},clear:async()=>true,onClicked:{addListener:()=>{}}},
+    windows:{
+      create:async options=>{calls.windows.push(clone(options));const id=500+calls.windows.length;if(options.tabId&&tabMap.has(options.tabId))tabMap.set(options.tabId,{...tabMap.get(options.tabId),windowId:id});return {id,type:options.type};},
+      get:async id=>({id,type:id>=500?'popup':'normal'}),update:async(id,options)=>{calls.windowUpdates.push({id,...clone(options)});return {id};},remove:async id=>{calls.windowRemoved.push(id);},
+      onFocusChanged:{addListener:()=>{},removeListener:()=>{}}
+    },
     runtime:{id:'test-extension',getURL:path=>`chrome-extension://test-extension/${path}`,onMessage:{addListener:fn=>{listener=fn;}}},
     tabs:{
       remove:async tabId=>{calls.removed.push(tabId);tabMap.delete(tabId);},
@@ -264,6 +270,8 @@ test('COSCO submit waits for the post-submit page and reports the ticket',async(
   const result=await submitting;
   assert.equal(result.confirmed,true);
   assert.deepEqual(t.calls.scripts.map(s=>s.args[0]),['submit','result']);
+  assert.deepEqual(t.calls.windows,[{tabId:9,type:'popup',width:440,height:640,focused:true}],'captcha moves into a small floating window');
+  assert.deepEqual(t.calls.windowRemoved,[501],'the floating window closes once the ticket is submitted');
 });
 
 test('COSCO submit errors raised in the page are marked as not submitted',async()=>{
@@ -271,11 +279,12 @@ test('COSCO submit errors raised in the page are marked as not submitted',async(
   await assert.rejects(t.deps.submitTicket({tabId:9},{requestId:'r'}),error=>error.notTransmitted===true);
 });
 
-test('COSCO ticket tab opens in front only when it will be submitted',async()=>{
+test('COSCO tickets are always filled in a background tab',async()=>{
   const t=setup();
   await t.deps.prepareTicket({submit:false});await t.deps.prepareTicket({submit:true});
-  assert.deepEqual(t.calls.created.map(c=>[c.url,c.active]),[['https://support.cosco-usa.com/support/tickets/new',false],['https://support.cosco-usa.com/support/tickets/new',true]]);
+  assert.deepEqual(t.calls.created.map(c=>[c.url,c.active]),[['https://support.cosco-usa.com/support/tickets/new',false],['https://support.cosco-usa.com/support/tickets/new',false]]);
   assert.deepEqual(t.calls.scripts.map(s=>s.args[0]),['fill','fill']);
+  assert.deepEqual(t.calls.windows,[],'no floating window before the captcha step');
 });
 
 test('state shows a background job lost by a worker restart as interrupted, without changing storage',async()=>{

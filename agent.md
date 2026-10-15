@@ -1,6 +1,6 @@
 # LFD Inquiry — Agent 交接文档
 
-更新时间：2026-10-09（America/Los_Angeles）。代码版本：**0.3.6**（查询不阻塞/后台任务/ONE 多柜号；ONE 在线客服；英文界面兼容；2026-10-14：发送确认加严、COSCO 工单网站、取消DO 后分段读取、日志虚拟列表读取、脚本自动安装、找不到柜号提示框，见第 6 节）。
+更新时间：2026-10-09（America/Los_Angeles）。代码版本：**0.3.7**（浮动小窗+通知；查询不阻塞/后台任务/ONE 多柜号；ONE 在线客服；英文界面兼容；2026-10-14：发送确认加严、COSCO 工单网站、取消DO 后分段读取、日志虚拟列表读取、脚本自动安装、找不到柜号提示框，见第 6 节）。
 Chrome 现直接从 WSL 目录 `/home/evink/demurrage-lfd-extension` 加载；git 分支 `fix/gmail-send-confirmation`。
 本文件依据本次对话及当前源码整理；它是工程交接，不代表安装在 Chrome 中的版本已自动更新。
 
@@ -172,6 +172,7 @@ kdocs 适配器要求新的 START、同 id、分段连续、条数正确和 END�
 | 0.2.7 | 柜号吸顶、输入框内按钮、按钮也缓存优先 |
 | 0.2.8 | 按第一条完整行去重，仅删除本地重复项 |
 | 0.2.9 | 不完整记录不缓存、旧缓存清理、配置页清缓存 |
+| 0.3.7 | worker floatTab：chrome.windows.create({tabId,type:'popup'}) 后再 update 尺寸（启动参数 --window-size 会覆盖）。COSCO captchaWindow 在 submit 前弹小窗、onFocusChanged 失焦时 notifications；成功关窗。ONE showTab 先注入 top 'chatOnly' 样式只留 #embedded-messaging；watchReplies 已读后轮询 'replies' 15 分钟，客服回复即通知；测试模式接入即通知。通知点击→showTab。openDraft 允许 running 任务并对 ONE/COSCO 用小窗 |
 | 0.3.6 | service.run 不再整体串行：只有锁登记 serial；readOnce 合并并发读表；所有 draft/send 都是后台 job（返回 background:true，service.job(requestId) 可等待，active() 供 worker 标记中断），进度写 entry.step/running。worker runOperation 允许并发，只持久化最新 operation；新增 peek 消息查额外柜号。ONE 多柜号 options.more，每柜号一条消息、ledger 每柜号一条（chatMessage 各自），error.read 记录部分已读。UI：「进行中」页签、#addContainer 增加 .extra-row 输入框 |
 | 0.3.5 | ONE 渠道 one-chat（one.js，按 frame 分 top/chat/calc 注入，world MAIN，allFrames 轮询）：Salesforce MIAW 在 one-line.my.site.com iframe，LWC 组件需 TreeWalker 遍历；FINISHED MY INQUIRY 在 cms-resources-*.one-line.com 计算器 iframe。每次查询先清 ChatInfo/chat_transcript_id/chat_historyShown/*_WEB_STORAGE/sessionOwner 并刷新以开新对话。成功=回执 Read。测试模式走到客服接入并填好消息不发送。客服空闲约 3 分钟会催、再 2 分钟超时结束 |
 | 0.3.4 | kdocs.js LABELS 中英（繁体备用）：高级开发/Advanced Development、AirScript脚本编辑器/AirScript Script Editor、我的脚本/My Scripts；#ToolsTab 已选中时点击会收起工具栏，找不到入口则再点一次。英文界面实测读表与全新安装通过。新增界面语言时只需在 LABELS 加文字 |

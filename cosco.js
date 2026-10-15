@@ -87,6 +87,8 @@ export async function coscoPage(action,payload){
   if(action!=='submit')throw new Error('未知 COSCO 工单操作。');
   if(form.dataset.lfdRequest!==payload.requestId)throw new Error('工单页面已变化，已停止自动提交。');
   verify();
+  // Bring the checkbox into view in the small floating window.
+  document.querySelector('.g-recaptcha,.recaptcha-control,iframe[title*="reCAPTCHA"]')?.scrollIntoView({block:'center'});
   // Wait for the user to complete the reCAPTCHA themselves; its token appears in this hidden field.
   const token=()=>[...document.querySelectorAll('textarea[name="g-recaptcha-response"]')].some(e=>e.value.trim());
   await waitFor(token,'等待人机验证超时，工单未提交。请在 COSCO 页面完成验证后手动提交，或解除锁定后重试。',payload.captchaTimeout||180000);

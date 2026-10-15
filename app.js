@@ -216,7 +216,7 @@ function renderTasks(ledger={}){
     detail.textContent=`${entry.carrierName||''} · ${types[entry.inquiryType]||''} · ${new Date(entry.time).toLocaleTimeString()} 开始 · 已 ${minutes} 分钟`;content.append(detail);
     const step=document.createElement('div');step.className='task-step'+(entry.interrupted?' interrupted':'');step.textContent=entry.interrupted?'已中断，请打开页面核实结果':(entry.step||'进行中')+(entry.agent?` · ${entry.agent}`:'');content.append(step);
     const buttons=document.createElement('div');buttons.className='history-buttons';
-    if(Number.isInteger(entry.tabId)){const open=document.createElement('button');open.textContent='打开页面';open.addEventListener('click',()=>openDraft(entry.tabId));buttons.append(open);}
+    if(Number.isInteger(entry.tabId)){const open=document.createElement('button');open.textContent=entry.channel==='one-chat'?'打开聊天':entry.channel==='cosco-portal'&&/人机验证/.test(entry.step||'')?'去验证':'打开页面';open.addEventListener('click',()=>openDraft(entry.tabId));buttons.append(open);}
     row.append(content,buttons);root.append(row);
   }
   // Keep the list fresh while anything runs in the background.

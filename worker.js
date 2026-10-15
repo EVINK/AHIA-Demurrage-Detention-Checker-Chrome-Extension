@@ -18,6 +18,58 @@ const pause=ms=>new Promise(r=>setTimeout(r,ms));
 // send is still pending, e.g. when Chrome throttles or freezes the background tab.
 const SEND_CLOSE_TIMEOUT=60000;
 const COSCO_TICKET_URL='https://support.cosco-usa.com/support/tickets/new';
+// The reCAPTCHA is completed by the user in a small floating window. Chrome cannot keep it always on
+// top, so when it falls behind another window a notification brings it back.
+const noticeTabs=new Map();
+// Move a tab into a small floating popup window (once) and bring it to the front.
+async function floatTab(tabId,size={width:440,height:640}){
+  const tab=await chrome.tabs.get(tabId),win=await chrome.windows.get(tab.windowId,{populate:true});
+  if(win.type==='popup'){await chrome.windows.update(win.id,{focused:true});return win.id;}
+  const created=await chrome.windows.create({tabId,type:'popup',...size,focused:true});
+  // Re-apply the size: browser launch flags (e.g. --window-size) can override it on creation.
+  await chrome.windows.update(created.id,size).catch(()=>{});
+  return created.id;
+}
+function notify(id,tabId,title,message,sticky=false){
+  noticeTabs.set(id,tabId);
+  chrome.notifications.create(id,{type:'basic',iconUrl:chrome.runtime.getURL('icons/icon128.png'),title,message,priority:2,requireInteraction:sticky}).catch(()=>{});
+}
+// ONE: a small window with only the chat box (the rest of the page is hidden); COSCO: the ticket page.
+async function showTab(tabId){
+  const tab=await chrome.tabs.get(tabId);
+  if(tab.url?.startsWith('https://www.one-line.com/')){
+    await inFrame(tabId,'top','chatOnly',{},5000).catch(()=>{});
+    return floatTab(tabId,{width:456,height:700});
+  }
+  return floatTab(tabId);
+}
+chrome.notifications.onClicked.addListener(id=>{
+  const tabId=noticeTabs.get(id);if(tabId===undefined)return;
+  showTab(tabId).catch(()=>{});chrome.notifications.clear(id).catch(()=>{});
+});
+// The reCAPTCHA is completed by the user in a small floating window. Chrome cannot keep it always on
+// top, so when it falls behind another window a notification brings it back.
+async function captchaWindow(tabId,container){
+  const windowId=await floatTab(tabId);
+  const notice=`lfd-captcha-${tabId}`;let notified=false;
+  const onFocus=focused=>{
+    if(notified||focused===windowId)return;notified=true;
+    notify(notice,tabId,'COSCO 工单等待人机验证',`柜号 ${container}：请在小窗中勾选「I'm not a robot」，插件随后自动提交。点击此通知打开小窗。`,true);
+  };
+  chrome.windows.onFocusChanged.addListener(onFocus);
+  return {windowId,stop:()=>{chrome.windows.onFocusChanged.removeListener(onFocus);noticeTabs.delete(notice);chrome.notifications.clear(notice).catch(()=>{});}};
+}
+// After the inquiry is read, keep watching the chat for the agent's answer and announce it.
+async function watchReplies(tabId,payload,agent){
+  const end=Date.now()+15*60000,list=(payload.containers||[payload.container]).join('、');
+  while(Date.now()<end){
+    let state;try{state=await inFrame(tabId,'chat','replies',payload,8000);}catch{return;}
+    if(state.replies.length){notify(`lfd-one-reply-${tabId}`,tabId,`ONE 客服${agent?' '+agent:''}已回复（${list}）`,state.replies.join(' ').slice(0,240)+'\n点击打开聊天小窗。',true);return;}
+    if(state.ended)return;
+    await pause(5000);
+  }
+}
+async function focusTab(tabId){const tab=await chrome.tabs.get(tabId);await chrome.windows.update(tab.windowId,{focused:true});await chrome.tabs.update(tabId,{active:true});}
 const ONE_CHAT_URL='https://www.one-line.com/one-ecom/manage-shipment/cargo-tracking';
 const AGENT_TIMEOUT=10*60000,READ_TIMEOUT=5*60000;
 // Start the chat, walk the bot menus, transfer to an agent and, once one joins, `type` or `send` the message.
@@ -79,15 +131,20 @@ const service=createService({storage:store,
   },
   prepareTicket:async(payload,progress=()=>{})=>{
     progress('填写 COSCO 工单');
-    // Submitting needs the user to complete the reCAPTCHA, so that tab is opened in front.
-    const tab=await chrome.tabs.create({url:COSCO_TICKET_URL,active:payload.submit===true});await loaded(tab.id);
+    // Filled in a background tab; for the reCAPTCHA it is moved into a small floating window (submitTicket).
+    const tab=await chrome.tabs.create({url:COSCO_TICKET_URL,active:false});await loaded(tab.id);
     await execute(tab.id,coscoPage,['fill',payload]);return {tabId:tab.id};
   },
   submitTicket:async(prepared,payload,progress=()=>{})=>{
-    progress('等待人机验证并提交');
-    let before;
-    try{before=(await chrome.tabs.get(prepared.tabId)).url;await execute(prepared.tabId,coscoPage,['submit',payload]);}
+    progress('等待人机验证（小窗）');
+    let before,float;
+    try{
+      before=(await chrome.tabs.get(prepared.tabId)).url;
+      float=await captchaWindow(prepared.tabId,payload.container);
+      await execute(prepared.tabId,coscoPage,['submit',payload]);
+    }
     catch(error){error.notTransmitted=true;throw error;}
+    finally{float?.stop();}
     const end=Date.now()+30000;
     while(Date.now()<end){
       let tab;try{tab=await chrome.tabs.get(prepared.tabId);}catch{throw new Error('COSCO 工单页在提交后被关闭，无法确认是否提交成功');}
@@ -95,7 +152,8 @@ const service=createService({storage:store,
       await pause(500);
     }
     const result=await execute(prepared.tabId,coscoPage,['result']);
-    if(result.confirmed)return result;
+    // Submitted: the floating window has done its job. On any failure it stays open for the user.
+    if(result.confirmed){chrome.windows.remove(float.windowId).catch(()=>{});return result;}
     const error=new Error(`未检测到 COSCO 工单提交成功${result.reason?'：'+result.reason:''}`);
     // Still on the form with validation errors: the ticket was not accepted.
     if(result.formStillOpen&&result.reason)error.notTransmitted=true;
@@ -114,6 +172,7 @@ const service=createService({storage:store,
     if(payload.send)return {tabId:tab.id};
     // Test mode goes all the way to the agent and types the message, but never sends it.
     const typed=await toAgent(tab.id,payload,'type',progress);
+    notify(`lfd-one-typed-${tab.id}`,tab.id,`ONE 客服 ${typed.agent} 已接入（测试模式）`,`${(payload.containers||[payload.container]).join('、')}：消息已填入聊天框，未发送。点击打开聊天小窗查看。`,true);
     return {tabId:tab.id,agent:typed.agent};
   },
   sendChat:async(prepared,payload,progress=()=>{})=>{
@@ -126,7 +185,7 @@ const service=createService({storage:store,
     while(Date.now()<end){
       ({statuses}=await inFrame(tabId,'chat','receipt',payload));
       const read=statuses.filter(status=>/^Read$/i.test(status)).length;
-      if(read===statuses.length)return {confirmed:true,agent:sent.agent,evidence:`${read} 条消息均已读`};
+      if(read===statuses.length){watchReplies(tabId,payload,sent.agent);return {confirmed:true,agent:sent.agent,evidence:`${read} 条消息均已读`};}
       progress(`等待客服已读（${read}/${statuses.length}）`);
       await pause(3000);
     }
@@ -186,10 +245,11 @@ chrome.runtime.onMessage.addListener((message,sender,respond)=>{
     }
     if(message.type==='openDraft'){
       const {ledger={}}=await store.get(['ledger']);
-      if(!Number.isInteger(message.tabId)||!Object.values(ledger).some(entry=>entry.tabId===message.tabId&&['draft','uncertain','needs_review'].includes(entry.status)))throw new Error('草稿标签页不在插件记录中。请到 Gmail 草稿中查看。');
+      if(!Number.isInteger(message.tabId)||!Object.values(ledger).some(entry=>entry.tabId===message.tabId&&(entry.running||['draft','uncertain','needs_review'].includes(entry.status))))throw new Error('草稿标签页不在插件记录中。请到 Gmail 草稿中查看。');
       const tab=await chrome.tabs.get(message.tabId);
       if(!['https://mail.google.com/','https://support.cosco-usa.com/','https://www.one-line.com/'].some(origin=>tab.url?.startsWith(origin)))throw new Error('原草稿标签页已变更，请到 Gmail 草稿中查看。');
-      await chrome.tabs.update(message.tabId,{active:true});return true;
+      // ONE chats and COSCO tickets open as small floating windows; Gmail drafts as a normal tab.
+      if(/^https:\/\/(www\.one-line\.com|support\.cosco-usa\.com)\//.test(tab.url||''))await showTab(message.tabId);else await focusTab(message.tabId);return true;
     }
     if(message.type==='settings'){
       if(pendingOperations.size)throw new Error('请等当前查询完成后再修改配置。');

@@ -32,6 +32,15 @@ export async function onePage(kind,action,payload){
     const keys=[...forget(localStorage).map(k=>(localStorage.removeItem(k),k)),...forget(sessionStorage).map(k=>(sessionStorage.removeItem(k),k))];
     return {ok:true,data:{cleared:keys}};
   }
+  if(kind==='top'&&action==='chatOnly'){
+    // Floating window shows only the chat: hide the rest of the page and let the chat frame fill it.
+    if(!document.getElementById('lfd-chat-only')){
+      const style=document.createElement('style');style.id='lfd-chat-only';
+      style.textContent='html,body{overflow:hidden!important;background:#fff!important}body>*:not(#embedded-messaging){display:none!important}#embeddedMessagingFrame{inset:0!important;width:100vw!important;height:100vh!important;max-width:none!important;max-height:none!important;border-radius:0!important;box-shadow:none!important}';
+      document.head.append(style);
+    }
+    return {ok:true,data:{chatOnly:!!document.getElementById('embeddedMessagingFrame')}};
+  }
   if(kind==='top'){
     if(action!=='open')throw new Error('未知 ONE 页面操作。');
     const wrapper=()=>document.querySelector('#one-chat-wrapper');
@@ -132,6 +141,13 @@ export async function onePage(kind,action,payload){
       sent++;await pause(800);
     }
     return {ok:true,data:{clicked:sent,agent:name}};
+  }
+  if(action==='replies'){
+    // Agent messages that arrived after our last inquiry message (system events are separate list items).
+    const items=deepAll(e=>e.matches('li.slds-chat-listitem_inbound,li.slds-chat-listitem_outbound'));
+    const last=items.findLastIndex(li=>li.matches('.slds-chat-listitem_outbound')&&messages.some(m=>text(li).startsWith(m)));
+    const replies=last<0?[]:items.slice(last+1).filter(li=>li.matches('.slds-chat-listitem_inbound')).map(li=>text(li).replace(/\s*\S+ \(ONE\) • .*$/,'')).filter(Boolean);
+    return {ok:true,data:{replies,ended:events().some(e=>/ended the chat|chat (has )?ended|conversation ended|timed out/i.test(e))}};
   }
   if(action==='receipt'){
     // Receipt under each outbound bubble: Sent → Delivered → Read.
