@@ -175,4 +175,27 @@ await test('COSCO ticket: missing option stops instead of choosing something els
   try{await coscoPage('fill',{...ticket,service:'Nonexistent'});}catch(e){error=e.message;}
   assert(/没有选项/.test(error),'missing option accepted: '+error);
 });
+await test('English KDocs UI: opens the editor via Tools / Advanced Development / My Scripts, re-expanding a collapsed ribbon',async()=>{
+  fixture.innerHTML='<div id="ToolsTab" role="button">Tools</div><div id="toolbar"></div>';
+  let opened=0,ribbon=true;
+  // Tools is already the selected tab: the first click collapses the ribbon, the second shows it again.
+  fixture.querySelector('#ToolsTab').onclick=()=>{
+    ribbon=!ribbon;const toolbar=fixture.querySelector('#toolbar');
+    toolbar.innerHTML=ribbon?'<button id="advanced"><span>Advanced Development</span></button>':'';
+    if(!ribbon)return;
+    toolbar.querySelector('#advanced').onclick=()=>{
+      const menu=document.createElement('div');menu.setAttribute('role','option');menu.innerHTML='<span>AirScript Script Editor</span>';toolbar.append(menu);
+      menu.onclick=()=>{
+        opened++;const frame=document.createElement('iframe');frame.id='excelIde';fixture.append(frame);
+        const doc=frame.contentDocument;
+        doc.body.innerHTML='<div class="listItem"><div class="header-title"><span class="title-content" id="mine">My Scripts</span></div></div><button id="run-script">Run</button><div class="view-lines">// LFD_ReadOnly_v1</div><pre id="logs"></pre>';
+        doc.querySelector('#mine').onclick=()=>{doc.querySelector('.listItem').classList.add('open');const item=doc.createElement('div');item.className='scriptListItem active';item.innerHTML='<div class="ks-title">LFD_ReadOnly_v1</div>';doc.body.append(item);};
+        doc.querySelector('#run-script').onclick=()=>{doc.querySelector('#logs').textContent='LFD_START:'+JSON.stringify({id:901,count:1,chunks:1,sheet:'提柜'})+'\nLFD_CHUNK:'+JSON.stringify({id:901,index:0,rows:[['CSNU5509665','COSU6466280560',886,'COS']]})+'\nLFD_END:901';};
+      };
+    };
+  };
+  const result=await readKdocsPage();
+  assert(opened===1,'editor should open exactly once');
+  assert(result.records[0].container==='CSNU5509665'&&result.records[0].carrier==='COS','English UI result missing');
+});
 fixture.replaceChildren();document.title='Browser adapter tests — complete';

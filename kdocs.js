@@ -15,18 +15,29 @@ export async function readKdocsPage(script) {
   // SVG icons can embed <style> nodes: textContent includes their CSS, whereas
   // innerText is the label a user actually sees on the toolbar.
   const exact=(doc,selector,text)=>[...doc.querySelectorAll(selector)].find(e=>visible(e)&&(e.innerText??e.textContent).trim()===text);
+  // KDocs UI labels by language (zh-CN and en verified; zh-TW best effort). Structure and ids are language-independent.
+  const LABELS={
+    advanced:['高级开发','Advanced Development','進階開發','高級開發'],
+    editor:['AirScript脚本编辑器','AirScript Script Editor','AirScript腳本編輯器'],
+    myScripts:['我的脚本','My Scripts','我的腳本']
+  };
+  const label=(doc,selector,key)=>{for(const text of LABELS[key]){const found=exact(doc,selector,text);if(found)return found;}return null;};
   let frame=document.querySelector('#excelIde');
   if(!frame||!visible(frame)){
     const tools=await waitFor(()=>document.querySelector('#ToolsTab'),'金山文档尚未加载，或当前不是表格页面。');
     tools.click();
-    (await waitFor(()=>exact(document,'button,[role="button"]','高级开发'),'未找到高级开发入口。')).click();
+    // Clicking the already-selected Tools tab collapses the ribbon; click once more if the entry stays hidden.
+    let advanced;
+    try{advanced=await waitFor(()=>label(document,'button,[role="button"]','advanced'),'',4000);}
+    catch{tools.click();advanced=await waitFor(()=>label(document,'button,[role="button"]','advanced'),'未找到高级开发（Advanced Development）入口。');}
+    advanced.click();
     // Click the actionable option, never its identically labelled outer wrapper.
-    (await waitFor(()=>exact(document,'[role="option"],[role="menuitem"]','AirScript脚本编辑器'),'未找到 AirScript 编辑器。')).click();
+    (await waitFor(()=>label(document,'[role="option"],[role="menuitem"]','editor'),'未找到 AirScript 编辑器。')).click();
     frame=await waitFor(()=>{const f=document.querySelector('#excelIde');return visible(f)&&f;},'脚本编辑器未打开。');
   }
   const doc=await waitFor(()=>frame.contentDocument?.querySelector('#run-script')&&frame.contentDocument,'脚本编辑器尚未加载或需要登录。');
   const ownScripts=()=>[...doc.querySelectorAll('.scriptListItem')].filter(e=>e.querySelector('.ks-title')?.textContent.trim()==='LFD_ReadOnly_v1');
-  const myScripts=()=>waitFor(()=>exact(doc,'.title-content','我的脚本'),'未找到“我的脚本”分组，请检查金山文档登录状态。');
+  const myScripts=()=>waitFor(()=>label(doc,'.title-content','myScripts'),'未找到“我的脚本”（My Scripts）分组，请检查金山文档登录状态。');
   if(!ownScripts().length){
     const group=await myScripts();
     // Only the title is actionable; the identically labelled listItem is not.

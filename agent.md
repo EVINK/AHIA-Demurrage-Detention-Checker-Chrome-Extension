@@ -1,6 +1,6 @@
 # LFD Inquiry — Agent 交接文档
 
-更新时间：2026-10-09（America/Los_Angeles）。代码版本：**0.3.3**（2026-10-14：发送确认加严、COSCO 工单网站、取消DO 后分段读取、日志虚拟列表读取、脚本自动安装、找不到柜号提示框，见第 6 节）。
+更新时间：2026-10-09（America/Los_Angeles）。代码版本：**0.3.4**（英文界面兼容；2026-10-14：发送确认加严、COSCO 工单网站、取消DO 后分段读取、日志虚拟列表读取、脚本自动安装、找不到柜号提示框，见第 6 节）。
 Chrome 现直接从 WSL 目录 `/home/evink/demurrage-lfd-extension` 加载；git 分支 `fix/gmail-send-confirmation`。
 本文件依据本次对话及当前源码整理；它是工程交接，不代表安装在 Chrome 中的版本已自动更新。
 
@@ -172,6 +172,7 @@ kdocs 适配器要求新的 START、同 id、分段连续、条数正确和 END�
 | 0.2.7 | 柜号吸顶、输入框内按钮、按钮也缓存优先 |
 | 0.2.8 | 按第一条完整行去重，仅删除本地重复项 |
 | 0.2.9 | 不完整记录不缓存、旧缓存清理、配置页清缓存 |
+| 0.3.4 | kdocs.js LABELS 中英（繁体备用）：高级开发/Advanced Development、AirScript脚本编辑器/AirScript Script Editor、我的脚本/My Scripts；#ToolsTab 已选中时点击会收起工具栏，找不到入口则再点一次。英文界面实测读表与全新安装通过。新增界面语言时只需在 LABELS 加文字 |
 | 0.3.3 | readKdocsPage(script) 自动安装/升级「我的脚本」LFD_ReadOnly_v1：比较代码中 `LFD build: N`，新建用分组的 .dropdown-version-left-btn + 命名输入框（回车，失败则 blur），代码经 iframe 的 monaco.editor model setValue + .kd-icon-save 按钮；编辑器本身也会自动保存，运行执行的是编辑器当前内容，LFD_START 带 build 供核对。找不到柜号：只查一次，<dialog id=notFound> 确定清空输入/再次查找重读；重开弹窗不自动重查。改脚本请同时递增 build |
 | 0.3.2 | AirScript 日志是 rc-virtual-list，只渲染可见行：readKdocsPage 改为 world:'MAIN' 注入，从 .rc-virtual-list 的 React fiber memoizedProps.data 读全部日志（args），退回 innerText。缓存未命中读表失败不再清空 sheetCache（forceRefresh 仍清）。cosco.js 只写 .redactor_editor（真实页有隐藏 contenteditable）。联调方式：用独立 profile 启动 Chrome --remote-debugging-port=9333 --lang=zh-CN（C:\\Users\\AMERI\\AppData\\Local\\Temp\\lfd-debug-profile，用户已在其中登录金山并加载插件），Windows node 运行 CDP 脚本；主 Chrome 不能开调试端口 |
 | 0.3.1 | 修复 CSNU5509665 查不到：表格在 B854「取消DO」之后新增「已送仓」分段（CSNU5509665 在第 886 行），旧脚本在取消DO处停止。改为跳过取消段、遇到已送仓/排程标题恢复。需同步在线 LFD_ReadOnly_v1。插件存储可只读解析 Chrome Default/Local Extension Settings/<扩展ID>/000003.log 取证 |
