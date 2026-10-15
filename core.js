@@ -5,6 +5,10 @@ export const DEFAULT_BODY_TEMPLATE='Dear {{steam shipping line}},\n\nCould you p
 export const DEFAULT_SUBJECT_TEMPLATE='{{Type}} LFD Inquiry - Container#{{container}} MBL#{{mbl}}';
 // COSCO USA takes LFD inquiries through its Freshdesk ticket portal; Per Diem is always Detention.
 export const COSCO_PORTAL=Object.freeze({requester:'service@darwinpacific.com',shipmentType:'Per Diem',service:'Last Free Day',reference:'AHIA'});
+// COSCO On-Hire goes through COSCO Shipping LA's Freshdesk portal (Type Equipment → On / Off Hire).
+export const COSCO_ON_HIRE=Object.freeze({url:'https://coscoshippingla.freshdesk.com/support/tickets/new',type:'Equipment',service:'On / Off Hire',region:'Southern California'});
+export const COSCO_ON_HIRE_BODY='Dear {{steam shipping line}},\n\nPlease onhire below containers to LBCT,PCT,ETS,FMS,APM\n\n{{table}}';
+const TICKET_HOSTS=['support.cosco-usa.com','coscoshippingla.freshdesk.com'];
 export const CHANNELS=['email','cosco-portal','one-chat'];
 // ONE takes LFD inquiries through the live chat on one-line.com (Salesforce messaging, transferred to an agent).
 export const ONE_CHAT=Object.freeze({firstName:'LET',lastName:'TANG',email:'service@darwinpacific.com',country:'United States',message:'Please advise {{type}} LFD for {{container}} / {{mbl}}'});
@@ -13,7 +17,7 @@ export const DEFAULT_CARRIERS=[
   {id:'maersk',name:'Maersk',greeting:'MSK',to:[TO],cc:[...CC],aliases:['MAERSK','MSK','马士基'],mblPrefixes:['MAEU'],bodyTemplate:DEFAULT_BODY_TEMPLATE,subjectTemplate:DEFAULT_SUBJECT_TEMPLATE},
   {id:'msc',name:'MSC',greeting:'MSC',to:[],cc:[...CC],aliases:['MSC','地中海'],mblPrefixes:['MEDU'],bodyTemplate:DEFAULT_BODY_TEMPLATE,subjectTemplate:DEFAULT_SUBJECT_TEMPLATE},
   {id:'one',name:'ONE',greeting:'ONE',channel:'one-chat',chat:{...ONE_CHAT},to:[],cc:[],aliases:['ONE','OCEAN NETWORK EXPRESS'],mblPrefixes:['ONEY'],bodyTemplate:'',subjectTemplate:''},
-  {id:'cosco',name:'COSCO',greeting:'Cosco',channel:'cosco-portal',portal:{...COSCO_PORTAL},to:[],cc:[],aliases:['COSCO','COS','中远'],mblPrefixes:['COSU'],bodyTemplate:DEFAULT_BODY_TEMPLATE,subjectTemplate:''}
+  {id:'cosco',name:'COSCO',greeting:'Cosco',channel:'cosco-portal',portal:{...COSCO_PORTAL},to:[],cc:[],aliases:['COSCO','COS','中远'],mblPrefixes:['COSU'],bodyTemplate:DEFAULT_BODY_TEMPLATE,subjectTemplate:'',onHire:{to:[],cc:[],subjectTemplate:'',bodyTemplate:COSCO_ON_HIRE_BODY}}
 ];
 export function addressList(value,{allowEmpty=true}={}){
   const values=value==null?[]:Array.isArray(value)?value:[value];
@@ -37,9 +41,8 @@ export function inquiryType(value='demurrage'){
   if(!Object.hasOwn(INQUIRY_TYPES,result))throw new Error('查询类型须为 Demurrage、Detention 或 On-Hire。');
   return result;
 }
-/** The channel an inquiry actually uses. On-Hire is an email, except COSCO, whose On-Hire ticket flow
- *  is not defined yet ('cosco-onhire' stops with a notice instead of sending anything). */
-export const inquiryChannel=(carrier,type)=>type!==ON_HIRE?carrier.channel:carrier.channel==='cosco-portal'?'cosco-onhire':'email';
+/** The channel an inquiry actually uses: On-Hire is an email, except COSCO whose On-Hire is a ticket too. */
+export const inquiryChannel=(carrier,type)=>type!==ON_HIRE||carrier.channel==='cosco-portal'?carrier.channel:'email';
 function profileText(value,label){
   if(typeof value!=='string'||!value.trim()||value.trim().length>80||/[\u0000-\u001f\u007f]/.test(value))throw new Error(`${label}须为 1–80 个字符的单行纯文本。`);
   return value.trim();
@@ -71,18 +74,24 @@ function templateText(value,kind,{requireType=true}={}){
 }
 export const ON_HIRE_BODY_TEMPLATE='Dear {{steam shipping line}},\n\nPlease on-hire below containers to Terminal A, B,C,D,...,etc.\n\n{{table}}';
 export const ON_HIRE_SUBJECT_TEMPLATE='On-Hire Request - Container#{{container}} MBL#{{mbl}}';
-function onHireFields(value){
+function onHireFields(value,defaults={}){
   if(!value||typeof value!=='object'||Array.isArray(value))throw new Error('On-Hire 邮件配置格式无效。');
   const to=addressList(value.to),cc=addressList(value.cc).filter(address=>!to.includes(address));
   // Empty templates fall back to the standard On-Hire text.
-  return {to,cc,subjectTemplate:templateText(value.subjectTemplate||ON_HIRE_SUBJECT_TEMPLATE,'subject',{requireType:false}),bodyTemplate:templateText(value.bodyTemplate||ON_HIRE_BODY_TEMPLATE,'body',{requireType:false})};
+  // A carrier with its own default (COSCO) also replaces the generic text an earlier version may have saved.
+  const body=!value.bodyTemplate||(defaults.bodyTemplate&&value.bodyTemplate.trim()===ON_HIRE_BODY_TEMPLATE)?defaults.bodyTemplate||ON_HIRE_BODY_TEMPLATE:value.bodyTemplate;
+  return {to,cc,subjectTemplate:templateText(value.subjectTemplate||defaults.subjectTemplate||ON_HIRE_SUBJECT_TEMPLATE,'subject',{requireType:false}),bodyTemplate:templateText(body,'body',{requireType:false})};
 }
 function portalFields(value){
   if(!value||typeof value!=='object'||Array.isArray(value))throw new Error('COSCO 工单配置格式无效。');
   const requester=addressList(value.requester);
   if(requester.length>1)throw new Error('Requester 只能填写一个邮箱。');
+  const onHire={...COSCO_ON_HIRE,...(value.onHire||{})};
+  let url;try{url=new URL(onHire.url);}catch{}
+  if(!url||url.protocol!=='https:'||!TICKET_HOSTS.includes(url.hostname))throw new Error('COSCO On-Hire 工单网址无效。');
   return {requester:requester[0]||'',shipmentType:profileText(value.shipmentType,'Shipment Type'),
-    service:profileText(value.service,'Per Diem Services'),reference:profileText(value.reference,'PD INV /BL /BKG /HOU # /SCAC Code')};
+    service:profileText(value.service,'Per Diem Services'),reference:profileText(value.reference,'PD INV /BL /BKG /HOU # /SCAC Code'),
+    onHire:{url:url.href,type:profileText(onHire.type,'On-Hire Type'),service:profileText(onHire.service,'On-Hire Services'),region:profileText(onHire.region,'On-Hire Region')}};
 }
 function chatFields(value){
   if(!value||typeof value!=='object'||Array.isArray(value))throw new Error('ONE 在线客服配置格式无效。');
@@ -115,7 +124,7 @@ export function normalizeCarriers(input=DEFAULT_CARRIERS){
       mblPrefixes:profileList(profile.mblPrefixes===undefined?builtin?.mblPrefixes||[]:profile.mblPrefixes,'MBL 前缀',true),
       bodyTemplate:templateText(profile.bodyTemplate===undefined?(builtin?builtin.bodyTemplate:''):profile.bodyTemplate,'body'),
       subjectTemplate:templateText(profile.subjectTemplate===undefined?(builtin?builtin.subjectTemplate:''):profile.subjectTemplate,'subject'),
-      onHire:onHireFields(profile.onHire===undefined?{to:[],cc:[],subjectTemplate:'',bodyTemplate:''}:profile.onHire)};
+      onHire:onHireFields(profile.onHire===undefined?{to:[],cc:[]}:profile.onHire,builtin?.onHire)};
   });
 }
 export function containerNumber(value){
@@ -193,12 +202,23 @@ export function messageTemplate(record,options={}){
 /** Ticket content for a carrier whose channel is a support portal instead of email. */
 export function portalTemplate(record,options={}){
   if(!options||typeof options!=='object'||Array.isArray(options))throw new Error('工单选项格式无效。');
-  const profile=normalizeCarriers([options.carrier])[0],type=PORTAL_INQUIRY_TYPE;
+  const profile=normalizeCarriers([options.carrier])[0],onHire=options.inquiryType===ON_HIRE,type=onHire?ON_HIRE:PORTAL_INQUIRY_TYPE;
   if(profile.channel!=='cosco-portal')throw new Error(`${profile.name} 不是工单网站方式。`);
-  if(!profile.bodyTemplate)throw new Error('首次使用该船公司，请先配置正文模板。');
   if(!profile.portal.requester)throw new Error('请先配置 COSCO 工单的 Requester 邮箱。');
+  if(options.more?.length&&!onHire)throw new Error('只有 On-Hire 工单支持一次提交多个柜号。');
+  const portal=profile.portal;
+  if(onHire){
+    // On-Hire: Type Equipment → Services / Region / Number of Containers / Container # / SCAC Code; Description
+    // from the carrier's On-Hire template with {{table}} as one "container MBL" line per container.
+    const {bodyText,html,items}=renderTemplates(record,{...profile,...profile.onHire},type,options.more||[],'lines');
+    const fields=[{label:'Type',value:portal.onHire.type,kind:'select'},{label:'Services',value:portal.onHire.service,kind:'select'},{label:'Region',value:portal.onHire.region,kind:'select'},
+      {label:'Number of Containers',value:String(items.length),kind:'input'},{label:'Container #',value:items.map(item=>item.container).join(' '),kind:'input'},{label:'SCAC Code',value:portal.reference,kind:'input'}];
+    return {channel:profile.channel,url:portal.onHire.url,requester:portal.requester,fields,containers:items.map(item=>item.container),carrierId:profile.id,carrierName:profile.name,inquiryType:type,bodyText,html};
+  }
+  if(!profile.bodyTemplate)throw new Error('首次使用该船公司，请先配置正文模板。');
   const {bodyText,html}=renderTemplates(record,profile,type);
-  return {channel:profile.channel,...profile.portal,carrierId:profile.id,carrierName:profile.name,inquiryType:type,bodyText,html};
+  const fields=[{label:'Shipment Type',value:portal.shipmentType,kind:'select'},{label:'Per Diem Services',value:portal.service,kind:'select'},{label:'PD INV /BL /BKG /HOU # /SCAC Code',value:portal.reference,kind:'input'}];
+  return {channel:profile.channel,url:'https://support.cosco-usa.com/support/tickets/new',...portal,fields,carrierId:profile.id,carrierName:profile.name,inquiryType:type,bodyText,html};
 }
 /** Chat message for a carrier whose channel is the ONE live chat; both inquiry types are supported. */
 export function chatTemplate(record,options={}){
@@ -214,20 +234,22 @@ export function chatTemplate(record,options={}){
   const message=messages.join('\n');
   return {channel:profile.channel,...profile.chat,message,messages,containers:items.map(item=>item.container),carrierId:profile.id,carrierName:profile.name,inquiryType:type};
 }
-function renderTemplates(record,profile,type,more=[]){
+function renderTemplates(record,profile,type,more=[],tableStyle='table'){
   // Several containers in one email (On-Hire): one table row each; {{container}} / {{mbl}} list them all.
   const items=[record,...more].map(item=>({container:containerNumber(item.container),mbl:mblNumber(item.mbl)}));
   if(new Set(items.map(item=>item.container)).size!==items.length)throw new Error('同一封邮件中的柜号不能重复。');
   if(items.length>30)throw new Error('一封邮件最多 30 个柜号。');
   const container=items.map(item=>item.container).join(', '),mbl=[...new Set(items.map(item=>item.mbl))].join(', ');
-  const values={'steam shipping line':profile.greeting,carrier:profile.name,type,Type:INQUIRY_TYPES[type],container,mbl,table:`Container#\tMBL#\n${items.map(item=>`${item.container}\t${item.mbl}`).join('\n')}`};
+  const lines=tableStyle==='lines';
+  const values={'steam shipping line':profile.greeting,carrier:profile.name,type,Type:INQUIRY_TYPES[type],container,mbl,
+    table:lines?items.map(item=>`${item.container} ${item.mbl}`).join('\n'):`Container#\tMBL#\n${items.map(item=>`${item.container}\t${item.mbl}`).join('\n')}`};
   const fill=text=>text.replace(/\{\{([^{}]*)\}\}/g,(_,token)=>values[token]);
   const subject=profile.subjectTemplate?fill(profile.subjectTemplate):'';
   if(subject.length>998)throw new Error('生成的邮件主题过长，请缩短主题模板。');
   const htmlText=text=>fill(text).trim().split(/\n[\t ]*\n+/).filter(Boolean).map(p=>`<p>${escapeHtml(p).replace(/\n/g,'<br>')}</p>`).join('');
   const table=`<table cellpadding="7" cellspacing="0" style="border-collapse:collapse;font-family:Arial,sans-serif;font-size:14px"><tr><th style="border:1px solid #888;text-align:left">Container#</th><th style="border:1px solid #888;text-align:left">MBL#</th></tr>${items.map(item=>`<tr><td style="border:1px solid #888">${escapeHtml(item.container)}</td><td style="border:1px solid #888">${escapeHtml(item.mbl)}</td></tr>`).join('')}</table>`;
   const [before,after]=profile.bodyTemplate.split('{{table}}');
-  const html=htmlText(before)+table+htmlText(after);
+  const html=htmlText(before)+(lines?`<p>${items.map(item=>escapeHtml(`${item.container} ${item.mbl}`)).join('<br>')}</p>`:table)+htmlText(after);
   if(html.length>20000)throw new Error('生成的邮件正文过长，请缩短正文模板。');
-  return {subject,bodyText:fill(profile.bodyTemplate),html};
+  return {subject,bodyText:fill(profile.bodyTemplate),html,items};
 }

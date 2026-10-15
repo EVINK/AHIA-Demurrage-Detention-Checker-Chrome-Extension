@@ -17,7 +17,12 @@ export async function coscoPage(action,payload){
     return {ok:true,data:{confirmed:false,formStillOpen:visible(form),reason:errors.join(' ').slice(0,300)}};
   }
   if(!payload||typeof payload.html!=='string'||!payload.html.trim()||payload.html.length>20000||typeof payload.bodyText!=='string')throw new Error('工单正文模板缺失或格式不正确。');
-  for(const key of ['requester','shipmentType','service','reference','container','mbl'])if(typeof payload[key]!=='string'||!payload[key].trim())throw new Error('工单字段配置缺失。');
+  for(const key of ['requester','container','mbl'])if(typeof payload[key]!=='string'||!payload[key].trim())throw new Error('工单字段配置缺失。');
+  // The ticket's own fields, filled in order (later ones appear only after earlier selects are chosen):
+  // [{label, value, kind:'select'|'input'}]. Detention: Shipment Type / Per Diem Services / PD INV…;
+  // On-Hire: Type / Services / Region / Number of Containers / Container # / SCAC Code.
+  if(!Array.isArray(payload.fields)||!payload.fields.length||payload.fields.some(f=>typeof f?.label!=='string'||typeof f.value!=='string'||!['select','input'].includes(f.kind)))throw new Error('工单字段配置缺失。');
+  const containers=Array.isArray(payload.containers)&&payload.containers.length?payload.containers:[payload.container];
   const template=document.createElement('template');template.innerHTML=payload.html;
   const allowedTags=new Set(['P','TABLE','THEAD','TBODY','TR','TH','TD','BR']);
   for(const element of template.content.querySelectorAll('*')){
@@ -37,9 +42,8 @@ export async function coscoPage(action,payload){
   }
   const need=(control,name)=>{if(!control)throw new Error(`COSCO 工单页面找不到唯一的「${name}」字段，页面可能已改版，已停止。`);return control;};
   const requester=()=>field(/^Requester$/i,'input');
-  const shipmentType=()=>field(/^Shipment Type$/i,'select');
-  const service=()=>field(/^Per Diem Services$/i,'select');
-  const reference=()=>field(/^PD INV \/BL \/BKG \/HOU # \/SCAC Code$/i,'input');
+  const exactLabel=label=>new RegExp('^'+label.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')+'$','i');
+  const control=f=>field(exactLabel(f.label),f.kind==='select'?'select':'input');
   const descriptionArea=()=>form.querySelector('textarea[name="helpdesk_ticket[ticket_body_attributes][description_html]"]');
   // Redactor keeps an off-screen helper contenteditable before the visible .redactor_editor; never write into it.
   const editor=()=>{
@@ -55,21 +59,23 @@ export async function coscoPage(action,payload){
   function descriptionText(){const node=editor();if(node)return node.innerText;const area=descriptionArea();const t=document.createElement('template');t.innerHTML=area?.value||'';return t.content.textContent;}
   function verify(){
     if(clean(need(requester(),'Requester').value)!==clean(payload.requester))throw new Error('Requester 与配置不符。');
-    if(clean(need(shipmentType(),'Shipment Type').value)!==clean(payload.shipmentType))throw new Error('Shipment Type 与配置不符。');
-    if(clean(need(service(),'Per Diem Services').value)!==clean(payload.service))throw new Error('Per Diem Services 与配置不符。');
-    if(need(reference(),'PD INV /BL /BKG /HOU # /SCAC Code').value.trim()!==payload.reference.trim())throw new Error('PD INV /BL /BKG /HOU # /SCAC Code 与配置不符。');
+    for(const f of payload.fields){
+      const c=need(control(f),f.label),value=f.kind==='select'?clean(c.selectedOptions?.[0]?.textContent||c.value):c.value.trim();
+      if(f.kind==='select'?value!==clean(f.value)&&clean(c.value)!==clean(f.value):value!==f.value.trim())throw new Error(`${f.label} 与配置不符。`);
+    }
     const text=descriptionText();
-    if(!text.includes(payload.container)||!text.includes(payload.mbl)||!compact(text).startsWith(compact(payload.bodyText).slice(0,40)))throw new Error('Description 内容与模板不符。');
+    if(containers.some(c=>!text.includes(c))||!text.includes(payload.mbl)||!compact(text).startsWith(compact(payload.bodyText).slice(0,40)))throw new Error('Description 内容与模板不符。');
   }
   if(action==='fill'){
     if(form.dataset.lfdRequest)throw new Error('此工单页已处理，不能重复填写。');
     const email=need(requester(),'Requester');
     if(email.value.trim()&&clean(email.value)!==clean(payload.requester))throw new Error('Requester 已有其他邮箱，已停止以避免覆盖。');
     email.value=payload.requester;fire(email);
-    choose(need(shipmentType(),'Shipment Type'),payload.shipmentType,'Shipment Type');
-    choose(await waitFor(service,'选择 Shipment Type 后未出现 Per Diem Services 字段，页面可能已改版。',8000),payload.service,'Per Diem Services');
-    const ref=await waitFor(reference,'未出现 PD INV /BL /BKG /HOU # /SCAC Code 字段，页面可能已改版。',8000);
-    ref.value=payload.reference;fire(ref);
+    for(const f of payload.fields){
+      const c=await waitFor(()=>control(f),`COSCO 工单页面没有出现「${f.label}」字段，页面可能已改版，已停止。`,8000);
+      if(f.kind==='select')choose(c,f.value,f.label);
+      else{if(c.value.trim()&&c.value.trim()!==f.value.trim())throw new Error(`「${f.label}」已有其他内容，已停止以避免覆盖。`);c.value=f.value;fire(c);}
+    }
     const area=need(descriptionArea(),'Description');
     const body=await waitFor(()=>editor()||(visible(area)&&area),'未找到 Description 编辑器。',10000);
     if(body!==area){

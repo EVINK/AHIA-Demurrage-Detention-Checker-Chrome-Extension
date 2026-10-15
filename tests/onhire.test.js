@@ -33,28 +33,28 @@ function setup(carriers,record){
     storage:{get:async()=>structuredClone(db),set:async x=>{db={...db,...structuredClone(x)};}},
     readSheet:async()=>({records:[record],readAt:1}),
     prepareMail:async p=>{calls.mail.push(p);return {tabId:8,bodyHash:'h'};},sendMail:async()=>({confirmed:true,evidence:'sent'}),
-    prepareTicket:async()=>{calls.ticket++;return {tabId:9};},submitTicket:async()=>({confirmed:true}),
+    prepareTicket:async p=>{calls.ticket++;calls.tickets=[...(calls.tickets||[]),p];return {tabId:9};},submitTicket:async()=>({confirmed:true}),
     prepareChat:async()=>{calls.chat++;return {tabId:10};},sendChat:async()=>({confirmed:true}),
     uuid:()=>'r'});
   const run=async(...args)=>{const started=await service.run(...args);return args[1]==='identify'?started:service.job(started.requestId);};
   return {run,calls,db:()=>db};
 }
 
-test('On-Hire for ONE is sent by email, not chat; COSCO On-Hire waits for its ticket flow',async()=>{
+test('On-Hire for ONE is sent by email, not chat; COSCO On-Hire is a ticket',async()=>{
   const one=setup(withOnHire('one'),{container:'TRHU6206940',mbl:'ONEYSZPGR9159802',row:1,carrier:'ONE'});
   const identified=await one.run('TRHU6206940','identify',{inquiryType:'on-hire'});
   assert.equal(identified.channel,'email');assert.equal(identified.inquiryType,'on-hire');assert.deepEqual(identified.configurationMissing,[]);
   const entry=await one.run('TRHU6206940','send',{inquiryType:'on-hire'});
   assert.equal(entry.status,'sent');assert.equal(entry.channel,'email');assert.deepEqual(entry.to,['onhire@example.com']);
   assert.equal(one.calls.chat,0);assert.equal(one.calls.mail.length,1);assert.match(one.calls.mail[0].subject,/^On-Hire LFD Inquiry/);
-  // COSCO's On-Hire goes through a ticket flow that is not defined yet: nothing is sent.
-  const cosco=setup(withOnHire('cosco'),{container:'CSNU5509665',mbl:'COSU6466280560',row:2,carrier:'COS'});
-  const coscoIdentified=await cosco.run('CSNU5509665','identify',{inquiryType:'on-hire'});
-  assert.equal(coscoIdentified.inquiryType,'on-hire');assert.deepEqual(coscoIdentified.configurationMissing,['coscoOnHire']);
-  await assert.rejects(cosco.run('CSNU5509665','send',{inquiryType:'on-hire'}),/COSCO On-Hire/);
-  assert.equal(cosco.calls.ticket,0);assert.equal(cosco.calls.mail.length,0);
-  const detention=await cosco.run('CSNU5509665','send',{inquiryType:'detention'});
-  assert.equal(detention.channel,'cosco-portal');assert.equal(cosco.calls.ticket,1,'Detention still uses the ticket portal');
+  // COSCO's On-Hire is a ticket on coscoshippingla.freshdesk.com with all containers in one ticket.
+  const cosco=setup(normalizeCarriers(),{container:'TRHU6630515',mbl:'COSU6466276490',row:2,carrier:'COS'});
+  const coscoIdentified=await cosco.run('TRHU6630515','identify',{inquiryType:'on-hire'});
+  assert.equal(coscoIdentified.inquiryType,'on-hire');assert.equal(coscoIdentified.channel,'cosco-portal');assert.deepEqual(coscoIdentified.configurationMissing,[]);
+  await cosco.run('TRHU6630515','send',{inquiryType:'on-hire'});
+  assert.equal(cosco.calls.ticket,1);assert.equal(cosco.calls.mail.length,0);
+  const detention=await cosco.run('TRHU6630515','send',{inquiryType:'detention'});
+  assert.equal(detention.channel,'cosco-portal');assert.equal(cosco.calls.ticket,2,'Detention is a separate ticket and lock');
 });
 
 test('missing On-Hire recipients are reported by identify and stop a send',async()=>{
@@ -80,4 +80,23 @@ test('On-Hire sends several containers of the same carrier in one email table; a
   assert.match(mails[0].subject,/OOLU9995789, FFAU8502590/);
   assert.deepEqual(Object.values(db.ledger).map(e=>[e.container,e.status]),[['OOLU9995789','sent'],['FFAU8502590','sent']]);
   await assert.rejects(service.run('OOLU9995789','send',{inquiryType:'demurrage',more:[{container:'FFAU8502590',mbl:'OOLU4055290002'}]}),/On-Hire/);
+});
+
+test('COSCO On-Hire ticket: Equipment fields, container count and list, one "container MBL" line each',async()=>{
+  const {portalTemplate}=await import('../core.js');
+  const cosco=normalizeCarriers().find(p=>p.id==='cosco');
+  const ticket=portalTemplate({container:'TRHU6630515',mbl:'COSU6466276490'},{carrier:cosco,inquiryType:'on-hire',more:[{container:'OOCU8526498',mbl:'COSU6466276590'}]});
+  assert.equal(ticket.url,'https://coscoshippingla.freshdesk.com/support/tickets/new');
+  assert.deepEqual(ticket.fields.map(f=>[f.label,f.value,f.kind]),[['Type','Equipment','select'],['Services','On / Off Hire','select'],['Region','Southern California','select'],['Number of Containers','2','input'],['Container #','TRHU6630515 OOCU8526498','input'],['SCAC Code','AHIA','input']]);
+  assert.equal(ticket.bodyText,'Dear Cosco,\n\nPlease onhire below containers to LBCT,PCT,ETS,FMS,APM\n\nTRHU6630515 COSU6466276490\nOOCU8526498 COSU6466276590');
+  assert.match(ticket.html,/<p>TRHU6630515 COSU6466276490<br>OOCU8526498 COSU6466276590<\/p>$/);
+  assert.throws(()=>portalTemplate({container:'TRHU6630515',mbl:'COSU6466276490'},{carrier:cosco,more:[{container:'OOCU8526498',mbl:'COSU6466276590'}]}),/On-Hire/);
+});
+
+test('COSCO keeps its own On-Hire wording even if a generic default was saved earlier',()=>{
+  const {ON_HIRE_BODY_TEMPLATE:generic,COSCO_ON_HIRE_BODY}={ON_HIRE_BODY_TEMPLATE,COSCO_ON_HIRE_BODY:'Dear {{steam shipping line}},\n\nPlease onhire below containers to LBCT,PCT,ETS,FMS,APM\n\n{{table}}'};
+  const saved=normalizeCarriers().map(p=>p.id==='cosco'?{...p,onHire:{...p.onHire,bodyTemplate:generic}}:p);
+  assert.equal(normalizeCarriers(saved).find(p=>p.id==='cosco').onHire.bodyTemplate,COSCO_ON_HIRE_BODY);
+  const custom=normalizeCarriers().map(p=>p.id==='cosco'?{...p,onHire:{...p.onHire,bodyTemplate:'My own text\n{{table}}'}}:p);
+  assert.equal(normalizeCarriers(custom).find(p=>p.id==='cosco').onHire.bodyTemplate,'My own text\n{{table}}');
 });

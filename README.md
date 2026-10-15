@@ -1,4 +1,4 @@
-# LFD Inquiry v0.3.11 — Chrome 插件使用说明
+# LFD Inquiry v0.3.12 — Chrome 插件使用说明
 
 输入柜号，插件从金山文档「提柜」查出 MBL 和船公司，再按所选 Demurrage / Detention 类型准备查询邮件，保留 Gmail 原签名。支持 Maersk、MSC 和自行添加的船公司，收件邮箱与邮件模板均可配置。
 
@@ -16,9 +16,9 @@
 
 ## 已安装用户升级
 
-1. 确认原插件目录已经更新为 v0.3.11 文件。如果使用压缩包，将文件解压到原来加载的目录。
+1. 确认原插件目录已经更新为 v0.3.12 文件。如果使用压缩包，将文件解压到原来加载的目录。
 2. 在 Chrome 手动打开 `chrome://extensions`，找到 **LFD Inquiry**，点击刷新图标。
-3. 点击工具栏上的 LFD Inquiry 图标，打开新版弹窗；确认底部显示 `v0.3.11`、顶部显示「测试模式 · 不发送」。
+3. 点击工具栏上的 LFD Inquiry 图标，打开新版弹窗；确认底部显示 `v0.3.12`、顶部显示「测试模式 · 不发送」。
 
 新版使用真正的工具栏弹窗，尺寸为 780 × 600，包含「查询 / 配置 / 记录」三个页面，不再为主界面新开标签页。v0.2.6 新增 unlimitedStorage，解除 chrome.storage.local 默认容量配额；实际仍受磁盘空间和性能限制。缓存逻辑保持不变。原有连接设置、草稿和发送锁定记录保留。
 
@@ -343,3 +343,15 @@ COSCO 不发邮件，改为在 https://support.cosco-usa.com/support/tickets/new
 - 「需要处理」新增「我已核实已发送」：核实确实发出后点击，记录改为已发送并保持防重复锁。
 
 未实测：ONE 正式发送后的 Read 判定、On-Hire 多柜号真实 Gmail 草稿。
+
+## v0.3.12 COSCO On-Hire 工单
+
+COSCO 的 On-Hire 提交到 **https://coscoshippingla.freshdesk.com/support/tickets/new**（Detention 仍是 support.cosco-usa.com）：
+
+- Requester：`service@darwinpacific.com`；Type：`Equipment`；Services：`On / Off Hire`；Region：`Southern California`；Number of Containers：柜号数量；Container #：所有柜号以空格分隔；SCAC Code：`AHIA`（与 Detention 的 PD INV/SCAC 值相同）；Booking # / Terminal / Reference 留空。
+- Description 使用 COSCO 的 On-Hire 正文模板，默认 `Dear {{steam shipping line}}, / Please onhire below containers to LBCT,PCT,ETS,FMS,APM / {{table}}`，`{{table}}` 为每个柜号一行「柜号 MBL」。可在 COSCO 配置页的 On-Hire 正文模板中修改。
+- 多个柜号（「＋」或粘贴一段柜号）合成一张工单，每个柜号各自记录、各自防重复。
+- 人机验证、小窗、自动 Submit、测试模式只填不交，与 Detention 工单相同。
+- 工单适配器改为按「字段标签 → 值」清单填写，Detention 与 On-Hire 共用。新增权限 coscoshippingla.freshdesk.com。
+
+真实验证（调试 Chrome，测试模式）：CSNU5509665 + CSNU8077797 在 coscoshippingla.freshdesk.com 小窗中填写，Type/Services/Region/数量/柜号/SCAC/Description 全部正确，未提交。

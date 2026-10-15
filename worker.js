@@ -195,7 +195,10 @@ const service=createService({storage:store,
   prepareTicket:async(payload,progress=()=>{})=>{
     progress('填写 COSCO 工单');
     // Filled in a background tab; for the reCAPTCHA it is moved into a small floating window (submitTicket).
-    const tab=await openWork(COSCO_TICKET_URL);
+    // Detention: support.cosco-usa.com; On-Hire: coscoshippingla.freshdesk.com (validated in core).
+    const url=new URL(payload.url||COSCO_TICKET_URL);
+    if(!['support.cosco-usa.com','coscoshippingla.freshdesk.com'].includes(url.hostname))throw new Error('COSCO 工单网址无效。');
+    const tab=await openWork(url.href);
     await execute(tab.id,coscoPage,['fill',payload]);return {tabId:tab.id};
   },
   submitTicket:async(prepared,payload,progress=()=>{})=>{
@@ -332,9 +335,9 @@ chrome.runtime.onMessage.addListener((message,sender,respond)=>{
       const {ledger={}}=await store.get(['ledger']);
       if(!Number.isInteger(message.tabId)||!Object.values(ledger).some(entry=>entry.tabId===message.tabId&&(entry.running||['draft','uncertain','needs_review'].includes(entry.status))))throw new Error('草稿标签页不在插件记录中。请到 Gmail 草稿中查看。');
       const tab=await chrome.tabs.get(message.tabId);
-      if(!['https://mail.google.com/','https://support.cosco-usa.com/','https://www.one-line.com/'].some(origin=>tab.url?.startsWith(origin)))throw new Error('原草稿标签页已变更，请到 Gmail 草稿中查看。');
+      if(!['https://mail.google.com/','https://support.cosco-usa.com/','https://coscoshippingla.freshdesk.com/','https://www.one-line.com/'].some(origin=>tab.url?.startsWith(origin)))throw new Error('原草稿标签页已变更，请到 Gmail 草稿中查看。');
       // ONE chats and COSCO tickets open as small floating windows; Gmail drafts as a normal tab.
-      if(/^https:\/\/(www\.one-line\.com|support\.cosco-usa\.com)\//.test(tab.url||''))await showTab(message.tabId);else await focusTab(message.tabId);return true;
+      if(/^https:\/\/(www\.one-line\.com|support\.cosco-usa\.com|coscoshippingla\.freshdesk\.com)\//.test(tab.url||''))await showTab(message.tabId);else await focusTab(message.tabId);return true;
     }
     if(message.type==='settings'){
       if(pendingOperations.size)throw new Error('请等当前查询完成后再修改配置。');

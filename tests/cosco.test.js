@@ -27,7 +27,7 @@ function setup({testMode=false,...overrides}={}){
 test('COSCO is a built-in portal carrier recognized from the sheet SSL "COS"',()=>{
   const profile=cosco();
   assert.equal(profile.channel,'cosco-portal');
-  assert.deepEqual(profile.portal,{...COSCO_PORTAL});
+  assert.deepEqual(profile.portal,{...COSCO_PORTAL,onHire:{url:'https://coscoshippingla.freshdesk.com/support/tickets/new',type:'Equipment',service:'On / Off Hire',region:'Southern California'}});
   assert.equal(profile.portal.reference,'AHIA');assert.equal(profile.portal.requester,'service@darwinpacific.com');
   assert.equal(recognizeCarrier(record).carrier.id,'cosco');
   assert.equal(recognizeCarrier({...record,carrier:''}).carrier.id,'cosco','COSU MBL prefix');
@@ -50,7 +50,7 @@ test('portal ticket uses the default mail body, always Detention, and is never r
   assert.equal(ticket.inquiryType,'detention');
   assert.equal(ticket.bodyText,'Dear Cosco,\n\nCould you please advise the detention LFD for the container below?\n\nContainer#\tMBL#\nMSMU7504817\tCOSU6123456780');
   assert.match(ticket.html,/<table[^>]*>.*Container#.*MBL#.*MSMU7504817.*COSU6123456780/);
-  assert.equal(ticket.shipmentType,'Per Diem');assert.equal(ticket.service,'Last Free Day');assert.equal(ticket.reference,'AHIA');
+  assert.deepEqual(ticket.fields.map(f=>[f.label,f.value]),[['Shipment Type','Per Diem'],['Per Diem Services','Last Free Day'],['PD INV /BL /BKG /HOU # /SCAC Code','AHIA']]);assert.equal(ticket.url,'https://support.cosco-usa.com/support/tickets/new');
   assert.throws(()=>messageTemplate(record,{carrier:cosco()}),/工单网站/);
   assert.throws(()=>portalTemplate(record,{carrier:{...cosco(),portal:{...COSCO_PORTAL,requester:''}}}),/Requester/);
 });

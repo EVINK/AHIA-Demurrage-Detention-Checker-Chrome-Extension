@@ -19,8 +19,9 @@ export function createService({storage, readSheet, prepareMail, sendMail, prepar
     let carrier=selected==='auto'?null:carriers.find(profile=>profile.id===selected);
     if(selected!=='auto'&&!carrier)throw new Error('选中的船公司不存在，请检查配置。');
     const requestedType=inquiryType(options.inquiryType!==undefined?options.inquiryType:settings.defaultInquiryType);
-    if(carrier&&mode!=='identify'&&inquiryChannel(carrier,requestedType)==='cosco-onhire')throw new Error('COSCO On-Hire 工单流程尚未配置，暂不能发送。');
-    if(carrier&&mode!=='identify'&&requestedType===ON_HIRE){
+    if(carrier&&mode!=='identify'&&requestedType===ON_HIRE&&carrier.channel==='cosco-portal'){
+      if(!carrier.portal.requester)throw new Error('请先配置 COSCO 工单的 Requester 邮箱。');
+    }else if(carrier&&mode!=='identify'&&requestedType===ON_HIRE){
       if(!carrier.onHire.to.length)throw new Error(`请先在 ${carrier.name} 的配置中填写 On-Hire 收件邮箱。`);
       if(!carrier.onHire.bodyTemplate||!carrier.onHire.subjectTemplate)throw new Error(`请先在 ${carrier.name} 的配置中填写 On-Hire 正文模板和主题模板。`);
     }else if(carrier&&mode!=='identify'){
@@ -70,9 +71,9 @@ export function createService({storage, readSheet, prepareMail, sendMail, prepar
     record.carrierSource=carrierSource;
     // On-Hire is an email for every carrier; COSCO's portal only handles Detention.
     const channel=inquiryChannel(carrier,type),portal=channel==='cosco-portal',chat=channel==='one-chat';
-    if(portal)type=PORTAL_INQUIRY_TYPE;
+    if(portal&&type!==ON_HIRE)type=PORTAL_INQUIRY_TYPE;
     if(mode==='identify')return {...record,carrierId:carrier.id,carrierName:carrier.name,channel,inquiryType:type,
-      configurationMissing:channel==='cosco-onhire'?['coscoOnHire']:type===ON_HIRE?[...(!carrier.onHire.to.length?['onHireTo']:[]),...(!carrier.onHire.bodyTemplate?['onHireBody']:[]),...(!carrier.onHire.subjectTemplate?['onHireSubject']:[])]:chat?[]:portal?[...(!carrier.portal.requester?['requester']:[]),...(!carrier.bodyTemplate?['bodyTemplate']:[])]:
+      configurationMissing:portal&&type===ON_HIRE?(carrier.portal.requester?[]:['requester']):type===ON_HIRE?[...(!carrier.onHire.to.length?['onHireTo']:[]),...(!carrier.onHire.bodyTemplate?['onHireBody']:[]),...(!carrier.onHire.subjectTemplate?['onHireSubject']:[])]:chat?[]:portal?[...(!carrier.portal.requester?['requester']:[]),...(!carrier.bodyTemplate?['bodyTemplate']:[])]:
         [...(!carrier.to.length?['to']:[]),...(!carrier.bodyTemplate?['bodyTemplate']:[]),...(!carrier.subjectTemplate?['subjectTemplate']:[])]};
     const more=Array.isArray(options.more)?options.more:[];
     if(more.length&&(!(chat||type===ON_HIRE)||mode==='identify'))throw new Error('只有 ONE 在线客服和 On-Hire 邮件支持一次查询多个柜号。');
@@ -85,8 +86,7 @@ export function createService({storage, readSheet, prepareMail, sendMail, prepar
       if(!cached&&!item.mbl)throw new Error(`${extraContainer} 尚未查询，请先查询后再加入。`);
       return {container:extraContainer,mbl:mblNumber(item.mbl||cached.mbl)};
     });
-    if(channel==='cosco-onhire')throw new Error('COSCO On-Hire 工单流程尚未配置，暂不能发送。');
-    const message = chat?chatTemplate(record,{carrier,inquiryType:type,more:extras}):portal?portalTemplate(record,{carrier}):messageTemplate(record,{carrier,inquiryType:type,more:extras});
+    const message = chat?chatTemplate(record,{carrier,inquiryType:type,more:extras}):portal?portalTemplate(record,{carrier,inquiryType:type,more:extras}):messageTemplate(record,{carrier,inquiryType:type,more:extras});
     if (mode === 'preview') return {...record, ...message};
     const items=[{container:record.container,mbl:record.mbl},...extras];
     const keys=items.map(item=>JSON.stringify([account, item.container, item.mbl, carrier.id, type]));

@@ -73,7 +73,7 @@ function syncMode(){
   $('addContainer').hidden=!multi;$('extraContainers').hidden=!multi&&Boolean(matchedProfile());$('removeMain').hidden=!rows().length;
   const count=multi?1+extraContainers().length:1,suffix=count>1?` · ${count} 个柜号`:'';
   const system=channel==='email'&&settings.mailClient==='system';
-  $('send').textContent=system?(test?'打开邮件程序（测试模式）':'打开邮件程序发送')+suffix:chat?(test?`联系 ONE 客服（测试模式·不发送）${count>1?' · '+count+' 个柜号':''}`:`发送 ONE 在线客服消息${count>1?'（'+count+' 个柜号）':''}`):portal?(test?'填写 COSCO 工单（测试模式）':'提交 COSCO 工单'):(test?'生成草稿（测试模式）':'发送邮件')+suffix;
+  $('send').textContent=system?(test?'打开邮件程序（测试模式）':'打开邮件程序发送')+suffix:chat?(test?`联系 ONE 客服（测试模式·不发送）${count>1?' · '+count+' 个柜号':''}`:`发送 ONE 在线客服消息${count>1?'（'+count+' 个柜号）':''}`):portal?(test?'填写 COSCO 工单（测试模式）':'提交 COSCO 工单')+suffix:(test?'生成草稿（测试模式）':'发送邮件')+suffix;
   $('draft').textContent=system?'打开邮件程序':chat?'转人工但不发送':portal?'仅填写工单':'仅生成草稿';
 }
 // The channel the current inquiry will use (On-Hire is always email).
@@ -130,20 +130,20 @@ function renderResult(data){
   const carrierId=data.carrierId||data.carrier?.id,profile=settings.carriers.find(p=>p.id===carrierId);
   const type=data.inquiryType||$('inquiryType').value,onHire=type===ON_HIRE;
   const channel=profile?inquiryChannel(profile,type):undefined,portal=channel==='cosco-portal',chat=channel==='one-chat';
-  const missing=data.configurationMissing||(channel==='cosco-onhire'?['coscoOnHire']:onHire&&profile?[...(!profile.onHire.to.length?['onHireTo']:[]),...(!profile.onHire.bodyTemplate?['onHireBody']:[]),...(!profile.onHire.subjectTemplate?['onHireSubject']:[])]
+  const missing=data.configurationMissing||(portal&&onHire?(profile.portal.requester?[]:['requester']):onHire&&profile?[...(!profile.onHire.to.length?['onHireTo']:[]),...(!profile.onHire.bodyTemplate?['onHireBody']:[]),...(!profile.onHire.subjectTemplate?['onHireSubject']:[])]
     :chat?[]:[...(!profile?['carrier']:[]),...(profile&&!portal&&!profile.to.length?['to']:[]),...(portal&&!profile.portal.requester?['requester']:[]),...(profile&&!profile.bodyTemplate?['bodyTemplate']:[])]);
-  if(portal)$('inquiryType').value=PORTAL_INQUIRY_TYPE;
+  if(portal&&!onHire)$('inquiryType').value=PORTAL_INQUIRY_TYPE;
   refreshRows();
   missingConfiguration=missing.length>0||Boolean(data.unrecognizedCarrier);
   $('matchCarrier').textContent=data.unrecognizedCarrier?'需要选择船公司':data.carrierName||profile?.name||'等待识别';
   $('manualMbl').value=record.mbl||'';$('matchMbl').textContent=record.mbl||'请手动填写 MBL';
   $('matchSource').textContent=data.unrecognizedCarrier?data.recognitionError||'无法自动识别':sources[data.carrierSource||record.carrierSource]||'自动识别';
-  $('previewType').textContent=types[portal?PORTAL_INQUIRY_TYPE:type]||type;
+  $('previewType').textContent=types[portal&&!onHire?PORTAL_INQUIRY_TYPE:type]||type;
   $('source').textContent=data.demo?'界面演示 · 示例数据':record.row?`${record.fromCache?'本地缓存':'提柜'} · 第 ${record.row} 行${record.sourceTime?' · '+new Date(record.sourceTime).toLocaleTimeString():''}`:'来自本次提柜表查询';
   $('needsConfig').hidden=!missingConfiguration;
   if(missingConfiguration){
     $('missingTitle').textContent=data.unrecognizedCarrier?'暂未识别船公司':'首次使用：请补充配置';
-    const names={coscoOnHire:'COSCO On-Hire 工单流程（尚未配置）',onHireTo:'On-Hire 收件邮箱',onHireBody:'On-Hire 正文模板',onHireSubject:'On-Hire 主题模板',carrier:'船公司',to:'收件邮箱',requester:'工单 Requester',body:'正文模板',bodyTemplate:'正文模板',subjectTemplate:'主题模板'};
+    const names={onHireTo:'On-Hire 收件邮箱',onHireBody:'On-Hire 正文模板',onHireSubject:'On-Hire 主题模板',carrier:'船公司',to:'收件邮箱',requester:'工单 Requester',body:'正文模板',bodyTemplate:'正文模板',subjectTemplate:'主题模板'};
     $('missingDetail').textContent=data.recognitionError||`请为 ${profile?.name||data.carrierName||'此船公司'} 填写${missing.map(key=>names[key]||key).join('、')}，再生成邮件。`;
     $('configureDetected').textContent=profile?'配置 '+profile.name:'新增或选择船公司';clearPreview();
   }else{
@@ -153,8 +153,8 @@ function renderResult(data){
         $('to').textContent=`ONE 在线客服 · ${message.firstName} ${message.lastName} · ${message.email}`;$('cc').textContent='—';$('subject').textContent=`Container Number · ${record.container}${message.messages.length>1?` · 共 ${message.messages.length} 条消息`:''}`;
         $('mailBody').replaceChildren();for(const line of message.messages){const p=document.createElement('p');p.textContent=line;$('mailBody').append(p);}
       }else if(portal){
-        const ticket=portalTemplate(record,{carrier:profile});
-        $('to').textContent=`COSCO 工单 · Requester ${ticket.requester}`;$('cc').textContent='—';$('subject').textContent=`${ticket.shipmentType} · ${ticket.service} · ${ticket.reference}`;$('mailBody').innerHTML=ticket.html;
+        const ticket=portalTemplate(record,{carrier:profile,inquiryType:type,...(onHire?{more:extraContainers()}:{})});
+        $('to').textContent=`COSCO 工单 · ${new URL(ticket.url).hostname} · Requester ${ticket.requester}`;$('cc').textContent='—';$('subject').textContent=ticket.fields.map(f=>f.value).join(' · ');$('mailBody').innerHTML=ticket.html;
       }else{
         const message=messageTemplate(record,{carrier:profile,inquiryType:type,...(onHire?{more:extraContainers()}:{})});
         $('to').textContent=message.to.join(', ');$('cc').textContent=message.cc.join(', ')||'—';$('subject').textContent=message.subject;$('mailBody').innerHTML=message.html;

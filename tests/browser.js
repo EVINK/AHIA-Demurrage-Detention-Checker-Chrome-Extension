@@ -172,7 +172,7 @@ await test('COSCO ticket: a different prefilled requester is not overwritten',as
 });
 await test('COSCO ticket: missing option stops instead of choosing something else',async()=>{
   coscoForm();let error='';
-  try{await coscoPage('fill',{...ticket,service:'Nonexistent'});}catch(e){error=e.message;}
+  try{await coscoPage('fill',{...ticket,fields:ticket.fields.map(f=>f.label==='Per Diem Services'?{...f,value:'Nonexistent'}:f)});}catch(e){error=e.message;}
   assert(/没有选项/.test(error),'missing option accepted: '+error);
 });
 await test('English KDocs UI: opens the editor via Tools / Advanced Development / My Scripts, re-expanding a collapsed ribbon',async()=>{
