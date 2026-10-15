@@ -125,7 +125,7 @@ function coscoForm({requester=''}={}){
     <div class="control-group"><label for="helpdesk_ticket_email">Requester <span>*</span></label><div class="controls"><input type="email" id="helpdesk_ticket_email" name="helpdesk_ticket[email]"></div></div>
     <div class="control-group"><label for="helpdesk_ticket_ticket_type">Shipment Type *</label><div class="controls"><select id="helpdesk_ticket_ticket_type"><option value="">...</option><option value="Export">Export</option><option value="Per Diem">Per Diem</option></select></div></div>
     <div id="section"></div>
-    <div class="control-group"><label>Description *</label><div class="controls"><div class="redactor_box"><div class="redactor_editor" contenteditable="true"><p><br></p></div><textarea name="helpdesk_ticket[ticket_body_attributes][description_html]" style="display:none"></textarea></div></div></div>
+    <div class="control-group"><label>Description *</label><div class="controls"><div class="redactor_box"><div contenteditable="true" style="position:absolute;left:-9999px;width:1px;height:1px"></div><div class="redactor_editor" contenteditable="true"><p><br></p></div><textarea name="helpdesk_ticket[ticket_body_attributes][description_html]" style="display:none"></textarea></div></div></div>
     <textarea name="g-recaptcha-response" style="display:none"></textarea>
     <button type="submit">Submit</button><button type="button">Cancel</button></form>`;
   fixture.querySelector('#helpdesk_ticket_email').value=requester;
@@ -143,7 +143,8 @@ await test('COSCO ticket: fills every field, waits for the user captcha, then su
   assert(fixture.querySelector('#helpdesk_ticket_ticket_type').value==='Per Diem','type');
   assert(fixture.querySelector('#cf_service').value==='Last Free Day','service');
   assert(fixture.querySelector('#cf_ref').value==='AHIA','reference');
-  const editor=fixture.querySelector('[contenteditable]');
+  const editor=fixture.querySelector('.redactor_editor');
+  assert(!fixture.querySelector('[contenteditable]:not(.redactor_editor)').innerText.trim(),'wrote into Redactor\'s hidden helper');
   assert(editor.querySelector('table')&&editor.innerText.includes('MSMU7504817')&&editor.innerText.includes('MEDUAFS11232'),'table');
   assert(/Dear Cosco/.test(editor.innerText)&&/detention LFD/.test(editor.innerText),'body');
   assert(fixture.querySelector('textarea[name*=description]').value.includes('MSMU7504817'),'textarea sync');

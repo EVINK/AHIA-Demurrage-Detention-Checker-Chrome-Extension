@@ -41,7 +41,11 @@ export async function coscoPage(action,payload){
   const service=()=>field(/^Per Diem Services$/i,'select');
   const reference=()=>field(/^PD INV \/BL \/BKG \/HOU # \/SCAC Code$/i,'input');
   const descriptionArea=()=>form.querySelector('textarea[name="helpdesk_ticket[ticket_body_attributes][description_html]"]');
-  const editor=()=>descriptionArea()?.closest('.controls,.control-group')?.querySelector('[contenteditable="true"]');
+  // Redactor keeps an off-screen helper contenteditable before the visible .redactor_editor; never write into it.
+  const editor=()=>{
+    const box=descriptionArea()?.closest('.controls,.control-group');if(!box)return null;
+    return box.querySelector('.redactor_editor[contenteditable="true"]')||[...box.querySelectorAll('[contenteditable="true"]')].filter(visible).sort((a,b)=>b.offsetWidth*b.offsetHeight-a.offsetWidth*a.offsetHeight)[0]||null;
+  };
   function fire(control){for(const type of ['input','change','blur'])control.dispatchEvent(new Event(type,{bubbles:true}));}
   function choose(select,value,name){
     const option=[...select.options].find(o=>clean(o.value)===clean(value)||clean(o.textContent)===clean(value));

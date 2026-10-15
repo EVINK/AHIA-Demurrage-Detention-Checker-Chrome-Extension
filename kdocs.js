@@ -1,4 +1,4 @@
-// Self-contained function injected into the workbook's top frame.
+// Self-contained function injected into the workbook's top frame (MAIN world, see logLines).
 export async function readKdocsPage() {
   try {
   const pause=ms=>new Promise(r=>setTimeout(r,ms));
@@ -35,12 +35,25 @@ export async function readKdocsPage() {
   await pause(350);
   if(doc.querySelector('.scriptListItem.active .ks-title')?.textContent.trim()!=='LFD_ReadOnly_v1')throw new Error('选中的脚本发生变化，已停止。');
   await waitFor(()=>[...doc.querySelectorAll('.view-lines')].some(e=>e.textContent.includes('LFD_')),'只读脚本代码未加载，请先在编辑器中定位脚本顶部。');
-  const previous=doc.body.innerText.split('\n').filter(l=>l.startsWith('LFD_START:{')).at(-1);
+  // The log panel is a virtual list that only renders the few visible rows, so a long run's
+  // LFD_START is not in the DOM. Read the list's full data from its React props instead
+  // (only visible in the page's MAIN world); fall back to the rendered text otherwise.
+  function logLines(){
+    const holder=[...doc.querySelectorAll('.rc-virtual-list-holder')].find(h=>h.querySelector('.logItem'));
+    const list=holder?.closest('.rc-virtual-list');
+    const key=list&&Object.keys(list).find(k=>k.startsWith('__reactFiber'));
+    for(let fiber=key&&list[key],depth=0;fiber&&depth<15;fiber=fiber.return,depth++){
+      const data=fiber.memoizedProps?.data;
+      if(Array.isArray(data)&&data.every(item=>Array.isArray(item?.args)))return data.map(item=>item.args.map(String).join(' '));
+    }
+    return doc.body.innerText.split('\n');
+  }
+  const previous=logLines().filter(l=>l.startsWith('LFD_START:{')).at(-1);
   const run=doc.querySelector('#run-script');
   if(!run||run.disabled)throw new Error('脚本正在运行，请稍后重试。');
   run.click();
   return {ok:true,data:await waitFor(()=>{
-    const lines=doc.body.innerText.split('\n');
+    const lines=logLines();
     const startIndex=lines.findLastIndex(l=>l.startsWith('LFD_START:{'));
     const start=lines[startIndex];
     if(!start||start===previous)return null;
@@ -56,7 +69,7 @@ export async function readKdocsPage() {
     if(pieces.some((p,i)=>p.index!==i||!Array.isArray(p.rows)))throw new Error('查询日志分段异常。');
     const rows=pieces.flatMap(p=>p.rows);
     if(rows.length!==meta.count||rows.some(r=>!Array.isArray(r)||![3,4].includes(r.length)||typeof r[0]!=='string'||typeof r[1]!=='string'||!Number.isInteger(r[2])||(r.length===4&&typeof r[3]!=='string')))throw new Error('查询结果校验失败。');
-    return {readAt:Date.now(),records:rows.map(r=>({container:r[0],mbl:r[1],row:r[2],...(r.length===4?{carrier:r[3]}:{})})),stoppedAtCancellation:meta.stoppedAtCancellation};
+    return {readAt:Date.now(),records:rows.map(r=>({container:r[0],mbl:r[1],row:r[2],...(r.length===4?{carrier:r[3]}:{})})),cancelledSections:meta.cancelledSections,skippedRows:meta.skippedRows};
   },'没有得到完整的新查询结果。请查看只读脚本日志。',30000)};
   }catch(error){return {ok:false,error:error.message||String(error)};}
 }

@@ -158,6 +158,14 @@ test('cached duplicates and blank MBL still block mail',async()=>{
     assert.equal(t.calls.prepare,0);
   }
 });
+test('failed read on a cache miss keeps the existing snapshot for other containers',async()=>{
+  const t=setup({readSheet:async()=>({records:[{...record,carrier:'MSK'}],readAt:1})});await t.service.run(record.container,'identify');const before=structuredClone(t.db().sheetCache);
+  assert.equal(before.records.length,1);
+  const failed=createService({...t.dependencies,readSheet:async()=>{throw new Error('offline');}});
+  await assert.rejects(failed.run('ABCU1234567','identify'),/offline/);
+  assert.deepEqual(t.db().sheetCache,before);
+  assert.equal((await failed.run(record.container,'identify')).mbl,record.mbl);
+});
 test('failed explicit refresh invalidates old data',async()=>{
   const t=setup();await t.service.run(record.container,'identify');
   const failed=createService({...t.dependencies,readSheet:async()=>{throw new Error('offline');}});
@@ -253,13 +261,13 @@ test('uncertain send remains locked after worker recreation',async()=>{
 test('missing success evidence cannot be reported sent',async()=>{const t=setup({sendMail:async()=>({confirmed:false})});await assert.rejects(t.service.run(record.container,'send'),/待核实/);});
 test('preparation failure prevents sending',async()=>{const t=setup({prepareMail:async()=>{throw new Error('签名缺失');}});await assert.rejects(t.service.run(record.container,'send'),/签名/);assert.equal(t.calls.send,0);});
 test('unlock archives original record',async()=>{const t=setup();await t.service.run(record.container,'draft');const key=Object.keys(t.db().ledger)[0];await t.service.release(key);assert.equal(t.db().archive.length,1);assert.deepEqual(t.db().ledger,{});});
-test('AirScript reads named sheet, stops at cancelled section, emits complete chunks, never writes',()=>{
+test('AirScript reads named sheet, skips cancelled section, emits complete chunks, never writes',()=>{
   const source=readFileSync(new URL('../airscript/LFD_ReadOnly.js',import.meta.url),'utf8');
   const rows=[['MBL','柜号'],['MAEU123456','MRSU4786640'],['','ABCU1234567'],['取消DO',''],['MAEU999999','ZZZU9999999']];
   const copy=structuredClone(rows);const logs=[];
   const sheet={UsedRange:{Row:1,Column:1,Rows:{Count:rows.length},Columns:{Count:2}},Cells:(r,c)=>({r,c}),Range:(a,b)=>({get Value2(){return rows.slice(a.r-1,b.r).map(row=>row.slice(a.c-1,b.c));}})};
   vm.runInNewContext(source,{Application:{Sheets:name=>{assert.equal(name,'提柜');return sheet;}},console:{log:x=>logs.push(x)},Date});
   assert.deepEqual(rows,copy);
-  const meta=JSON.parse(logs.find(x=>x.startsWith('LFD_START:')).slice(10));assert.equal(meta.count,2);assert.equal(meta.stoppedAtCancellation,true);
+  const meta=JSON.parse(logs.find(x=>x.startsWith('LFD_START:')).slice(10));assert.equal(meta.count,2);assert.equal(meta.cancelledSections,1);
   const chunk=JSON.parse(logs.find(x=>x.startsWith('LFD_CHUNK:')).slice(10));assert.equal(chunk.rows[1][1],'');assert.ok(logs.at(-1).startsWith('LFD_END:'));assert.ok(logs.every(x=>x.length<1000));
 });

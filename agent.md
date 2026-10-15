@@ -1,6 +1,6 @@
 # LFD Inquiry — Agent 交接文档
 
-更新时间：2026-10-09（America/Los_Angeles）。代码版本：**0.3.0**（2026-10-14：发送确认加严、COSCO 工单网站，见第 6 节）。
+更新时间：2026-10-09（America/Los_Angeles）。代码版本：**0.3.2**（2026-10-14：发送确认加严、COSCO 工单网站、取消DO 后分段读取、日志虚拟列表读取，见第 6 节）。
 Chrome 现直接从 WSL 目录 `/home/evink/demurrage-lfd-extension` 加载；git 分支 `fix/gmail-send-confirmation`。
 本文件依据本次对话及当前源码整理；它是工程交接，不代表安装在 Chrome 中的版本已自动更新。
 
@@ -131,7 +131,7 @@ worker 每次需要查表时创建**自己拥有的后台标签**（active:false
 - 先确认脚本名和可见代码含 `LFD_`，不能运行默认选中的其他业务写入脚本。
 
 线上脚本名称保持 **LFD_ReadOnly_v1**，但内容已升级为 **version 2 输出协议**。
-脚本只读指定工作表，按表头识别列，扫描至“取消DO/取消D/O”处停止；分批 500 行，保护上限 30,000 行/200 列。不写单元格、不排序、不切换表。
+脚本只读指定工作表，按表头识别列，跳过“取消DO/取消D/O”分段，遇到“已送仓”或“排程:”标题后继续读取（v0.3.1 起；旧版在取消DO处停止，导致已送仓分段读不到）；分批 500 行，保护上限 30,000 行/200 列。不写单元格、不排序、不切换表。
 
 输出 START/CHUNK/END，同一个运行 id，CHUNK 最多 6 条且按长度切分；记录是 `[container,mbl,row,carrier]`，兼容旧 3 字段。
 kdocs 适配器要求新的 START、同 id、分段连续、条数正确和 END；拒绝截断、损坏或混入其他运行的数据。
@@ -172,6 +172,8 @@ kdocs 适配器要求新的 START、同 id、分段连续、条数正确和 END�
 | 0.2.7 | 柜号吸顶、输入框内按钮、按钮也缓存优先 |
 | 0.2.8 | 按第一条完整行去重，仅删除本地重复项 |
 | 0.2.9 | 不完整记录不缓存、旧缓存清理、配置页清缓存 |
+| 0.3.2 | AirScript 日志是 rc-virtual-list，只渲染可见行：readKdocsPage 改为 world:'MAIN' 注入，从 .rc-virtual-list 的 React fiber memoizedProps.data 读全部日志（args），退回 innerText。缓存未命中读表失败不再清空 sheetCache（forceRefresh 仍清）。cosco.js 只写 .redactor_editor（真实页有隐藏 contenteditable）。联调方式：用独立 profile 启动 Chrome --remote-debugging-port=9333 --lang=zh-CN（C:\\Users\\AMERI\\AppData\\Local\\Temp\\lfd-debug-profile，用户已在其中登录金山并加载插件），Windows node 运行 CDP 脚本；主 Chrome 不能开调试端口 |
+| 0.3.1 | 修复 CSNU5509665 查不到：表格在 B854「取消DO」之后新增「已送仓」分段（CSNU5509665 在第 886 行），旧脚本在取消DO处停止。改为跳过取消段、遇到已送仓/排程标题恢复。需同步在线 LFD_ReadOnly_v1。插件存储可只读解析 Chrome Default/Local Extension Settings/<扩展ID>/000003.log 取证 |
 | 0.3.0 | COSCO 走 Freshdesk 工单网站（cosco.js）：自动填表，人机验证必须用户手动完成（已拒绝实现自动过 reCAPTCHA，勿添加），token 出现后自动 Submit；类型固定 Detention、正文用默认模板、AHIA 固定（可配置）；渠道字段 carrier.channel=email/cosco-portal + portal{requester,shipmentType,service,reference}。未真实提交验证 |
 | 0.2.10 | 修复“记录已发送但实际未发、标签未关”：发送提示出现后还须等 Gmail 自行关闭写信标签（≤60s，worker.closedByGmail）才记 sent，否则 uncertain 并保留标签，可“打开写信页”；成功提示去掉“已发送邮件”匹配。75 项测试通过，未真实发信复测 |
 

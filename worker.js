@@ -4,8 +4,8 @@ import {gmailPage} from './gmail.js';
 import {coscoPage} from './cosco.js';
 import {validateSettings} from './config.js';
 chrome.storage.local.setAccessLevel({accessLevel:'TRUSTED_CONTEXTS'});
-async function execute(tabId,func,args=[]){
-  const result=await chrome.scripting.executeScript({target:{tabId},func,args});
+async function execute(tabId,func,args=[],world='ISOLATED'){
+  const result=await chrome.scripting.executeScript({target:{tabId},func,args,world});
   if(!result?.[0]||result[0].result===undefined)throw new Error('页面操作没有返回结果。请检查对应页面。');
   const response=result[0].result;
   if(!response.ok)throw new Error(response.error||'页面操作失败。');
@@ -25,7 +25,8 @@ const service=createService({storage:store,
     // Own this temporary tab; never select scripts or change UI in user tabs.
     const tab=await chrome.tabs.create({url:new URL(settings.sheetUrl).href,active:false});
     try{
-      await loaded(tab.id);return await execute(tab.id,readKdocsPage);
+      // MAIN world: the AirScript log list's full data is only reachable from page scripts.
+      await loaded(tab.id);return await execute(tab.id,readKdocsPage,[],'MAIN');
     }finally{
       await chrome.tabs.remove(tab.id).catch(()=>{});
     }

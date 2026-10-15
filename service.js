@@ -36,8 +36,9 @@ export function createService({storage, readSheet, prepareMail, sendMail, prepar
     const manual=mode!=='identify'&&options.manualMbl?.trim();
     if(!cacheHit&&!manual&&options.useConfirmed===true)throw new Error('请先查询，或手动填写 MBL 并选择船公司。');
     if(!cacheHit&&!manual){
-      // Invalidate first: a failed explicit refresh must not fall back to old data.
-      await storage.set({sheetCache:null});
+      // Invalidate first only for an explicit refresh: it must not fall back to old data.
+      // A plain cache miss keeps the snapshot, so one failed read does not break every other container.
+      if(options.forceRefresh===true)await storage.set({sheetCache:null});
       sheet=await readSheet(settings);
       if(!Array.isArray(sheet.records))throw new Error('提柜表查询结果格式异常。');
       await storage.set({sheetCache:{version:1,key:cacheKey,records:cacheRecords(sheet.records),readAt:sheet.readAt}});

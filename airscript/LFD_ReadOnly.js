@@ -1,5 +1,6 @@
 // LFD_ReadOnly_v1 — only reads cells; never writes, sorts, or activates a sheet.
 // Version 2. Output contains only container, MBL, source row and carrier.
+// The 取消DO section is skipped until the next section header (已送仓 / 排程:), not treated as the end of the sheet.
 function main() {
   const sheet = Application.Sheets('提柜');
   const used = sheet.UsedRange;
@@ -18,12 +19,14 @@ function main() {
     if (c >= 0 && m >= 0) { header = r + 1; ci = c; mi = m; ai = a; break; }
   }
   if (header < 0) throw new Error('没有找到柜号和 MBL 表头。');
-  const records = []; let stop = false;
-  for (let start = header + 1; start <= lastRow && !stop; start += 500) {
+  const records = []; let cancelled = false, cancelledSections = 0, skippedRows = 0;
+  for (let start = header + 1; start <= lastRow; start += 500) {
     const values = sheet.Range(sheet.Cells(start,1),sheet.Cells(Math.min(start + 499,lastRow),lastCol)).Value2;
     for (let i = 0; i < values.length; i++) {
       const row = values[i];
-      if (row.some(v => /^取消\s*D\s*\/?\s*O$/i.test(clean(v)))) { stop = true; break; }
+      if (row.some(v => /^取消\s*D\s*\/?\s*O$/i.test(clean(v)))) { cancelled = true; cancelledSections++; continue; }
+      if (cancelled && row.some(v => /^(已送仓|排程\s*[:：])/.test(clean(v)))) { cancelled = false; continue; }
+      if (cancelled) { skippedRows++; continue; }
       const container = clean(row[ci]).toUpperCase();
       if (/^[A-Z]{4}\d{7}$/.test(container)) {
         const carrier=ai<0?'':clean(row[ai]);
@@ -32,7 +35,7 @@ function main() {
       }
     }
   }
-  const result = {version: 2, sheet: '提柜', readAt: Date.now(), records, stoppedAtCancellation: stop};
+  const result = {version: 2, sheet: '提柜', readAt: Date.now(), records, cancelledSections, skippedRows};
   // Keep each log entry below the editor's truncation limit.
   const id = result.readAt;
   const pieces=[];let batch=[];
@@ -42,7 +45,7 @@ function main() {
     batch.push(row);
   }
   if(batch.length)pieces.push(batch);
-  console.log('LFD_START:' + JSON.stringify({id, version:2, count: records.length, chunks: pieces.length, sheet: '提柜', stoppedAtCancellation: stop}));
+  console.log('LFD_START:' + JSON.stringify({id, version:2, count: records.length, chunks: pieces.length, sheet: '提柜', cancelledSections, skippedRows}));
   for (let i = 0; i < pieces.length; i++) {
     console.log('LFD_CHUNK:' + JSON.stringify({id, index:i, rows:pieces[i]}));
   }

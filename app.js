@@ -143,7 +143,7 @@ function reportResult(data,mode){
   else if(data.status==='sent')status(portal?`COSCO 工单已提交${data.ticketId?' #'+data.ticketId:''}。`:'Gmail 已显示发送成功。','success');
   else if(data.unrecognizedCarrier)status(data.recognitionError||'请选择船公司或补充识别规则。','error');
   else if(missingConfiguration)status('已匹配柜号和船公司；完成提示中的配置后即可生成草稿。');
-  else status(data.demo?'演示匹配完成；未读取在线表格，也不会创建邮件。':mode==='identify'?'已匹配 MBL 和船公司。点击生成草稿继续。':'邮件预览已更新。','success');
+  else status(data.demo?'演示匹配完成；未读取在线表格，也不会创建邮件。':mode==='identify'?(data.channel==='cosco-portal'?'已匹配 MBL 和船公司。点击填写 COSCO 工单继续。':'已匹配 MBL 和船公司。点击生成草稿继续。'):'邮件预览已更新。','success');
 }
 function syncOperation(operation,{restore=false}={}){
   if(!operation)return;
