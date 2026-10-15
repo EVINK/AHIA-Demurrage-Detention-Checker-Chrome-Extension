@@ -28,12 +28,18 @@ export function addressList(value,{allowEmpty=true}={}){
   if(!allowEmpty&&!result.length)throw new Error('请先配置该船公司的收件邮箱。');
   return result;
 }
+// On-Hire is always an email, with its own recipients and templates per carrier (carrier.onHire).
+export const INQUIRY_TYPES=Object.freeze({demurrage:'Demurrage',detention:'Detention','on-hire':'On-Hire'});
+export const ON_HIRE='on-hire';
 export function inquiryType(value='demurrage'){
-  if(typeof value!=='string')throw new Error('查询类型须为 demurrage 或 detention。');
+  if(typeof value!=='string')throw new Error('查询类型须为 Demurrage、Detention 或 On-Hire。');
   const result=value.trim().toLowerCase();
-  if(!['demurrage','detention'].includes(result))throw new Error('查询类型须为 demurrage 或 detention。');
+  if(!Object.hasOwn(INQUIRY_TYPES,result))throw new Error('查询类型须为 Demurrage、Detention 或 On-Hire。');
   return result;
 }
+/** The channel an inquiry actually uses. On-Hire is an email, except COSCO, whose On-Hire ticket flow
+ *  is not defined yet ('cosco-onhire' stops with a notice instead of sending anything). */
+export const inquiryChannel=(carrier,type)=>type!==ON_HIRE?carrier.channel:carrier.channel==='cosco-portal'?'cosco-onhire':'email';
 function profileText(value,label){
   if(typeof value!=='string'||!value.trim()||value.trim().length>80||/[\u0000-\u001f\u007f]/.test(value))throw new Error(`${label}须为 1–80 个字符的单行纯文本。`);
   return value.trim();
@@ -49,7 +55,7 @@ function profileList(value,label,prefixes=false){
   const seen=new Set();
   return result.filter(item=>{const key=carrierLabel(item);if(!key)throw new Error(`${label}不能仅含空格或分隔符。`);if(seen.has(key))return false;seen.add(key);return true;});
 }
-function templateText(value,kind){
+function templateText(value,kind,{requireType=true}={}){
   const body=kind==='body',label=body?'正文模板':'主题模板';
   if(typeof value!=='string')throw new Error(`${label}须为纯文本。`);
   const result=value.replace(/\r\n?/g,'\n').trim().replaceAll('{{greeting}}','{{steam shipping line}}');
@@ -58,10 +64,15 @@ function templateText(value,kind){
   const tokens=[...result.matchAll(/\{\{([^{}]*)\}\}/g)].map(m=>m[1]);
   const allowed=['steam shipping line','carrier','type','Type','container','mbl',...(body?['table']:[])];
   if(tokens.some(token=>!allowed.includes(token))||/\{\{|\}\}/.test(result.replace(/\{\{([^{}]*)\}\}/g,'')))throw new Error(`${label}含有未知或不完整的占位符。`);
-  if(!tokens.some(token=>token==='type'||token==='Type'))throw new Error(`${label}必须包含 {{type}} 或 {{Type}}，使查询类型随选择更新。`);
+  if(requireType&&!tokens.some(token=>token==='type'||token==='Type'))throw new Error(`${label}必须包含 {{type}} 或 {{Type}}，使查询类型随选择更新。`);
   if(body&&tokens.filter(token=>token==='table').length!==1)throw new Error('正文模板必须包含且仅包含一个 {{table}}。');
   if(!body&&(!tokens.includes('container')||!tokens.includes('mbl')))throw new Error('主题模板必须包含 {{container}} 和 {{mbl}}。');
   return result;
+}
+function onHireFields(value){
+  if(!value||typeof value!=='object'||Array.isArray(value))throw new Error('On-Hire 邮件配置格式无效。');
+  const to=addressList(value.to),cc=addressList(value.cc).filter(address=>!to.includes(address));
+  return {to,cc,subjectTemplate:templateText(value.subjectTemplate??'','subject',{requireType:false}),bodyTemplate:templateText(value.bodyTemplate??'','body',{requireType:false})};
 }
 function portalFields(value){
   if(!value||typeof value!=='object'||Array.isArray(value))throw new Error('COSCO 工单配置格式无效。');
@@ -100,7 +111,8 @@ export function normalizeCarriers(input=DEFAULT_CARRIERS){
       aliases:profileList(profile.aliases===undefined?builtin?.aliases||[]:profile.aliases,'船公司别名'),
       mblPrefixes:profileList(profile.mblPrefixes===undefined?builtin?.mblPrefixes||[]:profile.mblPrefixes,'MBL 前缀',true),
       bodyTemplate:templateText(profile.bodyTemplate===undefined?(builtin?builtin.bodyTemplate:''):profile.bodyTemplate,'body'),
-      subjectTemplate:templateText(profile.subjectTemplate===undefined?(builtin?builtin.subjectTemplate:''):profile.subjectTemplate,'subject')};
+      subjectTemplate:templateText(profile.subjectTemplate===undefined?(builtin?builtin.subjectTemplate:''):profile.subjectTemplate,'subject'),
+      onHire:onHireFields(profile.onHire===undefined?{to:[],cc:[],subjectTemplate:'',bodyTemplate:''}:profile.onHire)};
   });
 }
 export function containerNumber(value){
@@ -163,8 +175,12 @@ export function recognizeCarrier(record,profiles=DEFAULT_CARRIERS){
 export function messageTemplate(record,options={}){
   if(!options||typeof options!=='object'||Array.isArray(options))throw new Error('邮件选项格式无效。');
   const rawProfile=options.carrier!==undefined?options.carrier:options.profile!==undefined?options.profile:DEFAULT_CARRIERS[0];
-  const profile=normalizeCarriers([rawProfile])[0],type=inquiryType(options.inquiryType);
-  if(profile.channel!=='email')throw new Error(`${profile.name} 使用工单网站提交，不发邮件。`);
+  const base=normalizeCarriers([rawProfile])[0],type=inquiryType(options.inquiryType);
+  if(type===ON_HIRE){
+    if(!base.onHire.to.length)throw new Error(`请先在 ${base.name} 的配置中填写 On-Hire 收件邮箱。`);
+    if(!base.onHire.bodyTemplate||!base.onHire.subjectTemplate)throw new Error(`请先在 ${base.name} 的配置中填写 On-Hire 正文模板和主题模板。`);
+  }else if(base.channel!=='email')throw new Error(`${base.name} 使用${base.channel==='one-chat'?'在线客服':'工单网站'}，不发邮件。`);
+  const profile=type===ON_HIRE?{...base,...base.onHire}:base;
   if(!profile.bodyTemplate||!profile.subjectTemplate)throw new Error('首次使用该船公司，请先配置正文模板和主题模板。');
   const to=addressList(profile.to,{allowEmpty:false});
   const {subject,bodyText,html}=renderTemplates(record,profile,type);
@@ -189,14 +205,14 @@ export function chatTemplate(record,options={}){
   const items=[record,...(options.more||[])].map(item=>({container:containerNumber(item.container),mbl:mblNumber(item.mbl)}));
   if(new Set(items.map(item=>item.container)).size!==items.length)throw new Error('同一会话中的柜号不能重复。');
   if(items.length>10)throw new Error('一个 ONE 会话最多查询 10 个柜号。');
-  const values={type,Type:type[0].toUpperCase()+type.slice(1),carrier:profile.name};
+  const values={type,Type:INQUIRY_TYPES[type],carrier:profile.name};
   const messages=items.map(item=>profile.chat.message.replace(/\{\{([^{}]*)\}\}/g,(_,token)=>({...values,...item})[token]));
   const message=messages.join('\n');
   return {channel:profile.channel,...profile.chat,message,messages,containers:items.map(item=>item.container),carrierId:profile.id,carrierName:profile.name,inquiryType:type};
 }
 function renderTemplates(record,profile,type){
   const container=containerNumber(record.container),mbl=mblNumber(record.mbl);
-  const values={'steam shipping line':profile.greeting,carrier:profile.name,type,Type:type[0].toUpperCase()+type.slice(1),container,mbl,table:`Container#\tMBL#\n${container}\t${mbl}`};
+  const values={'steam shipping line':profile.greeting,carrier:profile.name,type,Type:INQUIRY_TYPES[type],container,mbl,table:`Container#\tMBL#\n${container}\t${mbl}`};
   const fill=text=>text.replace(/\{\{([^{}]*)\}\}/g,(_,token)=>values[token]);
   const subject=profile.subjectTemplate?fill(profile.subjectTemplate):'';
   if(subject.length>998)throw new Error('生成的邮件主题过长，请缩短主题模板。');

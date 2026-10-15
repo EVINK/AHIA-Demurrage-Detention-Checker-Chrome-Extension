@@ -1,1 +1,1 @@
-{"name":"demurrage-lfd-extension","version":"0.3.8","private":true,"type":"module","scripts":{"test":"node --test tests/*.test.js","dev":"node tools/serve.mjs"}}
+{"name":"demurrage-lfd-extension","version":"0.3.9","private":true,"type":"module","scripts":{"test":"node --test tests/*.test.js","dev":"node tools/serve.mjs"}}

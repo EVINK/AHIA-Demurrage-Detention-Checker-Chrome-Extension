@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "LFD Inquiry",
   "description": "自动识别船公司和 MBL，自定义 Demurrage / Detention 邮件与 JSON 配置，保留 Gmail 签名；COSCO 通过工单网站提交，ONE 通过在线客服。",
-  "version": "0.3.8",
+  "version": "0.3.9",
   "minimum_chrome_version": "116",
   "permissions": ["storage", "scripting", "unlimitedStorage", "notifications"],
   "host_permissions": ["https://mail.google.com/*", "https://www.kdocs.cn/*", "https://support.cosco-usa.com/*", "https://www.one-line.com/*", "https://one-line.my.site.com/*", "https://*.one-line.com/*"],
