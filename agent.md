@@ -1,6 +1,6 @@
 # LFD Inquiry — Agent 交接文档
 
-更新时间：2026-10-09（America/Los_Angeles）。代码版本：**0.3.13**（COSCO On-Hire 工单；On-Hire 多柜号、ONE 气泡文字修复；可选本机邮件程序；On-Hire；ONE 对话复用、独立小窗、终止/删除；浮动小窗+通知；查询不阻塞/后台任务/ONE 多柜号；ONE 在线客服；英文界面兼容；2026-10-14：发送确认加严、COSCO 工单网站、取消DO 后分段读取、日志虚拟列表读取、脚本自动安装、找不到柜号提示框，见第 6 节）。
+更新时间：2026-10-09（America/Los_Angeles）。代码版本：**0.3.14**（ONE 白屏修复；COSCO On-Hire 工单；On-Hire 多柜号、ONE 气泡文字修复；可选本机邮件程序；On-Hire；ONE 对话复用、独立小窗、终止/删除；浮动小窗+通知；查询不阻塞/后台任务/ONE 多柜号；ONE 在线客服；英文界面兼容；2026-10-14：发送确认加严、COSCO 工单网站、取消DO 后分段读取、日志虚拟列表读取、脚本自动安装、找不到柜号提示框，见第 6 节）。
 Chrome 现直接从 WSL 目录 `/home/evink/demurrage-lfd-extension` 加载；git 分支 `fix/gmail-send-confirmation`。
 本文件依据本次对话及当前源码整理；它是工程交接，不代表安装在 Chrome 中的版本已自动更新。
 
@@ -172,6 +172,7 @@ kdocs 适配器要求新的 START、同 id、分段连续、条数正确和 END�
 | 0.2.7 | 柜号吸顶、输入框内按钮、按钮也缓存优先 |
 | 0.2.8 | 按第一条完整行去重，仅删除本地重复项 |
 | 0.2.9 | 不完整记录不缓存、旧缓存清理、配置页清缓存 |
+| 0.3.14 | one.js top 'open'：点 Continue 前查 .selected-status-icon 是否 offline、.start-chat 是否 disabled；点后等待 #embeddedMessagingFrame 或 .mtn-combile-block（维护）30 秒；已接回旧对话直接返回。chatOnly 仅在 #embeddedMessagingFrame 存在时注入样式（否则白屏）。用户真实 Chrome 中白屏的确切原因未复现（调试环境当时美国在线） |
 | 0.3.12 | cosco.js 改为 payload.fields=[{label,value,kind}] 按标签依次填写（等待联动字段出现），verify 同样按清单。portalTemplate：Detention→support.cosco-usa.com 三个字段；On-Hire→portal.onHire.url（coscoshippingla.freshdesk.com）Type/Services/Region/Number of Containers/Container #/SCAC Code，正文用 carrier.onHire.bodyTemplate，{{table}} 起初为 'lines' 样式，用户要求改为与邮件相同的 Container#/MBL# 表格（v0.3.13）。COSCO 内置 onHire 正文 COSCO_ON_HIRE_BODY，若保存的是通用默认文案则替换为 COSCO 默认 |
 | 0.3.11 | renderTemplates 支持 more（表格多行，{{container}}/{{mbl}} 逗号拼接），On-Hire 默认文案 ON_HIRE_BODY/SUBJECT_TEMPLATE（空模板回落默认）。service：more 允许 chat 与 on-hire，额外柜号只要在缓存中就校验船公司。UI：粘贴多柜号拆行、以首柜号 carrierId 为基准红框（.extra-row.mismatch）、#removeMain 删除首框后补位。ONE：出站气泡是 c-pilot-messaging-text-bubble，MAIN world 下 li.textContent 为空——必须用 TreeWalker 读文本（deepText），匹配用 includes；页面错误带 sent 计数回传以判 uncertain；markSent 支持 uncertain/needs_review/中断 → 用户核实已发送 |
 | 0.3.10 | settings.mailClient 'gmail'(默认)/'system'。system 时 service 不起后台任务，直接生成 mailto（纯文本 bodyText，\r\n），entry.status='draft'、mailClient='system'、mailto；popup 用 a.click() 打开（需用户手势）；service.markSent 由用户确认已发送。UI 选择 system 时显示限制并 confirm |

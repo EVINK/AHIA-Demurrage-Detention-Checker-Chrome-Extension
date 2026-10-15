@@ -35,6 +35,8 @@ export async function onePage(kind,action,payload){
   }
   if(kind==='top'&&action==='chatOnly'){
     // Floating window shows only the chat: hide the rest of the page and let the chat frame fill it.
+    // Only once the chat frame exists; otherwise ONE's own page (and any notice on it) stays visible.
+    if(!document.getElementById('embeddedMessagingFrame'))return {ok:true,data:{chatOnly:false}};
     if(!document.getElementById('lfd-chat-only')){
       const style=document.createElement('style');style.id='lfd-chat-only';
       style.textContent='html,body{overflow:hidden!important;background:#fff!important}body>*:not(#embedded-messaging){display:none!important}#embeddedMessagingFrame{inset:0!important;width:100vw!important;height:100vh!important;max-width:none!important;max-height:none!important;border-radius:0!important;box-shadow:none!important}';
@@ -45,6 +47,10 @@ export async function onePage(kind,action,payload){
   if(kind==='top'){
     if(action!=='open')throw new Error('未知 ONE 页面操作。');
     const wrapper=()=>document.querySelector('#one-chat-wrapper');
+    const maintenance=()=>[...document.querySelectorAll('.mtn-combile-block,#one-chat-wrapper-mtn')].find(visible);
+    if(maintenance())throw new Error(`ONE 在线客服暂不可用：${text(maintenance()).slice(0,200)}`);
+    // ONE reopened an earlier conversation by itself: the chat frame is already there (the form step decides).
+    if(document.getElementById('embeddedMessagingFrame')&&!visible(wrapper()))return {ok:true,data:{opened:true,resumed:true}};
     if(!visible(wrapper())){
       (await waitFor(()=>document.querySelector('.chat-icon'),'ONE 页面上没有找到在线客服图标（可能仍接回了旧对话）。')).click();
       await waitFor(()=>visible(wrapper()),'ONE 在线客服窗口没有打开。');
@@ -56,7 +62,16 @@ export async function onePage(kind,action,payload){
       item.click();await pause(500);
       if(country.value.trim()!==payload.country)throw new Error('选择 ONE 在线客服国家失败。');
     }
-    (await waitFor(()=>[...wrapper().querySelectorAll('*')].find(e=>visible(e)&&e.childElementCount===0&&text(e)==='Continue'),'没有找到 Continue 按钮。')).click();
+    // ONE marks the country offline outside its live-chat hours; Continue is then disabled and does nothing.
+    const status=wrapper().querySelector('.selected-status-icon')?.className||country.className;
+    if(/\boffline\b/.test(status))throw new Error(`ONE 在线客服（${payload.country}）当前不在服务时间，请稍后再查询。`);
+    const label=await waitFor(()=>[...wrapper().querySelectorAll('*')].find(e=>visible(e)&&e.childElementCount===0&&text(e)==='Continue'),'没有找到 Continue 按钮。');
+    const button=label.closest('.start-chat')||label;
+    if(button.classList.contains('disabled'))throw new Error(`ONE 在线客服（${payload.country}）的 Continue 不可用，可能不在服务时间。`);
+    button.click();
+    // Either the Salesforce chat frame loads, or ONE shows a maintenance notice instead.
+    const outcome=await waitFor(()=>document.getElementById('embeddedMessagingFrame')?'chat':maintenance()?'maintenance':null,'点击 Continue 后 ONE 聊天窗口 30 秒内没有出现，请打开 ONE 小窗查看页面提示。',30000);
+    if(outcome==='maintenance')throw new Error(`ONE 在线客服暂不可用：${text(maintenance()).slice(0,200)}`);
     return {ok:true,data:{opened:true}};
   }
 

@@ -1,4 +1,4 @@
-# LFD Inquiry v0.3.13 — Chrome 插件使用说明
+# LFD Inquiry v0.3.14 — Chrome 插件使用说明
 
 输入柜号，插件从金山文档「提柜」查出 MBL 和船公司，再按所选 Demurrage / Detention 类型准备查询邮件，保留 Gmail 原签名。支持 Maersk、MSC 和自行添加的船公司，收件邮箱与邮件模板均可配置。
 
@@ -16,9 +16,9 @@
 
 ## 已安装用户升级
 
-1. 确认原插件目录已经更新为 v0.3.13 文件。如果使用压缩包，将文件解压到原来加载的目录。
+1. 确认原插件目录已经更新为 v0.3.14 文件。如果使用压缩包，将文件解压到原来加载的目录。
 2. 在 Chrome 手动打开 `chrome://extensions`，找到 **LFD Inquiry**，点击刷新图标。
-3. 点击工具栏上的 LFD Inquiry 图标，打开新版弹窗；确认底部显示 `v0.3.13`、顶部显示「测试模式 · 不发送」。
+3. 点击工具栏上的 LFD Inquiry 图标，打开新版弹窗；确认底部显示 `v0.3.14`、顶部显示「测试模式 · 不发送」。
 
 新版使用真正的工具栏弹窗，尺寸为 780 × 600，包含「查询 / 配置 / 记录」三个页面，不再为主界面新开标签页。v0.2.6 新增 unlimitedStorage，解除 chrome.storage.local 默认容量配额；实际仍受磁盘空间和性能限制。缓存逻辑保持不变。原有连接设置、草稿和发送锁定记录保留。
 
@@ -355,3 +355,13 @@ COSCO 的 On-Hire 提交到 **https://coscoshippingla.freshdesk.com/support/tick
 - 工单适配器改为按「字段标签 → 值」清单填写，Detention 与 On-Hire 共用。新增权限 coscoshippingla.freshdesk.com。
 
 真实验证（调试 Chrome，测试模式）：CSNU5509665 + CSNU8077797 在 coscoshippingla.freshdesk.com 小窗中填写，Type/Services/Region/数量/柜号/SCAC/Description 全部正确，未提交。
+
+## v0.3.14 修复 ONE 小窗白屏
+
+现象：ONE 小窗一片空白，记录显示「ONE 页面没有加载出所需的聊天窗口」。原因：点击 Continue 后聊天窗口没有加载出来，而插件已经给页面加了「只显示聊天框」的样式，把 ONE 页面上的其余内容（包括可能的提示）全部隐藏，所以是白屏。
+
+修复：
+- 点击 Continue 前检查：所选国家显示离线（不在在线客服服务时间）或 Continue 不可用时，直接提示原因。
+- 点击 Continue 后等待聊天窗口或维护提示（最多 30 秒）：出现维护提示时带上 ONE 原文提示；都没有出现时提示打开小窗查看页面。
+- 只有聊天窗口真正加载出来后才隐藏网页其余内容；失败时小窗显示 ONE 原页面，便于查看原因。
+- 页面已自行接回旧对话时不再误报找不到图标。
