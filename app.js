@@ -67,6 +67,8 @@ function syncMode(){
   $('modeBadge').textContent=demo?'界面演示 · 示例数据':test?'测试模式 · 不发送':'正式模式';
   $('modeBadge').classList.toggle('live',!test&&!demo);
   const channel=matchedProfile()?.channel,portal=channel==='cosco-portal',chat=channel==='one-chat';
+  // 「＋」 (more containers in the same chat) only exists for ONE; other carriers hide it and any extra boxes.
+  $('addContainer').hidden=!chat;$('extraContainers').hidden=!chat&&Boolean(matchedProfile());
   const count=chat?1+extraContainers().length:1;
   $('send').textContent=chat?(test?`联系 ONE 客服（测试模式·不发送）${count>1?' · '+count+' 个柜号':''}`:`发送 ONE 在线客服消息${count>1?'（'+count+' 个柜号）':''}`):portal?(test?'填写 COSCO 工单（测试模式）':'提交 COSCO 工单'):test?'生成草稿（测试模式）':'发送邮件';
   $('draft').textContent=chat?'转人工但不发送':portal?'仅填写工单':'仅生成草稿';
@@ -239,8 +241,7 @@ function startPolling(){
 }
 async function perform(mode,forceRefresh=false){
   clearTimeout(debounce);if(busy||initializing||!$('inquiry').reportValidity())return;
-  const more=mode==='identify'?[]:extraContainers();
-  if(more.length&&lastResult?.channel!=='one-chat'&&matchedProfile()?.channel!=='one-chat'){status('只有 ONE 在线客服支持在一个会话中查询多个柜号。','error');return;}
+  const more=mode==='identify'||matchedProfile()?.channel!=='one-chat'?[]:extraContainers();
   if(mode==='identify'){lastResult=null;$('manualMbl').value='';missingConfiguration=false;clearPreview();}
   // Lookups never lock the popup: the user can type the next container while this one is read.
   const sequence=++requestSequence;rememberInput();
@@ -277,7 +278,7 @@ $('clearCache').addEventListener('click',async()=>{
 function scheduleIdentify(){
   clearTimeout(debounce);if($('notFound').open)$('notFound').close();rememberInput();draftTabId=null;$('openDraft').hidden=true;
   if(busy||initializing)return;
-  lastResult=null;$('manualMbl').value='';missingConfiguration=false;$('needsConfig').hidden=true;clearPreview();$('matchCarrier').textContent='等待重新识别';$('matchMbl').textContent='MBL 将从「提柜」匹配';$('matchSource').textContent='仅查表，不会发送邮件';setBusy(false);
+  lastResult=null;$('manualMbl').value='';missingConfiguration=false;$('needsConfig').hidden=true;clearPreview();$('matchCarrier').textContent='等待重新识别';$('matchMbl').textContent='MBL 将从「提柜」匹配';$('matchSource').textContent='仅查表，不会发送邮件';setBusy(false);syncMode();
   if(/^[A-Za-z]{4}\d{7}$/.test($('container').value.trim()))debounce=setTimeout(()=>perform('identify'),700);
 }
 async function saveSettings(next){
