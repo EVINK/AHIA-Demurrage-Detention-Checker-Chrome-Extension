@@ -185,10 +185,14 @@ export function chatTemplate(record,options={}){
   if(!options||typeof options!=='object'||Array.isArray(options))throw new Error('聊天选项格式无效。');
   const profile=normalizeCarriers([options.carrier])[0],type=inquiryType(options.inquiryType);
   if(profile.channel!=='one-chat')throw new Error(`${profile.name} 不是 ONE 在线客服方式。`);
-  const container=containerNumber(record.container),mbl=mblNumber(record.mbl);
-  const values={type,Type:type[0].toUpperCase()+type.slice(1),container,mbl,carrier:profile.name};
-  const message=profile.chat.message.replace(/\{\{([^{}]*)\}\}/g,(_,token)=>values[token]);
-  return {channel:profile.channel,...profile.chat,message,carrierId:profile.id,carrierName:profile.name,inquiryType:type};
+  // Several containers share one chat, one message per container (each must be read by the agent).
+  const items=[record,...(options.more||[])].map(item=>({container:containerNumber(item.container),mbl:mblNumber(item.mbl)}));
+  if(new Set(items.map(item=>item.container)).size!==items.length)throw new Error('同一会话中的柜号不能重复。');
+  if(items.length>10)throw new Error('一个 ONE 会话最多查询 10 个柜号。');
+  const values={type,Type:type[0].toUpperCase()+type.slice(1),carrier:profile.name};
+  const messages=items.map(item=>profile.chat.message.replace(/\{\{([^{}]*)\}\}/g,(_,token)=>({...values,...item})[token]));
+  const message=messages.join('\n');
+  return {channel:profile.channel,...profile.chat,message,messages,containers:items.map(item=>item.container),carrierId:profile.id,carrierName:profile.name,inquiryType:type};
 }
 function renderTemplates(record,profile,type){
   const container=containerNumber(record.container),mbl=mblNumber(record.mbl);

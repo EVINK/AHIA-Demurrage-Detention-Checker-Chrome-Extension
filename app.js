@@ -6,7 +6,7 @@ const copy=value=>JSON.parse(JSON.stringify(value));
 const types={demurrage:'Demurrage',detention:'Detention'};
 const sources={sheet:'提柜表航司列','mbl-prefix':'MBL 前缀',manual:'手动选择'};
 let settings=copy(DEFAULT_SETTINGS),busy=false,initializing=true,debounce,pollTimer,polling=false,requestSequence=0,lastOperationId='',lastRenderedOperation='',lastResult=null,draftTabId=null,missingConfiguration=false,editingId='',newProfile=null,pendingImport=null;
-let demoSettings=copy(DEFAULT_SETTINGS),demoOperation=null;
+let demoSettings=copy(DEFAULT_SETTINGS),demoOperation=null,lookingUp=false,tasksTimer=null;
 try{demoSettings=validateSettings(JSON.parse(localStorage.getItem('lfd-demo-settings')||'null')||DEFAULT_SETTINGS);}catch{}
 function storedInput(){try{return JSON.parse(localStorage.getItem('lfd-popup-input')||'{}');}catch{return {};}}
 function rememberInput(){try{localStorage.setItem('lfd-popup-input',JSON.stringify({container:$('container').value,carrierId:$('carrier').value,inquiryType:$('inquiryType').value}));}catch{}}
@@ -56,14 +56,19 @@ function showPage(page){
 function setBusy(value){
   busy=value;
   document.querySelectorAll('button:not(.tab),input,select,textarea').forEach(node=>node.disabled=value);
-  if(!value){$('send').disabled=missingConfiguration||!$('manualMbl').value.trim();$('draft').disabled=$('send').disabled;$('deleteCarrier').disabled=!newProfile&&settings.carriers.length<2;}
+  if(!value){syncSendButtons();$('deleteCarrier').disabled=!newProfile&&settings.carriers.length<2;}
+}
+function syncSendButtons(){
+  const pendingExtra=[...document.querySelectorAll('.extra-row')].some(row=>row.dataset.state==='pending');
+  $('send').disabled=busy||lookingUp||pendingExtra||missingConfiguration||!$('manualMbl').value.trim();$('draft').disabled=$('send').disabled;
 }
 function syncMode(){
   const test=settings.testMode!==false;
   $('modeBadge').textContent=demo?'界面演示 · 示例数据':test?'测试模式 · 不发送':'正式模式';
   $('modeBadge').classList.toggle('live',!test&&!demo);
   const channel=matchedProfile()?.channel,portal=channel==='cosco-portal',chat=channel==='one-chat';
-  $('send').textContent=chat?(test?'联系 ONE 客服（测试模式·不发送）':'发送 ONE 在线客服消息'):portal?(test?'填写 COSCO 工单（测试模式）':'提交 COSCO 工单'):test?'生成草稿（测试模式）':'发送邮件';
+  const count=chat?1+extraContainers().length:1;
+  $('send').textContent=chat?(test?`联系 ONE 客服（测试模式·不发送）${count>1?' · '+count+' 个柜号':''}`:`发送 ONE 在线客服消息${count>1?'（'+count+' 个柜号）':''}`):portal?(test?'填写 COSCO 工单（测试模式）':'提交 COSCO 工单'):test?'生成草稿（测试模式）':'发送邮件';
   $('draft').textContent=chat?'转人工但不发送':portal?'仅填写工单':'仅生成草稿';
 }
 function matchedProfile(){const selected=$('carrier').value;return settings.carriers.find(p=>p.id===(selected&&selected!=='auto'?selected:lastResult?.carrierId));}
@@ -133,9 +138,9 @@ function renderResult(data){
   }else{
     try{
       if(chat){
-        const message=chatTemplate(record,{carrier:profile,inquiryType:type});
-        $('to').textContent=`ONE 在线客服 · ${message.firstName} ${message.lastName} · ${message.email}`;$('cc').textContent='—';$('subject').textContent=`Container Number · ${record.container}`;
-        $('mailBody').replaceChildren();const p=document.createElement('p');p.textContent=message.message;$('mailBody').append(p);
+        const message=chatTemplate(record,{carrier:profile,inquiryType:type,more:extraContainers()});
+        $('to').textContent=`ONE 在线客服 · ${message.firstName} ${message.lastName} · ${message.email}`;$('cc').textContent='—';$('subject').textContent=`Container Number · ${record.container}${message.messages.length>1?` · 共 ${message.messages.length} 条消息`:''}`;
+        $('mailBody').replaceChildren();for(const line of message.messages){const p=document.createElement('p');p.textContent=line;$('mailBody').append(p);}
       }else if(portal){
         const ticket=portalTemplate(record,{carrier:profile});
         $('to').textContent=`COSCO 工单 · Requester ${ticket.requester}`;$('cc').textContent='—';$('subject').textContent=`${ticket.shipmentType} · ${ticket.service} · ${ticket.reference}`;$('mailBody').innerHTML=ticket.html;
@@ -152,6 +157,7 @@ function renderResult(data){
 function reportResult(data,mode){
   renderResult(data);
   const portal=data.channel==='cosco-portal',chat=data.channel==='one-chat';
+  if(data.background){status(`已加入后台任务：${(data.containers||[data.container]).join('、')}。可在「进行中」查看进度，现在可以继续查询其他柜号。`,'success');return;}
   if(data.status==='draft')status(chat?`ONE 客服${data.agent?' '+data.agent:''}已接入，消息已填入聊天框，测试模式下未发送。可打开聊天页查看。`:portal?'COSCO 工单已填好，测试模式下未提交。可打开工单页检查。':'Gmail 草稿已填好，原签名已保留，尚未发送。可打开草稿检查。','success');
   else if(data.status==='sent')status(chat?`已查询：ONE 客服${data.agent?' '+data.agent:''}已读消息，回复请在聊天页查看。`:portal?`COSCO 工单已提交${data.ticketId?' #'+data.ticketId:''}。`:'Gmail 已显示发送成功。','success');
   else if(data.unrecognizedCarrier)status(data.recognitionError||'请选择船公司或补充识别规则。','error');
@@ -167,10 +173,11 @@ function syncOperation(operation,{restore=false}={}){
   }
   lastOperationId=operation.id||lastOperationId;
   if(operation.status==='running'){
-    setBusy(true);status(operation.mode==='identify'?'正在查表并识别船公司… 可关闭弹窗，后台会继续。':matchedProfile()?.channel==='one-chat'&&operation.mode!=='identify'?'正在后台联系 ONE 在线客服，转人工可能需要几分钟… 可关闭弹窗。':matchedProfile()?.channel==='cosco-portal'&&operation.mode==='send'?'已打开 COSCO 工单页：请在该页完成人机验证，插件随后自动提交（3 分钟内）。':'正在后台准备邮件… 可关闭弹窗，完成后重新打开查看。','running');startPolling();return;
+    if(operation.mode==='identify'){lookingUp=true;syncSendButtons();}else setBusy(true);status(operation.mode==='identify'?'正在查表并识别船公司… 可关闭弹窗，后台会继续。':matchedProfile()?.channel==='one-chat'&&operation.mode!=='identify'?'正在后台联系 ONE 在线客服，转人工可能需要几分钟… 可关闭弹窗。':matchedProfile()?.channel==='cosco-portal'&&operation.mode==='send'?'已打开 COSCO 工单页：请在该页完成人机验证，插件随后自动提交（3 分钟内）。':'正在后台准备邮件… 可关闭弹窗，完成后重新打开查看。','running');startPolling();return;
   }
   if(operation.id&&lastRenderedOperation===operation.id)return;
   lastRenderedOperation=operation.id||'';
+  if(operation.mode==='identify'&&operation.status!=='running'){lookingUp=false;}
   if(operation.status==='complete'){setBusy(false);reportResult(operation.result,operation.mode);}
   else if(operation.status==='failed'||operation.status==='interrupted'){setBusy(false);if(operation.mode==='identify')lookupError(operation.error||'请点击重新查表。');if(operation.mode==='identify'&&notFound(operation.error)&&operation.container===$('container').value.trim().toUpperCase())showNotFound(operation.container);status(operation.error||(operation.status==='interrupted'?'上次操作已中断，请先检查 Gmail 草稿和已发送记录。':'操作失败。'),'error');}
 }
@@ -194,8 +201,28 @@ function renderHistory(ledger={}){
     buttons.append(release);row.append(content,buttons);root.append(row);
   }
 }
+function renderTasks(ledger={}){
+  const groups=new Map();
+  for(const entry of Object.values(ledger))if(entry.running||entry.interrupted){const id=entry.requestId||entry.container;if(!groups.has(id))groups.set(id,[]);groups.get(id).push(entry);}
+  const root=$('tasks');root.replaceChildren();
+  const running=[...groups.values()].filter(group=>group[0].running).length;$('taskCount').textContent=running;
+  if(!groups.size){const empty=document.createElement('p');empty.className='empty';empty.textContent='没有进行中的任务';root.append(empty);}
+  for(const group of [...groups.values()].sort((a,b)=>(b[0].time||0)-(a[0].time||0))){
+    const entry=group[0],row=document.createElement('div');row.className='task-row';
+    const content=document.createElement('div'),name=document.createElement('strong');name.textContent=group.map(e=>e.container).join('、');content.append(name);
+    const detail=document.createElement('p');const minutes=Math.max(0,Math.round((Date.now()-(entry.time||Date.now()))/60000));
+    detail.textContent=`${entry.carrierName||''} · ${types[entry.inquiryType]||''} · ${new Date(entry.time).toLocaleTimeString()} 开始 · 已 ${minutes} 分钟`;content.append(detail);
+    const step=document.createElement('div');step.className='task-step'+(entry.interrupted?' interrupted':'');step.textContent=entry.interrupted?'已中断，请打开页面核实结果':(entry.step||'进行中')+(entry.agent?` · ${entry.agent}`:'');content.append(step);
+    const buttons=document.createElement('div');buttons.className='history-buttons';
+    if(Number.isInteger(entry.tabId)){const open=document.createElement('button');open.textContent='打开页面';open.addEventListener('click',()=>openDraft(entry.tabId));buttons.append(open);}
+    row.append(content,buttons);root.append(row);
+  }
+  // Keep the list fresh while anything runs in the background.
+  if(running&&!tasksTimer)tasksTimer=setInterval(()=>refreshState().catch(()=>{}),2000);
+  if(!running&&tasksTimer){clearInterval(tasksTimer);tasksTimer=null;}
+}
 async function refreshState({initial=false}={}){
-  const state=await rpc({type:'state'});settings=validateSettings(state.settings);renderHistory(state.ledger);
+  const state=await rpc({type:'state'});settings=validateSettings(state.settings);renderHistory(state.ledger);renderTasks(state.ledger);
   if(initial){
     hydrateSettings();const saved=storedInput();$('container').value=saved.container||'';
     fillSelect('carrier',true,saved.carrierId||settings.defaultCarrierId);$('inquiryType').value=types[saved.inquiryType]?saved.inquiryType:settings.defaultInquiryType;
@@ -212,16 +239,22 @@ function startPolling(){
 }
 async function perform(mode,forceRefresh=false){
   clearTimeout(debounce);if(busy||initializing||!$('inquiry').reportValidity())return;
+  const more=mode==='identify'?[]:extraContainers();
+  if(more.length&&lastResult?.channel!=='one-chat'&&matchedProfile()?.channel!=='one-chat'){status('只有 ONE 在线客服支持在一个会话中查询多个柜号。','error');return;}
   if(mode==='identify'){lastResult=null;$('manualMbl').value='';missingConfiguration=false;clearPreview();}
-  const sequence=++requestSequence;rememberInput();setBusy(true);status(mode==='identify'?'正在匹配本地数据，未命中时查表…':'正在准备 Gmail 邮件…','running');
+  // Lookups never lock the popup: the user can type the next container while this one is read.
+  const sequence=++requestSequence;rememberInput();
+  if(mode==='identify'){lookingUp=true;syncSendButtons();}else setBusy(true);
+  status(mode==='identify'?'正在匹配本地数据，未命中时查表… 可以继续输入其他柜号。':'正在加入后台任务…','running');
   const previousOperation=lastOperationId;
   try{
-    startPolling();const data=await rpc({type:'run',mode,container:$('container').value.trim().toUpperCase(),options:{...options(),forceRefresh,...(mode==='identify'?{}:{manualMbl:$('manualMbl').value,useConfirmed:true})}});
+    startPolling();const data=await rpc({type:'run',mode,container:$('container').value.trim().toUpperCase(),options:{...options(),forceRefresh,...(mode==='identify'?{}:{manualMbl:$('manualMbl').value,useConfirmed:true,...(more.length?{more}:{})})}});
     if(sequence!==requestSequence)return;
-    setBusy(false);reportResult(data,mode);
-    const state=await rpc({type:'state'});renderHistory(state.ledger);if(state.operation?.id!==previousOperation){lastOperationId=state.operation?.id||lastOperationId;lastRenderedOperation=lastOperationId;}
-  }catch(error){if(sequence===requestSequence){setBusy(false);if(mode==='identify')lookupError(error.message);status(error.message,'error');if(mode==='identify'&&notFound(error.message))showNotFound($('container').value.trim().toUpperCase());try{const state=await rpc({type:'state'});renderHistory(state.ledger);lastRenderedOperation=state.operation?.id||lastRenderedOperation;}catch{}}}
-  finally{if(sequence===requestSequence&&!busy){clearInterval(pollTimer);pollTimer=null;}}
+    lookingUp=false;setBusy(false);reportResult(data,mode);
+    if(data.background){$('extraContainers').replaceChildren();syncMode();}
+    const state=await rpc({type:'state'});renderHistory(state.ledger);renderTasks(state.ledger);if(state.operation?.id!==previousOperation){lastOperationId=state.operation?.id||lastOperationId;lastRenderedOperation=lastOperationId;}
+  }catch(error){if(sequence===requestSequence){lookingUp=false;setBusy(false);if(mode==='identify')lookupError(error.message);status(error.message,'error');if(mode==='identify'&&notFound(error.message))showNotFound($('container').value.trim().toUpperCase());try{const state=await rpc({type:'state'});renderHistory(state.ledger);renderTasks(state.ledger);lastRenderedOperation=state.operation?.id||lastRenderedOperation;}catch{}}}
+  finally{if(sequence===requestSequence&&!busy&&!lookingUp){clearInterval(pollTimer);pollTimer=null;}}
 }
 function editMatch(){
   if(busy)return;
@@ -291,6 +324,36 @@ $('applyImport').addEventListener('click',async()=>{if(!pendingImport)return;try
 $('cancelImport').addEventListener('click',()=>{pendingImport=null;$('importReview').hidden=true;});
 $('copyScript').addEventListener('click',async()=>{try{const text=await scriptText();try{await navigator.clipboard.writeText(text);status('只读脚本已复制，可到金山文档粘贴并保存。','success');}catch{$('scriptFallback').hidden=false;$('scriptFallback').value=text;$('scriptFallback').focus();$('scriptFallback').select();status('请复制下方已选中的脚本，或点击下载。');}}catch(error){status(error.message,'error');}});
 $('downloadScript').addEventListener('click',async()=>{try{download(await scriptText(),'LFD_ReadOnly_v1.js','text/javascript');status('只读脚本已下载。','success');}catch(error){status(error.message,'error');}});
+// Extra containers for one multi-container ONE chat. Each box is looked up on its own without
+// replacing the main result; only boxes confirmed as ONE are sent.
+function extraContainers(){return [...document.querySelectorAll('.extra-row')].filter(row=>row.dataset.state==='ok').map(row=>({container:row.dataset.container,mbl:row.dataset.mbl}));}
+function addExtraRow(){
+  if(document.querySelectorAll('.extra-row').length>=9){status('一个 ONE 会话最多 10 个柜号。','error');return;}
+  const row=document.createElement('div');row.className='extra-row';
+  const input=document.createElement('input');input.maxLength=32;input.placeholder='同一 ONE 会话再查一个柜号…';input.autocomplete='off';input.spellcheck=false;
+  const remove=document.createElement('button');remove.type='button';remove.textContent='×';remove.title='移除这个柜号';
+  const note=document.createElement('span');note.className='extra-status';note.textContent='粘贴柜号后自动查询';
+  let timer,sequence=0;
+  const done=(state,text,cls='')=>{row.dataset.state=state;note.textContent=text;note.className='extra-status '+cls;syncSendButtons();syncMode();if(lastResult)renderResult(lastResult);};
+  input.addEventListener('input',()=>{
+    input.value=input.value.toUpperCase().replace(/\s/g,'');clearTimeout(timer);delete row.dataset.container;
+    if(!/^[A-Z]{4}\d{7}$/.test(input.value)){done('', input.value?'柜号须为 4 个字母 + 7 位数字':'粘贴柜号后自动查询');return;}
+    const container=input.value,mine=++sequence;
+    if(container===$('container').value.trim().toUpperCase()||extraContainers().some(item=>item.container===container)){done('error','这个柜号已经在列表里了','error');return;}
+    done('pending','正在查询…');
+    timer=setTimeout(async()=>{
+      try{
+        const data=await rpc({type:'peek',container,options:{carrierId:'auto',inquiryType:$('inquiryType').value}});
+        if(mine!==sequence)return;
+        if(data.channel!=='one-chat'){done('error',`${data.carrierName||data.unrecognizedCarrier||'未识别船公司'} 不是 ONE，不能放在同一会话`,'error');return;}
+        row.dataset.container=container;row.dataset.mbl=data.mbl;done('ok',`ONE · ${data.mbl}`,'ok');
+      }catch(error){if(mine===sequence)done('error',notFound(error.message)?'提柜表中找不到这个柜号':error.message,'error');}
+    },400);
+  });
+  remove.addEventListener('click',()=>{row.remove();syncSendButtons();syncMode();if(lastResult)renderResult(lastResult);});
+  row.append(input,remove,note);$('extraContainers').append(row);input.focus();
+}
+$('addContainer').addEventListener('click',addExtraRow);
 $('notFoundOk').addEventListener('click',()=>{$('notFound').close();$('container').value='';scheduleIdentify();$('matchCarrier').textContent='尚未识别船公司';$('matchSource').textContent='选择船公司可覆盖自动识别结果';status('请重新输入柜号。');$('container').focus();});
 $('notFoundRetry').addEventListener('click',()=>{$('notFound').close();if($('container').value.trim().toUpperCase()!==notFoundContainer)$('container').value=notFoundContainer;perform('identify');});
 // Esc closes the dialog like 确定 would, but keeps the input so the user can correct it.

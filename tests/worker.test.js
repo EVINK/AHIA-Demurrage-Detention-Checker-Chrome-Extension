@@ -46,7 +46,7 @@ function setup({data={},run=async()=>({status:'draft',tabId:42}),read=async valu
     chrome,URL,URLSearchParams,Date,setTimeout,fetch:async url=>{calls.fetched.push(url);return {text:async()=>'// LFD build: 3\nmain();'};},
     crypto:{randomUUID:()=>`operation-${++id}`},readKdocsPage,gmailPage,coscoPage,onePage,
     validateSettings:value=>({...defaults,...clone(value)}),
-    createService:dependencies=>{deps=dependencies;return {
+    createService:dependencies=>{deps=dependencies;return {active:()=>new Set(),
       run:async(...args)=>{calls.run.push(clone(args));return run(...args);},
       release:async key=>{calls.release.push(key);return true;}
     };}
@@ -77,17 +77,19 @@ test('lookup persists running before work and completes after popup response is 
   assert.deepEqual(t.calls.access,[{accessLevel:'TRUSTED_CONTEXTS'}]);
 });
 
-test('a concurrent second lookup is rejected without replacing the first job or repeating work',async()=>{
-  const gate=deferred(),t=setup({run:()=>gate.promise});
-  const first=t.send({type:'run',container:'MRSU4786640',mode:'draft'});
-  const second=await t.send({type:'run',container:'MSCU1234567',mode:'draft'}).response;
-  assert.equal(second.ok,false);assert.match(second.error,/已有查询/);
+test('lookups run concurrently; the newest operation is the one a reopened popup restores',async()=>{
+  const gates={MRSU4786640:deferred(),MSCU1234567:deferred()};
+  const t=setup({run:container=>gates[container].promise});
+  const first=t.send({type:'run',container:'MRSU4786640',mode:'identify'});
   await until(()=>t.calls.run.length===1);
-  assert.equal(t.db().operation.container,'MRSU4786640');
-  const state=await t.send({type:'state'}).response;
-  assert.equal(state.data.operation.status,'running','A live worker must not mark its own pending job interrupted.');
-  gate.resolve({status:'draft'});assert.equal((await first.response).ok,true);
-  assert.equal(t.calls.run.length,1);
+  const second=t.send({type:'run',container:'MSCU1234567',mode:'identify'});
+  await until(()=>t.calls.run.length===2);
+  assert.equal(t.db().operation.container,'MSCU1234567');
+  gates.MSCU1234567.resolve({mbl:'B'});assert.equal((await second.response).ok,true);
+  gates.MRSU4786640.resolve({mbl:'A'});assert.equal((await first.response).ok,true);
+  assert.equal(t.db().operation.container,'MSCU1234567','an older operation finishing later must not replace the newest');
+  assert.deepEqual(t.db().operation.result,{mbl:'B'});
+  const state=await t.send({type:'state'}).response;assert.equal(state.data.operation.status,'complete');
 });
 
 test('failure persists its error for a reopened popup and permits a later operation',async()=>{
@@ -274,4 +276,11 @@ test('COSCO ticket tab opens in front only when it will be submitted',async()=>{
   await t.deps.prepareTicket({submit:false});await t.deps.prepareTicket({submit:true});
   assert.deepEqual(t.calls.created.map(c=>[c.url,c.active]),[['https://support.cosco-usa.com/support/tickets/new',false],['https://support.cosco-usa.com/support/tickets/new',true]]);
   assert.deepEqual(t.calls.scripts.map(s=>s.args[0]),['fill','fill']);
+});
+
+test('state shows a background job lost by a worker restart as interrupted, without changing storage',async()=>{
+  const t=setup({data:{ledger:{k:{container:'TRHU6206940',status:'sending',running:true,requestId:'gone',step:'等待客服接入'}}}});
+  const state=(await t.send({type:'state'}).response).data;
+  assert.equal(state.ledger.k.interrupted,true);assert.equal(state.ledger.k.running,false);assert.match(state.ledger.k.detail,/中断/);
+  assert.equal(t.db().ledger.k.running,true,'the stored entry is left for the user to verify');
 });

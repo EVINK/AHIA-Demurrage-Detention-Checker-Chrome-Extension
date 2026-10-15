@@ -1,12 +1,17 @@
 import {containerNumber, mblNumber, lookup, cacheRecords, messageTemplate, portalTemplate, chatTemplate, normalizeCarriers, addressList, inquiryType, recognizeCarrier, PORTAL_INQUIRY_TYPE} from './core.js';
 export function createService({storage, readSheet, prepareMail, sendMail, prepareTicket, submitTicket, prepareChat, sendChat, now = Date.now, uuid = () => crypto.randomUUID()}) {
   let queue = Promise.resolve();
+  const active=new Set(),jobs=new Map();
+  // Only ledger mutations are serialized; lookups and transmissions run concurrently.
   function serial(action) {const work = queue.then(action); queue = work.catch(() => {}); return work;}
+  // Concurrent cache misses share one sheet read.
+  let reading=null;
+  function readOnce(settings){if(!reading)reading=Promise.resolve().then(()=>readSheet(settings)).finally(()=>{reading=null;});return reading;}
   async function run(value, mode, options={}) {
     if (!['identify','preview','draft','send'].includes(mode)) throw new Error('操作无效。');
     if(!options||typeof options!=='object'||Array.isArray(options))throw new Error('查询选项格式无效。');
     const container = containerNumber(value);
-    const {settings = {}, ledger = {}} = await storage.get(['settings','ledger']);
+    const {settings = {}} = await storage.get(['settings']);
     const carriers=normalizeCarriers(settings.carriers);
     const selectedId=options.carrierId!==undefined?options.carrierId:settings.defaultCarrierId!==undefined?settings.defaultCarrierId:'auto';
     if(typeof selectedId!=='string'||!selectedId.trim())throw new Error('请先选择并配置船公司。');
@@ -39,7 +44,7 @@ export function createService({storage, readSheet, prepareMail, sendMail, prepar
       // Invalidate first only for an explicit refresh: it must not fall back to old data.
       // A plain cache miss keeps the snapshot, so one failed read does not break every other container.
       if(options.forceRefresh===true)await storage.set({sheetCache:null});
-      sheet=await readSheet(settings);
+      sheet=await readOnce(settings);
       if(!Array.isArray(sheet.records))throw new Error('提柜表查询结果格式异常。');
       await storage.set({sheetCache:{version:1,key:cacheKey,records:cacheRecords(sheet.records),readAt:sheet.readAt}});
     }
@@ -63,46 +68,79 @@ export function createService({storage, readSheet, prepareMail, sendMail, prepar
     if(mode==='identify')return {...record,carrierId:carrier.id,carrierName:carrier.name,channel,inquiryType:type,
       configurationMissing:chat?[]:portal?[...(!carrier.portal.requester?['requester']:[]),...(!carrier.bodyTemplate?['bodyTemplate']:[])]:
         [...(!carrier.to.length?['to']:[]),...(!carrier.bodyTemplate?['bodyTemplate']:[]),...(!carrier.subjectTemplate?['subjectTemplate']:[])]};
-    const message = chat?chatTemplate(record,{carrier,inquiryType:type}):portal?portalTemplate(record,{carrier}):messageTemplate(record,{carrier,inquiryType:type});
+    const more=Array.isArray(options.more)?options.more:[];
+    if(more.length&&(!chat||mode==='identify'||mode==='preview'))throw new Error('只有 ONE 在线客服支持在一个会话中查询多个柜号。');
+    // Extra containers must be cached ONE records of the same carrier (or explicitly carry a manual MBL).
+    const extras=more.map(item=>{
+      const extraContainer=containerNumber(item?.container);
+      const cached=sheet?.records.find(r=>String(r.container).trim().toUpperCase()===extraContainer);
+      if(cached&&!item.mbl){const found=recognizeCarrier(cached,carriers).carrier;if(found.id!==carrier.id)throw new Error(`${extraContainer} 不是 ${carrier.name} 的柜号，不能放在同一会话。`);}
+      if(!cached&&!item.mbl)throw new Error(`${extraContainer} 尚未查询，请先查询后再加入。`);
+      return {container:extraContainer,mbl:mblNumber(item.mbl||cached.mbl)};
+    });
+    const message = chat?chatTemplate(record,{carrier,inquiryType:type,more:extras}):portal?portalTemplate(record,{carrier}):messageTemplate(record,{carrier,inquiryType:type});
     if (mode === 'preview') return {...record, ...message};
-    const key = JSON.stringify([account, record.container, record.mbl, carrier.id, type]);
+    const items=[{container:record.container,mbl:record.mbl},...extras];
+    const keys=items.map(item=>JSON.stringify([account, item.container, item.mbl, carrier.id, type]));
     const legacyKey=JSON.stringify([account,record.container,record.mbl]);
-    if (ledger[key]||(carrier.id==='maersk'&&type==='demurrage'&&ledger[legacyKey])) throw new Error('该柜号在所选船公司和查询类型下已有草稿、发送或待核实记录。请先核对发送记录，避免重复。');
-    const entry = {...record, account,carrierId:carrier.id,carrierName:carrier.name,channel:carrier.channel,inquiryType:type,
-      ...(chat?{chatMessage:message.message,email:message.email}:portal?{requester:message.requester,reference:message.reference}:{to:[...message.to],cc:[...message.cc],subject:message.subject}),requestId:uuid(),status:'preparing',time:now()};
-    ledger[key] = entry; await storage.set({ledger});
+    const requestId=uuid();
+    const base={account,carrierId:carrier.id,carrierName:carrier.name,channel,inquiryType:type,
+      ...(chat?{chatMessage:message.message,email:message.email,...(extras.length?{batch:items.map(item=>item.container)}:{})}:portal?{requester:message.requester,reference:message.reference}:{to:[...message.to],cc:[...message.cc],subject:message.subject}),
+      requestId,status:'preparing',time:now(),running:true,step:'排队中'};
+    // Check and take the duplicate locks atomically; this is the only serialized step of a send.
+    const first=await serial(async()=>{
+      const {ledger={}}=await storage.get(['ledger']);
+      keys.forEach((key,index)=>{if(ledger[key])throw new Error(`${items[index].container} 在所选船公司和查询类型下已有草稿、发送或待核实记录。请先核对发送记录，避免重复。`);});
+      if(carrier.id==='maersk'&&type==='demurrage'&&ledger[legacyKey])throw new Error('该柜号在所选船公司和查询类型下已有草稿、发送或待核实记录。请先核对发送记录，避免重复。');
+      keys.forEach((key,index)=>{ledger[key]={...(index?{container:items[index].container,mbl:items[index].mbl,sourceTime:record.sourceTime}:record),...base,...(chat?{chatMessage:message.messages[index]}:{})};});
+      await storage.set({ledger});return ledger[keys[0]];
+    });
+    // Every channel transmits as a background job so the popup never waits on Gmail, COSCO or ONE.
+    const job=transmit({keys,mode,channel,message,record,account,settings,requestId});
+    active.add(requestId);jobs.set(requestId,job);
+    job.catch(()=>{}).finally(()=>{active.delete(requestId);setTimeout(()=>jobs.delete(requestId),60000);});
+    return {...first,background:true,containers:items.map(item=>item.container)};
+  }
+  // Only background jobs call this; the run that created the entries already released the queue.
+  async function transmit({keys,mode,channel,message,record,account,settings,requestId}){
+    const chat=channel==='one-chat',portal=channel==='cosco-portal';
+    const write=(patch,only=keys)=>serial(async()=>{
+      const {ledger={}}=await storage.get(['ledger']);
+      for(const key of only)if(ledger[key]?.requestId===requestId)ledger[key]={...ledger[key],...(typeof patch==='function'?patch(key):patch),updatedAt:now()};
+      await storage.set({ledger});return ledger[keys[0]];
+    });
+    const progress=step=>write({step}).catch(()=>{});
     let transmissionStarted = false;
     try {
-      const prepared = chat?await prepareChat({...message,...record,requestId:entry.requestId,send:mode==='send'})
-        :portal?await prepareTicket({...message,...record,requestId:entry.requestId,submit:mode==='send'})
-        :await prepareMail({...message, ...record, account, gmailIndex:settings.gmailIndex, requestId:entry.requestId});
-      entry.tabId = prepared.tabId;
-      if(prepared.agent)entry.agent=prepared.agent;
-      entry.status = 'draft'; await storage.set({ledger});
+      const payload={...message,...record,requestId};
+      const prepared = chat?await prepareChat({...payload,send:mode==='send'},progress)
+        :portal?await prepareTicket({...payload,submit:mode==='send'},progress)
+        :await prepareMail({...payload, account, gmailIndex:settings.gmailIndex});
+      let entry=await write({tabId:prepared.tabId,...(prepared.agent?{agent:prepared.agent}:{}),status:'draft',...(mode==='draft'?{running:false,step:''}:{})});
       if (mode === 'draft') return entry;
-      entry.status = 'sending'; await storage.set({ledger});
+      await write({status:'sending'});
       transmissionStarted = true;
-      const sent = chat?await sendChat(prepared,{...message,...record,requestId:entry.requestId})
-        :portal?await submitTicket(prepared,{...message,...record,requestId:entry.requestId})
-        :await sendMail(prepared, {...message,...record,account,requestId:entry.requestId});
-      if (!sent?.confirmed) throw new Error(chat?'没有检测到 ONE 客服消息已送达。':portal?'没有检测到 COSCO 工单提交成功。':'没有检测到 Gmail 发送成功确认。');
-      entry.status = 'sent'; entry.confirmation = sent.evidence;
-      if(sent.ticketId)entry.ticketId=sent.ticketId;
-      if(sent.agent)entry.agent=sent.agent;
-      await storage.set({ledger}); return entry;
+      const sent = chat?await sendChat(prepared,payload,progress)
+        :portal?await submitTicket(prepared,payload,progress)
+        :await sendMail(prepared, {...payload,account});
+      if (!sent?.confirmed) throw new Error(chat?'没有检测到 ONE 客服已读消息。':portal?'没有检测到 COSCO 工单提交成功。':'没有检测到 Gmail 发送成功确认。');
+      return await write({status:'sent',confirmation:sent.evidence,running:false,step:'',...(sent.ticketId?{ticketId:sent.ticketId}:{}),...(sent.agent?{agent:sent.agent}:{})});
     } catch (error) {
       // An adapter marks errors raised before anything was submitted (e.g. captcha never completed).
       if(error?.notTransmitted===true)transmissionStarted=false;
-      entry.status = transmissionStarted ? 'uncertain' : 'needs_review'; entry.detail = error.message;
-      await storage.set({ledger});
+      const failed={status:transmissionStarted?'uncertain':'needs_review',detail:error.message,running:false,step:''};
+      // A multi-container chat may have some messages read already: those containers count as queried.
+      const read=Array.isArray(error?.read)?error.read:[];
+      await write(key=>read[keys.indexOf(key)]?{status:'sent',confirmation:'客服已读',running:false,step:''}:failed).catch(()=>{});
       if(portal&&!transmissionStarted)throw new Error(`${error.message} 工单未提交，页面已保留。`);
       if(chat)throw new Error(transmissionStarted?`ONE 客服消息结果待核实（${error.message}），已阻止重试。请打开聊天页查看。`:`${error.message} 消息未发送，聊天页已保留。`);
       throw new Error(transmissionStarted ? `发送结果待核实（${error.message}），已阻止重试。请查看 Gmail 已发送和草稿后，再处理记录。` : `${error.message} 自动发送已停止，请检查 Gmail 草稿。`);
     }
   }
-  return {run:(value,mode,options)=>serial(()=>run(value,mode,options)),release:key=>serial(async()=>{
+  return {active:()=>new Set(active),job:requestId=>jobs.get(requestId)||Promise.reject(new Error('任务不存在。')),run,release:key=>serial(async()=>{
     const {ledger={},archive=[]}=await storage.get(['ledger','archive']);
     if(!ledger[key])throw new Error('记录不存在。');
+    if(active.has(ledger[key].requestId))throw new Error('该任务仍在后台进行，完成后再处理记录。');
     archive.push({...ledger[key],releasedAt:now()});delete ledger[key];await storage.set({ledger,archive});
   })};
 }

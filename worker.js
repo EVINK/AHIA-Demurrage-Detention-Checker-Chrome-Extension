@@ -21,10 +21,13 @@ const COSCO_TICKET_URL='https://support.cosco-usa.com/support/tickets/new';
 const ONE_CHAT_URL='https://www.one-line.com/one-ecom/manage-shipment/cargo-tracking';
 const AGENT_TIMEOUT=10*60000,READ_TIMEOUT=5*60000;
 // Start the chat, walk the bot menus, transfer to an agent and, once one joins, `type` or `send` the message.
-async function toAgent(tabId,payload,last){
+async function toAgent(tabId,payload,last,progress=()=>{}){
+  progress('开始对话，选择菜单');
   await inFrame(tabId,'chat','start',payload,90000);
   await inFrame(tabId,'calc','finish',payload,60000);
+  progress('转人工');
   await inFrame(tabId,'chat','transfer',payload,90000);
+  progress('等待客服接入');
   // Agents close idle chats within minutes, so act as soon as one joins.
   const end=Date.now()+AGENT_TIMEOUT;
   for(;;){
@@ -34,6 +37,7 @@ async function toAgent(tabId,payload,last){
     if(Date.now()>end)throw new Error('等待 ONE 客服接入超时（10 分钟）');
     await pause(3000);
   }
+  progress(last==='send'?'客服已接入，发送消息':'客服已接入，填入消息');
   return inFrame(tabId,'chat',last,payload);
 }
 // Run onePage in whichever frame of the tab is `kind`; frames appear asynchronously, so retry until one answers.
@@ -73,12 +77,14 @@ const service=createService({storage:store,
     const tab=await chrome.tabs.create({url:url.href,active:false});await loaded(tab.id);
     const result=await execute(tab.id,gmailPage,['prepare',payload]);return {...result,tabId:tab.id};
   },
-  prepareTicket:async payload=>{
+  prepareTicket:async(payload,progress=()=>{})=>{
+    progress('填写 COSCO 工单');
     // Submitting needs the user to complete the reCAPTCHA, so that tab is opened in front.
     const tab=await chrome.tabs.create({url:COSCO_TICKET_URL,active:payload.submit===true});await loaded(tab.id);
     await execute(tab.id,coscoPage,['fill',payload]);return {tabId:tab.id};
   },
-  submitTicket:async(prepared,payload)=>{
+  submitTicket:async(prepared,payload,progress=()=>{})=>{
+    progress('等待人机验证并提交');
     let before;
     try{before=(await chrome.tabs.get(prepared.tabId)).url;await execute(prepared.tabId,coscoPage,['submit',payload]);}
     catch(error){error.notTransmitted=true;throw error;}
@@ -95,27 +101,38 @@ const service=createService({storage:store,
     if(result.formStillOpen&&result.reason)error.notTransmitted=true;
     throw error;
   },
-  prepareChat:async payload=>{
+  prepareChat:async(payload,progress=()=>{})=>{
+    progress('打开 ONE 页面');
     const tab=await chrome.tabs.create({url:ONE_CHAT_URL,active:false});await loaded(tab.id);
     // Start a new conversation every time: forget any unfinished chat ONE would resume, then reload.
     await inFrame(tab.id,'top','reset');
     await inFrame(tab.id,'chat','reset',{},8000).catch(()=>{});
     await chrome.tabs.reload(tab.id);await pause(500);await loaded(tab.id);
+    progress('填写聊天表单');
     await inFrame(tab.id,'top','open',payload);
     await inFrame(tab.id,'chat','form',payload);
     if(payload.send)return {tabId:tab.id};
     // Test mode goes all the way to the agent and types the message, but never sends it.
-    const typed=await toAgent(tab.id,payload,'type');
+    const typed=await toAgent(tab.id,payload,'type',progress);
     return {tabId:tab.id,agent:typed.agent};
   },
-  sendChat:async(prepared,payload)=>{
+  sendChat:async(prepared,payload,progress=()=>{})=>{
     const tabId=prepared.tabId;
     let sent;
-    try{sent=await toAgent(tabId,payload,'send');}catch(error){error.notTransmitted=true;throw error;}
-    // Done only when the agent has read it (Sent → Delivered → Read).
-    const end=Date.now()+READ_TIMEOUT;let receipt;
-    while(Date.now()<end){receipt=await inFrame(tabId,'chat','receipt',payload);if(/^Read$/i.test(receipt.status))return {confirmed:true,agent:sent.agent,evidence:receipt.evidence};await pause(3000);}
-    throw new Error(`ONE 客服 5 分钟内未读消息（当前状态：${receipt?.status||'未找到消息'}）`);
+    try{sent=await toAgent(tabId,payload,'send',progress);}catch(error){error.notTransmitted=true;throw error;}
+    progress('等待客服已读');
+    // Done only when the agent has read every message (Sent → Delivered → Read).
+    const end=Date.now()+READ_TIMEOUT;let statuses=[];
+    while(Date.now()<end){
+      ({statuses}=await inFrame(tabId,'chat','receipt',payload));
+      const read=statuses.filter(status=>/^Read$/i.test(status)).length;
+      if(read===statuses.length)return {confirmed:true,agent:sent.agent,evidence:`${read} 条消息均已读`};
+      progress(`等待客服已读（${read}/${statuses.length}）`);
+      await pause(3000);
+    }
+    const error=new Error(`ONE 客服 5 分钟内未读完消息（${statuses.map(s=>s||'未找到').join(' / ')}）`);
+    error.read=statuses.map(status=>/^Read$/i.test(status));
+    throw error;
   },
   sendMail:async(prepared,payload)=>{
     const sent=await execute(prepared.tabId,gmailPage,['send',{...payload,bodyHash:prepared.bodyHash}]);
@@ -125,27 +142,32 @@ const service=createService({storage:store,
 });
 // Popup lifetime is shorter than a lookup. Persist its job so closing/reopening
 // the popup never repeats the query or creates a second draft.
-let pendingOperation=null;
+// Operations run concurrently; only the newest is persisted for a reopened popup to restore.
+const pendingOperations=new Set();let latestOperation='';
+async function persist(operation){if(operation.id===latestOperation)await chrome.storage.local.set({operation});}
 async function runOperation(message){
-  if(pendingOperation)throw new Error('已有查询正在进行。重新打开插件可查看进度。');
   const operation={id:crypto.randomUUID(),status:'running',mode:message.mode,container:message.container,options:message.options,time:Date.now()};
-  pendingOperation=operation.id;
+  pendingOperations.add(operation.id);latestOperation=operation.id;
   try{
-    await chrome.storage.local.set({operation});
+    await persist(operation);
     operation.result=await service.run(message.container,message.mode,
       ['draft','send'].includes(message.mode)?{...message.options,useConfirmed:true}:message.options);
     operation.status='complete';
-    await chrome.storage.local.set({operation});
+    await persist(operation);
     return operation.result;
   }catch(error){
     operation.status='failed';operation.error=error.message;
-    await chrome.storage.local.set({operation});throw error;
-  }finally{pendingOperation=null;}
+    await persist(operation);throw error;
+  }finally{pendingOperations.delete(operation.id);}
 }
 async function state(){
-  const pendingAtRead=pendingOperation;
+  const pendingAtRead=new Set(pendingOperations);
   const value=await store.get(['settings','ledger','operation']);
-  if(value.operation?.status==='running'&&!pendingAtRead&&!pendingOperation){
+  const active=service.active();
+  for(const entry of Object.values(value.ledger||{}))
+    if(entry.running&&!active.has(entry.requestId))Object.assign(entry,{running:false,interrupted:true,step:'',detail:entry.detail||'插件后台被中断，请打开对应页面核实结果。'});
+  const id=value.operation?.id;
+  if(value.operation?.status==='running'&&!pendingAtRead.has(id)&&!pendingOperations.has(id)){
     value.operation={...value.operation,status:'interrupted',error:'上次查询中断。请核对操作记录与 Gmail 草稿，再重新查询。'};
   }
   return value;
@@ -154,10 +176,12 @@ chrome.runtime.onMessage.addListener((message,sender,respond)=>{
   if(sender.id!==chrome.runtime.id||sender.url!==chrome.runtime.getURL('app.html'))return false;
   (async()=>{
     if(message.type==='run')return runOperation(message);
+    // Look up an extra container for a multi-container ONE chat without replacing the popup's main result.
+    if(message.type==='peek')return service.run(message.container,'identify',message.options||{});
     if(message.type==='release')return service.release(message.key);
     if(message.type==='state')return state();
     if(message.type==='clearCache'){
-      if(pendingOperation)throw new Error('请等当前操作完成后再清除缓存。');
+      if(pendingOperations.size)throw new Error('请等当前查询完成后再清除缓存。');
       await chrome.storage.local.set({sheetCache:null,operation:null});return true;
     }
     if(message.type==='openDraft'){
@@ -168,7 +192,7 @@ chrome.runtime.onMessage.addListener((message,sender,respond)=>{
       await chrome.tabs.update(message.tabId,{active:true});return true;
     }
     if(message.type==='settings'){
-      if(pendingOperation)throw new Error('请等当前查询完成后再修改配置。');
+      if(pendingOperations.size)throw new Error('请等当前查询完成后再修改配置。');
       const settings=validateSettings(message.settings);
       await chrome.storage.local.set({settings});return settings;
     }

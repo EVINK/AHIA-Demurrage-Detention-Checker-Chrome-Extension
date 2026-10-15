@@ -123,11 +123,16 @@ test('unknown sheet names, conflicting sheet/prefix and ambiguous prefixes never
   assert.throws(()=>recognizeCarrier(record,carriers),/多个/);
   assert.throws(()=>recognizeCarrier({...record,carrier:'MSK'},carriers),/多个/);
 });
+// draft/send start a background job; tests wait for it the way the task list does.
+function waitForJobs(service){
+  const run=async(container,mode,...rest)=>{const started=await service.run(container,mode,...rest);if(!['send','draft'].includes(mode))return started;assert.equal(started.background,true);return service.job(started.requestId);};
+  return {...service,run};
+}
 function setup(overrides={}){
   let db={settings:{account:'me@example.com',gmailIndex:0,extraCc:true,testMode:false},ledger:{}};
   const calls={read:0,prepare:0,send:0};
   const dependencies={storage:{get:async()=>structuredClone(db),set:async x=>{db={...db,...structuredClone(x)};}},readSheet:async()=>{calls.read++;return {records:[record],readAt:Date.now()};},prepareMail:async p=>{calls.prepare++;calls.payload=p;assert.ok(!p.cc.includes('amerihua2606@gmail.com'));return {tabId:8,bodyHash:'hash'};},sendMail:async()=>{calls.send++;return {confirmed:true,evidence:'Message sent'};},uuid:()=> 'test-request',...overrides};
-  return {service:createService(dependencies),calls,db:()=>db,dependencies};
+  return {service:waitForJobs(createService(dependencies)),calls,db:()=>db,dependencies};
 }
 
 test('identify then draft reuses persisted data even after service restart',async()=>{
@@ -270,4 +275,27 @@ test('AirScript reads named sheet, skips cancelled section, emits complete chunk
   assert.deepEqual(rows,copy);
   const meta=JSON.parse(logs.find(x=>x.startsWith('LFD_START:')).slice(10));assert.equal(meta.count,2);assert.equal(meta.cancelledSections,1);
   const chunk=JSON.parse(logs.find(x=>x.startsWith('LFD_CHUNK:')).slice(10));assert.equal(chunk.rows[1][1],'');assert.ok(logs.at(-1).startsWith('LFD_END:'));assert.ok(logs.every(x=>x.length<1000));
+});
+
+test('concurrent cache misses share one sheet read',async()=>{
+  let reads=0,release;const gate=new Promise(r=>release=r);
+  const other={container:'ABCU1234567',mbl:'MAEU999999999',row:400,carrier:'MSK'};
+  const t=setup({readSheet:async()=>{reads++;await gate;return {records:[{...record,carrier:'MSK'},other],readAt:1};}});
+  const a=t.service.run(record.container,'identify'),b=t.service.run(other.container,'identify');
+  await new Promise(r=>setTimeout(r,10));release();
+  const [ra,rb]=await Promise.all([a,b]);
+  assert.equal(reads,1);assert.equal(ra.mbl,record.mbl);assert.equal(rb.mbl,other.mbl);
+});
+
+test('a lookup is not blocked by a background send that is still running',async()=>{
+  let release;const gate=new Promise(r=>release=r);
+  const other={container:'ABCU1234567',mbl:'MAEU999999999',row:400,carrier:'MSK'};
+  const t=setup({readSheet:async()=>({records:[{...record,carrier:'MSK'},other],readAt:1}),prepareMail:async()=>{await gate;return {tabId:8,bodyHash:'h'};}});
+  const raw=createService({...t.dependencies,prepareMail:async()=>{await gate;return {tabId:8,bodyHash:'h'};}});
+  await raw.run(record.container,'identify');
+  const started=await raw.run(record.container,'send');
+  assert.equal(started.background,true);assert.equal(started.running,true);
+  const lookup=await raw.run(other.container,'identify');
+  assert.equal(lookup.mbl,other.mbl,'lookup finished while the send job waits');
+  release();await raw.job(started.requestId);
 });

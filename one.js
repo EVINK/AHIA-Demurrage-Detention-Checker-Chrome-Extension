@@ -106,25 +106,41 @@ export async function onePage(kind,action,payload){
     const ended=events().some(e=>/ended the chat|chat (has )?ended|conversation ended|timed out/i.test(e));
     return {ok:true,data:{agent:agent(),ended}};
   }
+  const messages=Array.isArray(payload?.messages)&&payload.messages.length?payload.messages:[payload?.message];
+  const bubbles=()=>deepAll(e=>e.matches('li.slds-chat-listitem_outbound'));
+  const bubble=message=>bubbles().filter(li=>text(li).startsWith(message)).at(-1);
   if(action==='type'||action==='send'){
     const name=agent();if(!name)throw new Error('ONE 客服还没有接入，消息未发送。');
     const box=textarea();if(!box||box.disabled)throw new Error('ONE 聊天输入框不可用，消息未发送。');
     if(box.value.trim())throw new Error('ONE 聊天输入框中已有内容，已停止以避免覆盖。');
-    box.focus();setValue(box,payload.message);await pause(400);
-    if(box.value!==payload.message)throw new Error('ONE 聊天消息填写失败，消息未发送。');
-    // Test mode stops here: the message sits in the box for the user to review, unsent.
-    if(action==='type')return {ok:true,data:{typed:true,agent:name}};
-    const send=deepAll(e=>e.tagName==='BUTTON'&&e.classList.contains('embeddedMessagingSendButton')&&visible(e))[0];
-    if(!send||send.disabled)throw new Error('没有找到可用的发送按钮，消息未发送。');
-    send.click();
-    return {ok:true,data:{clicked:true,agent:name}};
+    if(action==='type'){
+      // Test mode: every message sits in the box, one per line, for the user to review. Nothing is sent.
+      box.focus();setValue(box,messages.join('\n'));await pause(400);
+      if(box.value!==messages.join('\n'))throw new Error('ONE 聊天消息填写失败，消息未发送。');
+      return {ok:true,data:{typed:true,agent:name}};
+    }
+    // One message per container, each sent only after the previous one appears in the conversation.
+    let sent=0;
+    for(const message of messages){
+      if(bubble(message)){sent++;continue;}
+      box.focus();setValue(box,message);await pause(400);
+      if(box.value!==message)throw Object.assign(new Error('ONE 聊天消息填写失败。'),{sent});
+      const send=deepAll(e=>e.tagName==='BUTTON'&&e.classList.contains('embeddedMessagingSendButton')&&visible(e))[0];
+      if(!send||send.disabled)throw Object.assign(new Error('没有找到可用的发送按钮。'),{sent});
+      send.click();
+      await waitFor(()=>bubble(message),'消息没有出现在对话中。',20000).catch(error=>{throw Object.assign(error,{sent:sent+1});});
+      sent++;await pause(800);
+    }
+    return {ok:true,data:{clicked:sent,agent:name}};
   }
   if(action==='receipt'){
-    // Receipt under our outbound bubble: Sent → Delivered → Read.
-    const mine=deepAll(e=>e.matches('li.slds-chat-listitem_outbound')).filter(li=>text(li).startsWith(payload.message)).at(-1);
-    const receipt=mine&&deepAll(e=>e.classList?.contains('embedded-messaging-chat-message-receipt-text')&&mine.contains(e))[0];
-    const status=receipt?text(receipt).split('•')[0].trim():'';
-    return {ok:true,data:{found:!!mine,status,evidence:mine?text(mine).slice(0,200):''}};
+    // Receipt under each outbound bubble: Sent → Delivered → Read.
+    const statuses=messages.map(message=>{
+      const mine=bubble(message);
+      const receipt=mine&&deepAll(e=>e.classList?.contains('embedded-messaging-chat-message-receipt-text')&&mine.contains(e))[0];
+      return receipt?text(receipt).split('•')[0].trim():'';
+    });
+    return {ok:true,data:{statuses}};
   }
   throw new Error('未知 ONE 聊天操作。');
   }catch(error){return {ok:false,error:error.message||String(error)};}

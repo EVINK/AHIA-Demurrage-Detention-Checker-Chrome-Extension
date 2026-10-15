@@ -18,7 +18,10 @@ function setup({testMode=false,...overrides}={}){
     prepareTicket:async payload=>{calls.prepareTicket.push(payload);return {tabId:9};},
     submitTicket:async(prepared,payload)=>{calls.submitTicket.push({prepared,payload});return {confirmed:true,ticketId:'123456',evidence:'/support/tickets/123456'};},
     uuid:()=>'test-request',...overrides};
-  return {service:createService(dependencies),calls,db:()=>db};
+  const service=createService(dependencies);
+  // send/draft for background channels return at once; wait for the job like the popup's task list does.
+  const run=async(...args)=>{const started=await service.run(...args);assert.equal(started.background,true);return service.job(started.requestId);};
+  return {service:{...service,run:(container,mode,...rest)=>['send','draft'].includes(mode)?run(container,mode,...rest):service.run(container,mode,...rest)},calls,db:()=>db};
 }
 
 test('COSCO is a built-in portal carrier recognized from the sheet SSL "COS"',()=>{

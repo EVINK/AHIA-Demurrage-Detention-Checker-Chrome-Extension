@@ -17,7 +17,10 @@ function setup({testMode=false,...overrides}={}){
     prepareChat:async payload=>{calls.prepareChat.push(payload);return {tabId:11,...(payload.send?{}:{agent:'Liza (ONE)'})};},
     sendChat:async(prepared,payload)=>{calls.sendChat.push({prepared,payload});return {confirmed:true,agent:'Liza (ONE)',evidence:'Please advise … Read • 11:16 AM'};},
     uuid:()=>'test-request',...overrides};
-  return {service:createService(dependencies),calls,db:()=>db};
+  const service=createService(dependencies);
+  // send/draft for background channels return at once; wait for the job like the popup's task list does.
+  const run=async(...args)=>{const started=await service.run(...args);assert.equal(started.background,true);return service.job(started.requestId);};
+  return {service:{...service,run:(container,mode,...rest)=>['send','draft'].includes(mode)?run(container,mode,...rest):service.run(container,mode,...rest)},calls,db:()=>db};
 }
 
 test('ONE is a built-in live-chat carrier recognized from the sheet SSL or the ONEY prefix',()=>{
@@ -80,4 +83,16 @@ test('failure before the message is sent (no agent) is "not sent", after sending
   await assert.rejects(late.service.run(record.container,'send'),/待核实/);
   assert.equal(Object.values(late.db().ledger)[0].status,'uncertain');
   await assert.rejects(late.service.run(record.container,'send'),/已有/);
+});
+
+test('a multi-container chat sends one message per container and partial reads are recorded per container',async()=>{
+  const second={container:'ONEU4567236',mbl:'ONEYTA6PTU000000'};
+  const t=setup({sendChat:async()=>{const error=new Error('未读完');error.read=[true,false];throw error;}});
+  await t.service.run(record.container,'identify');
+  await assert.rejects(t.service.run(record.container,'send',{more:[second]}),/待核实/);
+  const sent=t.calls.prepareChat[0];
+  assert.deepEqual(sent.messages,['Please advise demurrage LFD for TRHU6206940 / ONEYSZPGR9159802','Please advise demurrage LFD for ONEU4567236 / ONEYTA6PTU000000']);
+  const entries=Object.values(t.db().ledger);
+  assert.deepEqual(entries.map(e=>[e.container,e.status]),[['TRHU6206940','sent'],['ONEU4567236','uncertain']]);
+  assert.deepEqual(entries.map(e=>e.chatMessage),sent.messages);
 });
