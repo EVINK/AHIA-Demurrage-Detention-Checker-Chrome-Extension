@@ -102,11 +102,27 @@ export function createService({storage, readSheet, prepareMail, sendMail, prepar
       keys.forEach((key,index)=>{ledger[key]={...(index?{container:items[index].container,mbl:items[index].mbl,sourceTime:record.sourceTime}:record),...base,...(chat?{chatMessage:message.messages[index]}:{})};});
       await storage.set({ledger});return ledger[keys[0]];
     });
+    if(channel==='email'&&settings.mailClient==='system'){
+      // Opened by the popup itself (a user click is needed to launch an external program).
+      const mailto=mailtoUrl(message);
+      return serial(async()=>{
+        const {ledger={}}=await storage.get(['ledger']);
+        for(const key of keys)if(ledger[key]?.requestId===requestId)ledger[key]={...ledger[key],status:'draft',mailClient:'system',mailto,running:false,step:''};
+        await storage.set({ledger});return {...ledger[keys[0]],containers:items.map(item=>item.container)};
+      });
+    }
     // Every channel transmits as a background job so the popup never waits on Gmail, COSCO or ONE.
     const job=transmit({keys,mode,channel,message,record,account,settings,requestId});
     active.add(requestId);jobs.set(requestId,job);
     job.catch(()=>{}).finally(()=>{active.delete(requestId);setTimeout(()=>jobs.delete(requestId),60000);});
     return {...first,background:true,containers:items.map(item=>item.container)};
+  }
+  // The computer's default mail program: the extension can only open a filled compose window; sending is
+  // done (and confirmed with 「我已发送」) by the user.
+  function mailtoUrl(message){
+    const query=[['cc',message.cc.join(',')],['subject',message.subject],['body',message.bodyText.replace(/\n/g,'\r\n')]]
+      .filter(([,value])=>value).map(([key,value])=>`${key}=${encodeURIComponent(value)}`).join('&');
+    return `mailto:${message.to.map(encodeURIComponent).join(',')}?${query}`;
   }
   // Only background jobs call this; the run that created the entries already released the queue.
   async function transmit({keys,mode,channel,message,record,account,settings,requestId}){
@@ -146,6 +162,14 @@ export function createService({storage, readSheet, prepareMail, sendMail, prepar
       throw new Error(transmissionStarted ? `发送结果待核实（${error.message}），已阻止重试。请查看 Gmail 已发送和草稿后，再处理记录。` : `${error.message} 自动发送已停止，请检查 Gmail 草稿。`);
     }
   }
+  // 「我已发送」 for a mail-program draft: only the user knows it went out.
+  const markSent=requestId=>serial(async()=>{
+    const {ledger={}}=await storage.get(['ledger']);
+    const keys=Object.keys(ledger).filter(key=>ledger[key].requestId===requestId&&ledger[key].mailClient==='system'&&ledger[key].status==='draft');
+    if(!keys.length)throw new Error('记录不存在或已确认。');
+    for(const key of keys)ledger[key]={...ledger[key],status:'sent',confirmation:'用户确认已在邮件程序中发送',sentAt:now()};
+    await storage.set({ledger});return keys.length;
+  });
   async function cancel(requestId){
     if(!active.has(requestId))throw new Error('任务已经结束。');
     cancelled.add(requestId);
@@ -161,7 +185,7 @@ export function createService({storage, readSheet, prepareMail, sendMail, prepar
     for(const key of keys){archive.push({...ledger[key],releasedAt:now()});delete ledger[key];}
     await storage.set({ledger,archive});return keys.length;
   });
-  return {active:()=>new Set(active),cancel,releaseTask,job:requestId=>jobs.get(requestId)||Promise.reject(new Error('任务不存在。')),run,release:key=>serial(async()=>{
+  return {active:()=>new Set(active),cancel,releaseTask,markSent,job:requestId=>jobs.get(requestId)||Promise.reject(new Error('任务不存在。')),run,release:key=>serial(async()=>{
     const {ledger={},archive=[]}=await storage.get(['ledger','archive']);
     if(!ledger[key])throw new Error('记录不存在。');
     if(active.has(ledger[key].requestId))throw new Error('该任务仍在后台进行，请先终止任务。');

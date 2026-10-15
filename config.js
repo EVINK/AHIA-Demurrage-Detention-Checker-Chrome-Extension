@@ -10,7 +10,9 @@ export const DEFAULT_SETTINGS=Object.freeze({
   testMode:true,
   carriers:DEFAULT_CARRIERS,
   defaultCarrierId:'auto',
-  defaultInquiryType:'demurrage'
+  defaultInquiryType:'demurrage',
+  // 'gmail': Gmail web compose (automatic); 'system': the computer's default mail program via mailto:.
+  mailClient:'gmail'
 });
 const SETTING_KEYS=Object.keys(DEFAULT_SETTINGS);
 const ENVELOPE_KEYS=['format','version','settings'];
@@ -33,6 +35,10 @@ function pickSettings(value,label){
   return result;
 }
 
+function mailClient(value){
+  if(!['gmail','system'].includes(value))throw new Error('邮件发送方式须为 Gmail 网页或电脑默认邮件程序。');
+  return value;
+}
 /** Validate a partial update and return only the supported, normalized settings. */
 export function validateSettings(input={}, {previous}={}){
   const update=pickSettings(input,'配置');
@@ -65,7 +71,8 @@ export function validateSettings(input={}, {previous}={}){
     testMode:settings.testMode,
     carriers,
     defaultCarrierId:settings.defaultCarrierId,
-    defaultInquiryType:inquiryType(settings.defaultInquiryType)
+    defaultInquiryType:inquiryType(settings.defaultInquiryType),
+    mailClient:mailClient(settings.mailClient)
   };
 }
 

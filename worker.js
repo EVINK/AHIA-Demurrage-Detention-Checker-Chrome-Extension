@@ -321,6 +321,7 @@ chrome.runtime.onMessage.addListener((message,sender,respond)=>{
       return true;
     }
     if(message.type==='deleteTask')return service.releaseTask(message.requestId);
+    if(message.type==='markSent')return service.markSent(message.requestId);
     if(message.type==='testNotification'){notify('lfd-test',-1,'LFD Inquiry 测试通知','请点击这条通知。插件收到点击后会再弹出「插件已收到点击」。',true);return true;}
     if(message.type==='state')return state();
     if(message.type==='clearCache'){

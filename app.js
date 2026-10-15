@@ -70,8 +70,9 @@ function syncMode(){
   // 「＋」 (more containers in the same chat) only exists for ONE; other carriers hide it and any extra boxes.
   $('addContainer').hidden=!chat;$('extraContainers').hidden=!chat&&Boolean(matchedProfile());
   const count=chat?1+extraContainers().length:1;
-  $('send').textContent=chat?(test?`联系 ONE 客服（测试模式·不发送）${count>1?' · '+count+' 个柜号':''}`:`发送 ONE 在线客服消息${count>1?'（'+count+' 个柜号）':''}`):portal?(test?'填写 COSCO 工单（测试模式）':'提交 COSCO 工单'):test?'生成草稿（测试模式）':'发送邮件';
-  $('draft').textContent=chat?'转人工但不发送':portal?'仅填写工单':'仅生成草稿';
+  const system=channel==='email'&&settings.mailClient==='system';
+  $('send').textContent=system?(test?'打开邮件程序（测试模式）':'打开邮件程序发送'):chat?(test?`联系 ONE 客服（测试模式·不发送）${count>1?' · '+count+' 个柜号':''}`:`发送 ONE 在线客服消息${count>1?'（'+count+' 个柜号）':''}`):portal?(test?'填写 COSCO 工单（测试模式）':'提交 COSCO 工单'):test?'生成草稿（测试模式）':'发送邮件';
+  $('draft').textContent=system?'打开邮件程序':chat?'转人工但不发送':portal?'仅填写工单':'仅生成草稿';
 }
 // The channel the current inquiry will use (On-Hire is always email).
 function matchedChannel(){const profile=matchedProfile();return profile?inquiryChannel(profile,$('inquiryType').value):undefined;}
@@ -86,7 +87,7 @@ function fillSelect(id,includeAuto,value){
 function hydrateSettings(){
   const selected=$('carrier').value||settings.defaultCarrierId;
   fillSelect('carrier',true,selected);fillSelect('defaultCarrierId',true,settings.defaultCarrierId);fillSelect('editCarrier',false,editingId||settings.carriers[0].id);
-  for(const key of ['sheetUrl','account','gmailIndex','defaultInquiryType'])$(key).value=settings[key];
+  for(const key of ['sheetUrl','account','gmailIndex','defaultInquiryType','mailClient'])$(key).value=settings[key];$('mailClientNotice').hidden=settings.mailClient!=='system';
   $('testMode').checked=settings.testMode!==false;syncMode();
   loadProfile($('editCarrier').value);
 }
@@ -158,12 +159,13 @@ function renderResult(data){
     }catch(error){clearPreview();status(error.message,'error');}
   }
   draftTabId=data.status==='draft'&&Number.isInteger(data.tabId)?data.tabId:null;$('openDraft').hidden=draftTabId===null;
-  $('openDraft').textContent=chat?'打开 ONE 聊天页 ↗':portal?'打开 COSCO 工单页 ↗':'打开 Gmail 草稿 ↗';$('signatureNote').hidden=portal||chat;
+  $('openDraft').textContent=chat?'打开 ONE 聊天页 ↗':portal?'打开 COSCO 工单页 ↗':'打开 Gmail 草稿 ↗';$('signatureNote').hidden=portal||chat;$('signatureNote').textContent=settings.mailClient==='system'?'＋ 邮件程序中的签名（纯文本正文）':'＋ Gmail 中的原签名';
   syncMode();setBusy(busy);
 }
 function reportResult(data,mode){
   renderResult(data);
   const portal=data.channel==='cosco-portal',chat=data.channel==='one-chat';
+  if(data.mailClient==='system'&&data.status==='draft'){status('已打开电脑默认邮件程序。请在邮件程序里检查并发送，发完后到「进行中」或「记录」点「我已发送」。','success');return;}
   if(data.background){status(`已加入后台任务：${(data.containers||[data.container]).join('、')}。可在「进行中」查看进度，现在可以继续查询其他柜号。`,'success');return;}
   if(data.status==='draft')status(chat?`ONE 客服${data.agent?' '+data.agent:''}已接入，消息已填入聊天框，测试模式下未发送。可打开聊天页查看。`:portal?'COSCO 工单已填好，测试模式下未提交。可打开工单页检查。':'Gmail 草稿已填好，原签名已保留，尚未发送。可打开草稿检查。','success');
   else if(data.status==='sent')status(chat?`已查询：ONE 客服${data.agent?' '+data.agent:''}已读消息，回复请在聊天页查看。`:portal?`COSCO 工单已提交${data.ticketId?' #'+data.ticketId:''}。`:'Gmail 已显示发送成功。','success');
@@ -198,11 +200,15 @@ function renderHistory(ledger={}){
     const row=document.createElement('div');row.className='history-row';
     const content=document.createElement('div'),name=document.createElement('strong');name.textContent=entry.container+' · '+entry.mbl;content.append(name);
     const detail=document.createElement('p');detail.textContent=`${entry.carrierName||'Maersk'} · ${types[entry.inquiryType]||'Demurrage'} · ${new Date(entry.time).toLocaleString()}`;content.append(detail);
-    const portal=entry.channel==='cosco-portal',chat=entry.channel==='one-chat';
-    const state=document.createElement('div');state.className='history-state';state.textContent=((chat?chatStatuses:portal?portalStatuses:statuses)[entry.status]||entry.status)+(entry.ticketId?` #${entry.ticketId}`:'')+(entry.agent?` · ${entry.agent}`:'');content.append(state);
+    const portal=entry.channel==='cosco-portal',chat=entry.channel==='one-chat',system=entry.mailClient==='system';
+    const state=document.createElement('div');state.className='history-state';state.textContent=(system&&entry.status==='draft'?'已打开邮件程序 · 待确认发送':system&&entry.status==='sent'?'已发送（用户确认）':(chat?chatStatuses:portal?portalStatuses:statuses)[entry.status]||entry.status)+(entry.ticketId?` #${entry.ticketId}`:'')+(entry.agent?` · ${entry.agent}`:'');content.append(state);
     if(entry.detail){const note=document.createElement('p');note.textContent=entry.detail;content.append(note);}
     const buttons=document.createElement('div');buttons.className='history-buttons';
     if(['draft','uncertain',...(portal||chat?['needs_review']:[])].includes(entry.status)&&Number.isInteger(entry.tabId)){const open=document.createElement('button');open.textContent=chat?'打开聊天页':portal?'打开工单页':entry.status==='draft'?'打开草稿':'打开写信页';open.disabled=busy;open.addEventListener('click',()=>openDraft(entry.tabId));buttons.append(open);}
+    if(system&&entry.status==='draft'){
+      const reopen=document.createElement('button');reopen.textContent='重新打开邮件';reopen.addEventListener('click',()=>openMailto(entry.mailto));
+      const sent=document.createElement('button');sent.textContent='我已发送';sent.addEventListener('click',()=>markSent(entry.requestId));buttons.append(reopen,sent);
+    }
     const release=document.createElement('button');release.textContent='解除锁定';release.disabled=busy;
     release.addEventListener('click',async()=>{if(busy||!confirm(`${entry.channel==='one-chat'?'请先检查 ONE 聊天页中消息是否已发送。':entry.channel==='cosco-portal'?'请先检查 COSCO 工单是否已提交（工单页或 Requester 邮箱的确认邮件）。':'请先检查 Gmail 已发送和草稿。'}\n\n解除 ${entry.container} 的锁定会允许再次生成同类邮件。确认已核实并需要重新生成？`))return;try{await rpc({type:'release',key});await refreshState();status('已解除该条记录的锁定。');}catch(error){status(error.message,'error');}});
     buttons.append(release);row.append(content,buttons);root.append(row);
@@ -212,7 +218,7 @@ function renderTasks(ledger={}){
   // Running tasks, plus tasks that need attention (failed, interrupted, unconfirmed) from the last 24 hours.
   const groups=new Map(),dayAgo=Date.now()-86400000;
   for(const entry of Object.values(ledger)){
-    const attention=entry.interrupted||(['needs_review','uncertain','preparing','sending'].includes(entry.status)&&(entry.time||0)>dayAgo);
+    const attention=entry.interrupted||(entry.mailClient==='system'&&entry.status==='draft')||(['needs_review','uncertain','preparing','sending'].includes(entry.status)&&(entry.time||0)>dayAgo);
     if(!entry.running&&!attention)continue;
     const id=entry.requestId||entry.container;if(!groups.has(id))groups.set(id,[]);groups.get(id).push(entry);
   }
@@ -227,7 +233,7 @@ function renderTasks(ledger={}){
     const detail=document.createElement('p');const minutes=Math.max(0,Math.round((Date.now()-(entry.time||Date.now()))/60000));
     detail.textContent=`${entry.carrierName||''} · ${types[entry.inquiryType]||''} · ${new Date(entry.time).toLocaleTimeString()} 开始${entry.running?` · 已 ${minutes} 分钟`:''}`;content.append(detail);
     const step=document.createElement('div');step.className='task-step'+(entry.running?'':' interrupted');
-    step.textContent=entry.running?(entry.step||'进行中')+(entry.agent?` · ${entry.agent}`:''):entry.interrupted?'已中断，请打开页面核实结果':`${entry.status==='uncertain'?'结果待核实':'未完成'}：${entry.detail||''}`;content.append(step);
+    step.textContent=entry.running?(entry.step||'进行中')+(entry.agent?` · ${entry.agent}`:''):entry.mailClient==='system'&&entry.status==='draft'?'已打开邮件程序，发完后请点「我已发送」':entry.interrupted?'已中断，请打开页面核实结果':`${entry.status==='uncertain'?'结果待核实':'未完成'}：${entry.detail||''}`;content.append(step);
     const buttons=document.createElement('div');buttons.className='history-buttons';
     if(Number.isInteger(entry.tabId)){const open=document.createElement('button');open.textContent=entry.channel==='one-chat'?'打开聊天':entry.channel==='cosco-portal'&&/人机验证/.test(entry.step||'')?'去验证':'打开页面';open.addEventListener('click',()=>openDraft(entry.tabId));buttons.append(open);}
     if(entry.running){
@@ -235,6 +241,10 @@ function renderTasks(ledger={}){
       stop.addEventListener('click',async()=>{if(!confirm(`终止 ${group.map(e=>e.container).join('、')} 的任务？插件会关闭它的窗口。已经发出的消息无法撤回。`))return;try{await rpc({type:'cancel',requestId:entry.requestId});status('任务已终止。');await refreshState();}catch(error){status(error.message,'error');}});
       buttons.append(stop);
     }else{
+      if(entry.mailClient==='system'&&entry.status==='draft'){
+        const reopen=document.createElement('button');reopen.textContent='重新打开邮件';reopen.addEventListener('click',()=>openMailto(entry.mailto));
+        const sent=document.createElement('button');sent.textContent='我已发送';sent.addEventListener('click',()=>markSent(entry.requestId));buttons.append(reopen,sent);
+      }
       const remove=document.createElement('button');remove.textContent='删除';
       remove.addEventListener('click',async()=>{if(!confirm(`删除 ${group.map(e=>e.container).join('、')} 的任务？会解除防重复锁，之后可以重新查询发送。${entry.status==='uncertain'?'\n\n注意：这个任务的结果待核实，消息可能已经发出，请先核实。':''}`))return;try{await rpc({type:'deleteTask',requestId:entry.requestId});status('任务已删除，可以重新发送。');await refreshState();}catch(error){status(error.message,'error');}});
       buttons.append(remove);
@@ -276,7 +286,9 @@ async function perform(mode,forceRefresh=false){
   try{
     startPolling();const data=await rpc({type:'run',mode,container:$('container').value.trim().toUpperCase(),options:{...options(),forceRefresh,...(mode==='identify'?{}:{manualMbl:$('manualMbl').value,useConfirmed:true,...(more.length?{more}:{})})}});
     if(sequence!==requestSequence)return;
-    lookingUp=false;setBusy(false);reportResult(data,mode);
+    lookingUp=false;setBusy(false);
+    if(data.mailto)openMailto(data.mailto);
+    reportResult(data,mode);
     if(data.background){$('extraContainers').replaceChildren();syncMode();}
     const state=await rpc({type:'state'});renderHistory(state.ledger);renderTasks(state.ledger);if(state.operation?.id!==previousOperation){lastOperationId=state.operation?.id||lastOperationId;lastRenderedOperation=lastOperationId;}
   }catch(error){if(sequence===requestSequence){lookingUp=false;setBusy(false);if(mode==='identify')lookupError(error.message);status(error.message,'error');if(mode==='identify'&&notFound(error.message))showNotFound($('container').value.trim().toUpperCase());try{const state=await rpc({type:'state'});renderHistory(state.ledger);renderTasks(state.ledger);lastRenderedOperation=state.operation?.id||lastRenderedOperation;}catch{}}}
@@ -311,6 +323,9 @@ async function saveSettings(next){
   const normalized=validateSettings(next);settings=validateSettings(await rpc({type:'settings',settings:normalized}));hydrateSettings();
   if(lastResult){const refreshed={...lastResult,configurationMissing:undefined};renderResult(refreshed);}setBusy(false);
 }
+// Launch the computer's default mail program with the filled message.
+function openMailto(url){const a=document.createElement('a');a.href=url;a.rel='noopener';document.body.append(a);a.click();a.remove();}
+async function markSent(requestId){try{await rpc({type:'markSent',requestId});status('已记录为已发送。','success');await refreshState();}catch(error){status(error.message,'error');}}
 async function openDraft(tabId){if(busy)return;try{await rpc({type:'openDraft',tabId});}catch(error){status(error.message,'error');}}
 function download(text,filename,type){const url=URL.createObjectURL(new Blob([text],{type})),a=document.createElement('a');a.href=url;a.download=filename;document.body.append(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),1500);}
 async function scriptText(){const response=await fetch('./airscript/LFD_ReadOnly.js');if(!response.ok)throw new Error('无法读取插件中的只读脚本。');return response.text();}
@@ -341,7 +356,8 @@ $('deleteCarrier').addEventListener('click',async()=>{
   if(!confirm(`删除 ${profile.name} 的船公司配置？操作记录仍然保留。`))return;
   try{const carriers=settings.carriers.filter(p=>p.id!==editingId);editingId=carriers[0].id;await saveSettings({...settings,carriers,defaultCarrierId:settings.defaultCarrierId===profile.id?'auto':settings.defaultCarrierId});status('船公司配置已删除。');}catch(error){status(error.message,'error');}
 });
-$('connectionForm').addEventListener('submit',async event=>{event.preventDefault();try{await saveSettings({...settings,sheetUrl:$('sheetUrl').value.trim(),account:$('account').value.trim(),gmailIndex:Number($('gmailIndex').value),testMode:$('testMode').checked,defaultCarrierId:$('defaultCarrierId').value,defaultInquiryType:$('defaultInquiryType').value});status('连接与默认选项已保存。','success');}catch(error){status(error.message,'error');}});
+$('mailClient').addEventListener('change',()=>{$('mailClientNotice').hidden=$('mailClient').value!=='system';});
+$('connectionForm').addEventListener('submit',async event=>{event.preventDefault();if($('mailClient').value==='system'&&settings.mailClient!=='system'&&!confirm('改用电脑默认邮件程序后，插件只能打开写好的邮件，不能自动发送，也无法确认是否已发出，需要你发完后点「我已发送」。推荐继续使用 Gmail 网页。\n\n确定改用电脑默认邮件程序？'))return;try{await saveSettings({...settings,sheetUrl:$('sheetUrl').value.trim(),account:$('account').value.trim(),gmailIndex:Number($('gmailIndex').value),testMode:$('testMode').checked,defaultCarrierId:$('defaultCarrierId').value,defaultInquiryType:$('defaultInquiryType').value,mailClient:$('mailClient').value});status('连接与默认选项已保存。','success');}catch(error){status(error.message,'error');}});
 $('exportConfig').addEventListener('click',()=>{try{download(JSON.stringify(createConfig(settings),null,2)+'\n','lfd-inquiry-config.json','application/json');status('配置 JSON 已导出。','success');}catch(error){status(error.message,'error');}});
 $('importFile').addEventListener('change',async event=>{
   pendingImport=null;$('importReview').hidden=true;const file=event.target.files[0];if(!file)return;
