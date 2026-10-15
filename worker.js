@@ -23,10 +23,14 @@ const store={get:async keys=>{const result=await chrome.storage.local.get(keys);
 const service=createService({storage:store,
   readSheet:async settings=>{
     // Own this temporary tab; never select scripts or change UI in user tabs.
+    // Bundled read-only script: installed into / upgraded in the account's 「我的脚本」 when needed.
+    const code=await (await fetch(chrome.runtime.getURL('airscript/LFD_ReadOnly.js'))).text();
+    const build=Number(code.match(/LFD build:\s*(\d+)/)?.[1]);
+    if(!build)throw new Error('插件内的只读脚本缺少版本号。');
     const tab=await chrome.tabs.create({url:new URL(settings.sheetUrl).href,active:false});
     try{
       // MAIN world: the AirScript log list's full data is only reachable from page scripts.
-      await loaded(tab.id);return await execute(tab.id,readKdocsPage,[],'MAIN');
+      await loaded(tab.id);return await execute(tab.id,readKdocsPage,[{name:'LFD_ReadOnly_v1',code,build}],'MAIN');
     }finally{
       await chrome.tabs.remove(tab.id).catch(()=>{});
     }

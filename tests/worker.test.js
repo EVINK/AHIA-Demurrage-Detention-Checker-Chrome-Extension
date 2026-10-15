@@ -19,7 +19,7 @@ async function until(predicate){
 
 function setup({data={},run=async()=>({status:'draft',tabId:42}),read=async value=>value,tabs=[],scriptError=null}={}){
   let db={settings:{...defaults},ledger:{},...clone(data)},listener,deps,id=0;
-  const calls={run:[],release:[],writes:[],created:[],updated:[],queries:[],scripts:[],access:[],removed:[]};
+  const calls={fetched:[],run:[],release:[],writes:[],created:[],updated:[],queries:[],scripts:[],access:[],removed:[]};
   const tabMap=new Map(tabs.map(tab=>[tab.id,clone(tab)]));
   const readKdocsPage=()=>{},gmailPage=()=>{},coscoPage=()=>{};
   const chrome={
@@ -43,7 +43,7 @@ function setup({data={},run=async()=>({status:'draft',tabId:42}),read=async valu
     }}
   };
   vm.runInNewContext(source,{
-    chrome,URL,URLSearchParams,Date,setTimeout,
+    chrome,URL,URLSearchParams,Date,setTimeout,fetch:async url=>{calls.fetched.push(url);return {text:async()=>'// LFD build: 3\nmain();'};},
     crypto:{randomUUID:()=>`operation-${++id}`},readKdocsPage,gmailPage,coscoPage,
     validateSettings:value=>({...defaults,...clone(value)}),
     createService:dependencies=>{deps=dependencies;return {
@@ -180,6 +180,8 @@ test('lookup owns and closes a background tab without touching existing KDocs ta
   await t.deps.readSheet(defaults);
   assert.deepEqual(t.calls.created,[{url:defaults.sheetUrl,active:false}]);assert.deepEqual(t.calls.updated,[]);
   assert.equal(t.calls.scripts[0].tabId,101);
+  assert.deepEqual(t.calls.fetched,['chrome-extension://test-extension/airscript/LFD_ReadOnly.js']);
+  assert.deepEqual(t.calls.scripts[0].args,[{name:'LFD_ReadOnly_v1',code:'// LFD build: 3\nmain();',build:3}],'bundled script and build reach the page adapter');
   assert.deepEqual(t.calls.removed,[101]);assert.deepEqual(t.calls.queries,[]);
 });
 

@@ -36,6 +36,14 @@ async function rpc(message){
   if(!response?.ok)throw new Error(response?.error||'插件未返回结果。请检查 Gmail 后再操作。');
   return response.data;
 }
+// Not found in the cache nor in the sheet: query once, then let the user decide whether to look again.
+const notFound=message=>/未找到该柜号/.test(message||'');
+let notFoundContainer='';
+function showNotFound(container){
+  notFoundContainer=container;
+  $('notFoundText').textContent=`提柜表中找不到柜号 ${container}，请检查柜号是否输入正确。`;
+  if(!$('notFound').open)$('notFound').showModal();
+}
 function status(text,type=''){ $('status').textContent=text;$('status').className=type;$('statusDot').className='status-dot '+type; }
 function lookupError(message){
   $('matchCarrier').textContent='查表未完成';$('matchMbl').textContent='尚未取得 MBL';
@@ -159,7 +167,7 @@ function syncOperation(operation,{restore=false}={}){
   if(operation.id&&lastRenderedOperation===operation.id)return;
   lastRenderedOperation=operation.id||'';
   if(operation.status==='complete'){setBusy(false);reportResult(operation.result,operation.mode);}
-  else if(operation.status==='failed'||operation.status==='interrupted'){setBusy(false);if(operation.mode==='identify')lookupError(operation.error||'请点击重新查表。');status(operation.error||(operation.status==='interrupted'?'上次操作已中断，请先检查 Gmail 草稿和已发送记录。':'操作失败。'),'error');}
+  else if(operation.status==='failed'||operation.status==='interrupted'){setBusy(false);if(operation.mode==='identify')lookupError(operation.error||'请点击重新查表。');if(operation.mode==='identify'&&notFound(operation.error)&&operation.container===$('container').value.trim().toUpperCase())showNotFound(operation.container);status(operation.error||(operation.status==='interrupted'?'上次操作已中断，请先检查 Gmail 草稿和已发送记录。':'操作失败。'),'error');}
 }
 function renderHistory(ledger={}){
   const root=$('history');root.replaceChildren();const entries=Object.entries(ledger).sort((a,b)=>(b[1].time||0)-(a[1].time||0));$('historyCount').textContent=entries.length;
@@ -206,7 +214,7 @@ async function perform(mode,forceRefresh=false){
     if(sequence!==requestSequence)return;
     setBusy(false);reportResult(data,mode);
     const state=await rpc({type:'state'});renderHistory(state.ledger);if(state.operation?.id!==previousOperation){lastOperationId=state.operation?.id||lastOperationId;lastRenderedOperation=lastOperationId;}
-  }catch(error){if(sequence===requestSequence){setBusy(false);if(mode==='identify')lookupError(error.message);status(error.message,'error');try{const state=await rpc({type:'state'});renderHistory(state.ledger);lastRenderedOperation=state.operation?.id||lastRenderedOperation;}catch{}}}
+  }catch(error){if(sequence===requestSequence){setBusy(false);if(mode==='identify')lookupError(error.message);status(error.message,'error');if(mode==='identify'&&notFound(error.message))showNotFound($('container').value.trim().toUpperCase());try{const state=await rpc({type:'state'});renderHistory(state.ledger);lastRenderedOperation=state.operation?.id||lastRenderedOperation;}catch{}}}
   finally{if(sequence===requestSequence&&!busy){clearInterval(pollTimer);pollTimer=null;}}
 }
 function editMatch(){
@@ -276,5 +284,9 @@ $('applyImport').addEventListener('click',async()=>{if(!pendingImport)return;try
 $('cancelImport').addEventListener('click',()=>{pendingImport=null;$('importReview').hidden=true;});
 $('copyScript').addEventListener('click',async()=>{try{const text=await scriptText();try{await navigator.clipboard.writeText(text);status('只读脚本已复制，可到金山文档粘贴并保存。','success');}catch{$('scriptFallback').hidden=false;$('scriptFallback').value=text;$('scriptFallback').focus();$('scriptFallback').select();status('请复制下方已选中的脚本，或点击下载。');}}catch(error){status(error.message,'error');}});
 $('downloadScript').addEventListener('click',async()=>{try{download(await scriptText(),'LFD_ReadOnly_v1.js','text/javascript');status('只读脚本已下载。','success');}catch(error){status(error.message,'error');}});
+$('notFoundOk').addEventListener('click',()=>{$('notFound').close();$('container').value='';scheduleIdentify();$('matchCarrier').textContent='尚未识别船公司';$('matchSource').textContent='选择船公司可覆盖自动识别结果';status('请重新输入柜号。');$('container').focus();});
+$('notFoundRetry').addEventListener('click',()=>{$('notFound').close();if($('container').value.trim().toUpperCase()!==notFoundContainer)$('container').value=notFoundContainer;perform('identify');});
+// Esc closes the dialog like 确定 would, but keeps the input so the user can correct it.
+$('notFound').addEventListener('cancel',()=>{status('柜号未找到，可修改后重新查询。','error');});
 $('refresh').addEventListener('click',()=>refreshState().catch(error=>status(error.message,'error')));
-try{await refreshState({initial:true});}catch(error){status(error.message,'error');}finally{initializing=false;if(!lastResult&&!busy&&/^[A-Za-z]{4}\d{7}$/.test($('container').value.trim()))scheduleIdentify();}
+try{await refreshState({initial:true});}catch(error){status(error.message,'error');}finally{initializing=false;if(!lastResult&&!busy&&!$('notFound').open&&/^[A-Za-z]{4}\d{7}$/.test($('container').value.trim()))scheduleIdentify();}

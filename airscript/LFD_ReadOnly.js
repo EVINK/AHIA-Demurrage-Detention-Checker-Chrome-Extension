@@ -1,5 +1,6 @@
 // LFD_ReadOnly_v1 — only reads cells; never writes, sorts, or activates a sheet.
 // Version 2. Output contains only container, MBL, source row and carrier.
+// LFD build: 3 — the extension installs/updates this script when its build is older.
 // The 取消DO section is skipped until the next section header (已送仓 / 排程:), not treated as the end of the sheet.
 function main() {
   const sheet = Application.Sheets('提柜');
@@ -45,7 +46,7 @@ function main() {
     batch.push(row);
   }
   if(batch.length)pieces.push(batch);
-  console.log('LFD_START:' + JSON.stringify({id, version:2, count: records.length, chunks: pieces.length, sheet: '提柜', cancelledSections, skippedRows}));
+  console.log('LFD_START:' + JSON.stringify({id, version:2, count: records.length, chunks: pieces.length, sheet: '提柜', build: 3, cancelledSections, skippedRows}));
   for (let i = 0; i < pieces.length; i++) {
     console.log('LFD_CHUNK:' + JSON.stringify({id, index:i, rows:pieces[i]}));
   }

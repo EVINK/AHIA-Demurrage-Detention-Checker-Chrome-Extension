@@ -127,3 +127,9 @@ test('AirScript v2 resumes after the 取消DO section at the 已送仓 / 排程 
   assert.equal(run.start.cancelledSections,1);assert.equal(run.start.skippedRows,2);
   assert.ok(!run.rows.some(row=>['TGBU6783526','GAOU6135832'].includes(row[0])),'cancelled-section rows stay excluded');
 });
+
+test('bundled AirScript declares the build that it reports when run',()=>{
+  const build=Number(source.match(/LFD build:\s*(\d+)/)[1]);
+  const run=runScript([['柜号','MBL','船司'],['MRSU4786640','MAEU276301677','MSK']]);
+  assert.ok(build>=3);assert.equal(run.start.build,build);
+});
