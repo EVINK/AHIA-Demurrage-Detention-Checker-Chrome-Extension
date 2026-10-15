@@ -209,8 +209,8 @@ export function portalTemplate(record,options={}){
   const portal=profile.portal;
   if(onHire){
     // On-Hire: Type Equipment → Services / Region / Number of Containers / Container # / SCAC Code; Description
-    // from the carrier's On-Hire template with {{table}} as one "container MBL" line per container.
-    const {bodyText,html,items}=renderTemplates(record,{...profile,...profile.onHire},type,options.more||[],'lines');
+    // from the carrier's On-Hire template with {{table}} as the Container# / MBL# table (one row per container).
+    const {bodyText,html,items}=renderTemplates(record,{...profile,...profile.onHire},type,options.more||[]);
     const fields=[{label:'Type',value:portal.onHire.type,kind:'select'},{label:'Services',value:portal.onHire.service,kind:'select'},{label:'Region',value:portal.onHire.region,kind:'select'},
       {label:'Number of Containers',value:String(items.length),kind:'input'},{label:'Container #',value:items.map(item=>item.container).join(' '),kind:'input'},{label:'SCAC Code',value:portal.reference,kind:'input'}];
     return {channel:profile.channel,url:portal.onHire.url,requester:portal.requester,fields,containers:items.map(item=>item.container),carrierId:profile.id,carrierName:profile.name,inquiryType:type,bodyText,html};
