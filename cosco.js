@@ -3,7 +3,7 @@
 export async function coscoPage(action,payload){
   try {
   const pause=ms=>new Promise(r=>setTimeout(r,ms));
-  async function waitFor(fn,description,timeout=20000){const end=Date.now()+timeout;while(Date.now()<end){const v=fn();if(v)return v;await pause(150);}throw new Error(description);}
+  async function waitFor(fn,description,timeout=20000){const end=Date.now()+timeout;while(Date.now()<end){const v=fn();if(v)return v;await pause(150);}const v=fn();if(v)return v;throw new Error(description);}
   const visible=e=>e&&e.getClientRects().length>0;
   const clean=value=>String(value||'').replace(/\s+/g,' ').trim().toLowerCase();
   const compact=value=>String(value||'').replace(/\s+/g,'');

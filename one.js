@@ -10,7 +10,8 @@ export async function onePage(kind,action,payload){
     :/^cms-resources-[a-z]+\.one-line\.com$/.test(location.hostname)&&/freedays-and-dndcalculator/.test(location.pathname)?'calc':'';
   if(here!==kind)return {ok:true,data:{skip:true}};
   const pause=ms=>new Promise(r=>setTimeout(r,ms));
-  async function waitFor(fn,description,timeout=30000){const end=Date.now()+timeout;while(Date.now()<end){const v=fn();if(v)return v;await pause(250);}throw new Error(description);}
+  // Hidden pages get throttled timers (up to one per minute), so always check once more after the deadline.
+  async function waitFor(fn,description,timeout=30000){const end=Date.now()+timeout;while(Date.now()<end){const v=fn();if(v)return v;await pause(250);}const v=fn();if(v)return v;throw new Error(description);}
   const visible=e=>e&&e.getClientRects().length>0;
   // Salesforce LWC hides component internals from querySelectorAll; a TreeWalker (plus open shadow roots) sees them.
   const deepAll=pred=>{const out=[];const walk=root=>{const w=document.createTreeWalker(root,NodeFilter.SHOW_ELEMENT);for(let n=w.currentNode;n;n=w.nextNode()){if(n.nodeType!==1)continue;if(pred(n))out.push(n);if(n.shadowRoot)walk(n.shadowRoot);}};walk(document.body);return out;};
@@ -83,7 +84,10 @@ export async function onePage(kind,action,payload){
   }
 
   if(action==='form'){
-    if(textarea()||deepAll(e=>e.matches('li.slds-chat-listitem')).length)throw new Error('ONE 在线客服中已有进行中的对话，请先在该页面结束对话后再试。');
+    // Wait for whatever the chat frame shows first: the entry, the form, or a resumed conversation.
+    const conversation=()=>textarea()||deepAll(e=>e.matches('li.slds-chat-listitem')).length;
+    await waitFor(()=>conversation()||field('_firstName')||deepAll(e=>e.classList.contains('guide-content-item')).length,'ONE 聊天窗口没有加载出来。');
+    if(conversation())throw new Error('ONE 在线客服中已有进行中的对话，请先在该页面结束对话后再试。');
     if(!field('_firstName')){
       const entry=await waitFor(()=>deepAll(e=>e.classList.contains('guide-content-item')&&/ONE Chat/.test(e.textContent))[0],'没有找到「ONE Chat」入口。');
       entry.click();
@@ -121,13 +125,16 @@ export async function onePage(kind,action,payload){
   if(action==='type'||action==='send'){
     const name=agent();if(!name)throw new Error('ONE 客服还没有接入，消息未发送。');
     const box=textarea();if(!box||box.disabled)throw new Error('ONE 聊天输入框不可用，消息未发送。');
-    if(box.value.trim())throw new Error('ONE 聊天输入框中已有内容，已停止以避免覆盖。');
     if(action==='type'){
       // Test mode: every message sits in the box, one per line, for the user to review. Nothing is sent.
-      box.focus();setValue(box,messages.join('\n'));await pause(400);
-      if(box.value!==messages.join('\n'))throw new Error('ONE 聊天消息填写失败，消息未发送。');
+      // Appending to an earlier test chat adds the new lines under the ones already waiting there.
+      if(box.value.trim()&&!payload.append)throw new Error('ONE 聊天输入框中已有内容，已停止以避免覆盖。');
+      const value=[box.value.trim(),...messages].filter(Boolean).join('\n');
+      box.focus();setValue(box,value);await pause(400);
+      if(box.value!==value)throw new Error('ONE 聊天消息填写失败，消息未发送。');
       return {ok:true,data:{typed:true,agent:name}};
     }
+    if(box.value.trim())throw new Error('ONE 聊天输入框中已有未发送的内容，已停止以避免覆盖。请在聊天窗口处理后重试。');
     // One message per container, each sent only after the previous one appears in the conversation.
     let sent=0;
     for(const message of messages){

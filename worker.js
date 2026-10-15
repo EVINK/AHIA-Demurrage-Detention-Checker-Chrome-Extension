@@ -5,6 +5,7 @@ import {coscoPage} from './cosco.js';
 import {onePage} from './one.js';
 import {validateSettings} from './config.js';
 chrome.storage.local.setAccessLevel({accessLevel:'TRUSTED_CONTEXTS'});
+
 async function execute(tabId,func,args=[],world='ISOLATED'){
   const result=await chrome.scripting.executeScript({target:{tabId},func,args,world});
   if(!result?.[0]||result[0].result===undefined)throw new Error('页面操作没有返回结果。请检查对应页面。');
@@ -21,11 +22,33 @@ const COSCO_TICKET_URL='https://support.cosco-usa.com/support/tickets/new';
 // The reCAPTCHA is completed by the user in a small floating window. Chrome cannot keep it always on
 // top, so when it falls behind another window a notification brings it back.
 const noticeTabs=new Map();
+// Windows may refuse a background program's focus request and only flash it in the taskbar; ask again
+// shortly after, and flash the taskbar entry in case the system still keeps it behind.
+async function raise(windowId){
+  await pause(300);
+  await chrome.windows.update(windowId,{focused:true}).catch(()=>{});
+  await chrome.windows.update(windowId,{drawAttention:true}).catch(()=>{});
+}
 // Move a tab into a small floating popup window (once) and bring it to the front.
-async function floatTab(tabId,size={width:440,height:640}){
+// ONE and COSCO pages run in their own small popup window at the bottom-right of the browser, without
+// taking focus and never as a tab in the user's window.
+async function openWork(url,size={width:456,height:700}){
+  const anchor=await chrome.windows.getLastFocused({windowTypes:['normal']}).catch(()=>null);
+  const place=anchor?.width?{left:Math.max(0,anchor.left+anchor.width-size.width-16),top:Math.max(0,anchor.top+anchor.height-size.height-16)}:{};
+  const win=await chrome.windows.create({url,type:'popup',focused:false,...size,...place});
+  await chrome.windows.update(win.id,{...size,...place}).catch(()=>{});
+  const tabId=win.tabs?.[0]?.id??(await chrome.tabs.query({windowId:win.id}))[0].id;
+  await loaded(tabId);return {id:tabId};
+}
+async function floatTab(tabId,size={width:456,height:700}){
   const tab=await chrome.tabs.get(tabId),win=await chrome.windows.get(tab.windowId,{populate:true});
-  if(win.type==='popup'){await chrome.windows.update(win.id,{focused:true});return win.id;}
+  if(win.type==='popup'){
+    // Restore the minimized work window to a small floating window in front.
+    await chrome.windows.update(win.id,{state:'normal'});await chrome.windows.update(win.id,{...size,focused:true});
+    await raise(win.id);return win.id;
+  }
   const created=await chrome.windows.create({tabId,type:'popup',...size,focused:true});
+  raise(created.id);
   // Re-apply the size: browser launch flags (e.g. --window-size) can override it on creation.
   await chrome.windows.update(created.id,size).catch(()=>{});
   return created.id;
@@ -39,12 +62,15 @@ async function showTab(tabId){
   const tab=await chrome.tabs.get(tabId);
   if(tab.url?.startsWith('https://www.one-line.com/')){
     await inFrame(tabId,'top','chatOnly',{},5000).catch(()=>{});
-    return floatTab(tabId,{width:456,height:700});
+    return floatTab(tabId);
   }
   return floatTab(tabId);
 }
 chrome.notifications.onClicked.addListener(id=>{
-  const tabId=noticeTabs.get(id);if(tabId===undefined)return;
+  // Config page 「发送测试通知」: confirm that clicks on system notifications reach this browser.
+  if(id==='lfd-test'){chrome.notifications.clear(id).catch(()=>{});notify('lfd-test-ok',-1,'插件已收到点击','通知点击正常，COSCO 人机验证和 ONE 客服回复的通知点击后会打开对应小窗。');return;}
+  // The worker may have restarted since the notification was shown, so the tab id is also part of the id.
+  const tabId=noticeTabs.get(id)??Number(id.match(/^lfd-.*-(\d+)$/)?.[1]);if(!Number.isInteger(tabId))return;
   showTab(tabId).catch(()=>{});chrome.notifications.clear(id).catch(()=>{});
 });
 // The reCAPTCHA is completed by the user in a small floating window. Chrome cannot keep it always on
@@ -73,6 +99,43 @@ async function focusTab(tabId){const tab=await chrome.tabs.get(tabId);await chro
 const ONE_CHAT_URL='https://www.one-line.com/one-ecom/manage-shipment/cargo-tracking';
 const AGENT_TIMEOUT=10*60000,READ_TIMEOUT=5*60000;
 // Start the chat, walk the bot menus, transfer to an agent and, once one joins, `type` or `send` the message.
+let chatQueue=Promise.resolve();
+// Remembered in session storage so a restarted worker still finds the open chat window.
+const chatWindow={get:async()=>(await chrome.storage.session.get('chatTab')).chatTab,set:tabId=>chrome.storage.session.set({chatTab:tabId})};
+function chatTurn(work){const run=chatQueue.then(work,work);chatQueue=run.catch(()=>{});return run;}
+// The previous ONE chat window, if it is still open and an agent is still in the conversation.
+async function liveChat(){
+  const chatTab=await chatWindow.get().catch(()=>null);
+  if(!Number.isInteger(chatTab))return null;
+  try{await chrome.tabs.get(chatTab);}catch{await chatWindow.set(null);return null;}
+  const state=await inFrame(chatTab,'chat','agent',{},5000).catch(()=>null);
+  if(state?.agent&&!state.ended)return chatTab;
+  // The agent closed the conversation: close the window this extension opened for it and start over.
+  await chrome.tabs.remove(chatTab).catch(()=>{});await chatWindow.set(null);return null;
+}
+// Send the messages (after reaching an agent unless appending), then wait until every message is Read.
+async function deliver(tabId,payload,progress,appended){
+  let sent;
+  try{sent=appended?(progress('发送消息'),await inFrame(tabId,'chat','send',payload)):await toAgent(tabId,payload,'send',progress);}
+  catch(error){if(error.sent>0)return {tabId,sendError:error};throw error;}
+  try{return {tabId,agent:sent.agent,sent:await waitRead(tabId,payload,progress,sent.agent)};}
+  catch(error){return {tabId,agent:sent.agent,sendError:error};}
+}
+async function waitRead(tabId,payload,progress,agent){
+  progress('等待客服已读');
+  // Done only when the agent has read every message (Sent → Delivered → Read).
+  const end=Date.now()+READ_TIMEOUT;let statuses=[];
+  while(Date.now()<end){
+    ({statuses}=await inFrame(tabId,'chat','receipt',payload));
+    const read=statuses.filter(status=>/^Read$/i.test(status)).length;
+    if(read===statuses.length){watchReplies(tabId,payload,agent);return {confirmed:true,agent,evidence:`${read} 条消息均已读`};}
+    progress(`等待客服已读（${read}/${statuses.length}）`);
+    await pause(3000);
+  }
+  const error=new Error(`ONE 客服 5 分钟内未读完消息（${statuses.map(s=>s||'未找到').join(' / ')}）`);
+  error.read=statuses.map(status=>/^Read$/i.test(status));
+  throw error;
+}
 async function toAgent(tabId,payload,last,progress=()=>{}){
   progress('开始对话，选择菜单');
   await inFrame(tabId,'chat','start',payload,90000);
@@ -98,7 +161,7 @@ async function inFrame(tabId,kind,action,payload={},timeout=45000){
   while(Date.now()<end){
     let results=[];
     try{results=await chrome.scripting.executeScript({target:{tabId,allFrames:true},func:onePage,args:[kind,action,payload],world:'MAIN'});}
-    catch(error){lastError=error.message;}
+    catch(error){lastError=error.message;if(/No tab with id|tab was closed|No frame/i.test(error.message))throw Object.assign(new Error('ONE 页面已被关闭'),{closed:true});}
     const hit=results.map(r=>r?.result).find(r=>r&&!(r.ok&&r.data?.skip));
     if(hit){if(!hit.ok)throw new Error(hit.error||'ONE 页面操作失败。');return hit.data;}
     await pause(1000);
@@ -132,7 +195,7 @@ const service=createService({storage:store,
   prepareTicket:async(payload,progress=()=>{})=>{
     progress('填写 COSCO 工单');
     // Filled in a background tab; for the reCAPTCHA it is moved into a small floating window (submitTicket).
-    const tab=await chrome.tabs.create({url:COSCO_TICKET_URL,active:false});await loaded(tab.id);
+    const tab=await openWork(COSCO_TICKET_URL);
     await execute(tab.id,coscoPage,['fill',payload]);return {tabId:tab.id};
   },
   submitTicket:async(prepared,payload,progress=()=>{})=>{
@@ -159,40 +222,53 @@ const service=createService({storage:store,
     if(result.formStillOpen&&result.reason)error.notTransmitted=true;
     throw error;
   },
+  // ONE allows one chat per browser: tasks take turns; a task appends to the previous chat while its window
+  // is open and the agent is still there, otherwise it opens a new window and a new conversation.
   prepareChat:async(payload,progress=()=>{})=>{
-    progress('打开 ONE 页面');
-    const tab=await chrome.tabs.create({url:ONE_CHAT_URL,active:false});await loaded(tab.id);
-    // Start a new conversation every time: forget any unfinished chat ONE would resume, then reload.
-    await inFrame(tab.id,'top','reset');
-    await inFrame(tab.id,'chat','reset',{},8000).catch(()=>{});
-    await chrome.tabs.reload(tab.id);await pause(500);await loaded(tab.id);
-    progress('填写聊天表单');
-    await inFrame(tab.id,'top','open',payload);
-    await inFrame(tab.id,'chat','form',payload);
-    if(payload.send)return {tabId:tab.id};
-    // Test mode goes all the way to the agent and types the message, but never sends it.
-    const typed=await toAgent(tab.id,payload,'type',progress);
-    notify(`lfd-one-typed-${tab.id}`,tab.id,`ONE 客服 ${typed.agent} 已接入（测试模式）`,`${(payload.containers||[payload.container]).join('、')}：消息已填入聊天框，未发送。点击打开聊天小窗查看。`,true);
-    return {tabId:tab.id,agent:typed.agent};
+    progress('排队中（等待前一个 ONE 任务）');
+    return chatTurn(async()=>{
+      const reuse=await liveChat();
+      if(reuse){
+        progress('追加到当前 ONE 对话');
+        if(!payload.send){
+          const typed=await inFrame(reuse,'chat','type',{...payload,append:true});
+          notify(`lfd-one-typed-${reuse}`,reuse,`已追加到 ONE 客服 ${typed.agent} 的对话（测试模式）`,`${(payload.containers||[payload.container]).join('、')}：消息已填入聊天框，未发送。点击打开聊天小窗查看。`,true);
+          return {tabId:reuse,agent:typed.agent};
+        }
+        return deliver(reuse,payload,progress,true);
+      }
+      progress('打开 ONE 页面');
+      const tab=await openWork(ONE_CHAT_URL);
+      // A new conversation: forget any unfinished chat ONE would resume (in the page and in the chat frame's
+      // own storage), then reload. If ONE still resumes an old chat, clear it there and retry once.
+      const fresh=async()=>{
+        await inFrame(tab.id,'top','reset');
+        await inFrame(tab.id,'chat','reset',{},15000).catch(()=>{});
+        await chrome.tabs.reload(tab.id);await pause(500);await loaded(tab.id);
+        await inFrame(tab.id,'top','open',payload);
+        // From here on the small window shows only the chat box.
+        await inFrame(tab.id,'top','chatOnly',{},5000).catch(()=>{});
+      };
+      progress('填写聊天表单');
+      await fresh();
+      try{await inFrame(tab.id,'chat','form',payload);}
+      catch(error){
+        if(!/已有进行中的对话/.test(error.message))throw error;
+        await inFrame(tab.id,'chat','reset');await fresh();
+        await inFrame(tab.id,'chat','form',payload);
+      }
+      await chatWindow.set(tab.id);
+      if(!payload.send){
+        // Test mode goes all the way to the agent and types the message, but never sends it.
+        const typed=await toAgent(tab.id,payload,'type',progress);
+        notify(`lfd-one-typed-${tab.id}`,tab.id,`ONE 客服 ${typed.agent} 已接入（测试模式）`,`${(payload.containers||[payload.container]).join('、')}：消息已填入聊天框，未发送。点击打开聊天小窗查看。`,true);
+        return {tabId:tab.id,agent:typed.agent};
+      }
+      return deliver(tab.id,payload,progress,false);
+    });
   },
-  sendChat:async(prepared,payload,progress=()=>{})=>{
-    const tabId=prepared.tabId;
-    let sent;
-    try{sent=await toAgent(tabId,payload,'send',progress);}catch(error){error.notTransmitted=true;throw error;}
-    progress('等待客服已读');
-    // Done only when the agent has read every message (Sent → Delivered → Read).
-    const end=Date.now()+READ_TIMEOUT;let statuses=[];
-    while(Date.now()<end){
-      ({statuses}=await inFrame(tabId,'chat','receipt',payload));
-      const read=statuses.filter(status=>/^Read$/i.test(status)).length;
-      if(read===statuses.length){watchReplies(tabId,payload,sent.agent);return {confirmed:true,agent:sent.agent,evidence:`${read} 条消息均已读`};}
-      progress(`等待客服已读（${read}/${statuses.length}）`);
-      await pause(3000);
-    }
-    const error=new Error(`ONE 客服 5 分钟内未读完消息（${statuses.map(s=>s||'未找到').join(' / ')}）`);
-    error.read=statuses.map(status=>/^Read$/i.test(status));
-    throw error;
-  },
+  // Live mode finishes in prepareChat; failures after a message went out surface here as "uncertain".
+  sendChat:async prepared=>{if(prepared.sendError)throw prepared.sendError;return prepared.sent;},
   sendMail:async(prepared,payload)=>{
     const sent=await execute(prepared.tabId,gmailPage,['send',{...payload,bodyHash:prepared.bodyHash}]);
     if(!await closedByGmail(prepared.tabId))throw new Error('Gmail 出现了发送提示，但写信页未自动关闭，邮件可能没有真正发出。已保留该标签页供核实');
@@ -238,6 +314,14 @@ chrome.runtime.onMessage.addListener((message,sender,respond)=>{
     // Look up an extra container for a multi-container ONE chat without replacing the popup's main result.
     if(message.type==='peek')return service.run(message.container,'identify',message.options||{});
     if(message.type==='release')return service.release(message.key);
+    if(message.type==='cancel'){
+      // Stop a running task: flag it, then close its window so any wait ends immediately.
+      const tabId=await service.cancel(message.requestId);
+      if(Number.isInteger(tabId))await chrome.tabs.remove(tabId).catch(()=>{});
+      return true;
+    }
+    if(message.type==='deleteTask')return service.releaseTask(message.requestId);
+    if(message.type==='testNotification'){notify('lfd-test',-1,'LFD Inquiry 测试通知','请点击这条通知。插件收到点击后会再弹出「插件已收到点击」。',true);return true;}
     if(message.type==='state')return state();
     if(message.type==='clearCache'){
       if(pendingOperations.size)throw new Error('请等当前查询完成后再清除缓存。');

@@ -1,7 +1,7 @@
 import {containerNumber, mblNumber, lookup, cacheRecords, messageTemplate, portalTemplate, chatTemplate, normalizeCarriers, addressList, inquiryType, recognizeCarrier, PORTAL_INQUIRY_TYPE} from './core.js';
 export function createService({storage, readSheet, prepareMail, sendMail, prepareTicket, submitTicket, prepareChat, sendChat, now = Date.now, uuid = () => crypto.randomUUID()}) {
   let queue = Promise.resolve();
-  const active=new Set(),jobs=new Map();
+  const active=new Set(),jobs=new Map(),cancelled=new Set();
   // Only ledger mutations are serialized; lookups and transmissions run concurrently.
   function serial(action) {const work = queue.then(action); queue = work.catch(() => {}); return work;}
   // Concurrent cache misses share one sheet read.
@@ -109,7 +109,8 @@ export function createService({storage, readSheet, prepareMail, sendMail, prepar
       for(const key of only)if(ledger[key]?.requestId===requestId)ledger[key]={...ledger[key],...(typeof patch==='function'?patch(key):patch),updatedAt:now()};
       await storage.set({ledger});return ledger[keys[0]];
     });
-    const progress=step=>write({step}).catch(()=>{});
+    // Adapters report each step; a cancelled task stops at its next step.
+    const progress=step=>{if(cancelled.has(requestId))throw Object.assign(new Error('任务已手动终止'),{cancelled:true});write({step}).catch(()=>{});};
     let transmissionStarted = false;
     try {
       const payload={...message,...record,requestId};
@@ -128,6 +129,7 @@ export function createService({storage, readSheet, prepareMail, sendMail, prepar
     } catch (error) {
       // An adapter marks errors raised before anything was submitted (e.g. captcha never completed).
       if(error?.notTransmitted===true)transmissionStarted=false;
+      if(cancelled.has(requestId))error=Object.assign(new Error('任务已手动终止'),{read:error?.read});
       const failed={status:transmissionStarted?'uncertain':'needs_review',detail:error.message,running:false,step:''};
       // A multi-container chat may have some messages read already: those containers count as queried.
       const read=Array.isArray(error?.read)?error.read:[];
@@ -137,10 +139,25 @@ export function createService({storage, readSheet, prepareMail, sendMail, prepar
       throw new Error(transmissionStarted ? `发送结果待核实（${error.message}），已阻止重试。请查看 Gmail 已发送和草稿后，再处理记录。` : `${error.message} 自动发送已停止，请检查 Gmail 草稿。`);
     }
   }
-  return {active:()=>new Set(active),job:requestId=>jobs.get(requestId)||Promise.reject(new Error('任务不存在。')),run,release:key=>serial(async()=>{
+  async function cancel(requestId){
+    if(!active.has(requestId))throw new Error('任务已经结束。');
+    cancelled.add(requestId);
+    const {ledger={}}=await storage.get(['ledger']);
+    return Object.values(ledger).find(entry=>entry.requestId===requestId)?.tabId;
+  }
+  // Delete a finished task: release every container lock it took (archived like a manual release).
+  const releaseTask=requestId=>serial(async()=>{
+    if(active.has(requestId))throw new Error('该任务仍在后台进行，请先终止任务。');
+    const {ledger={},archive=[]}=await storage.get(['ledger','archive']);
+    const keys=Object.keys(ledger).filter(key=>ledger[key].requestId===requestId);
+    if(!keys.length)throw new Error('任务不存在。');
+    for(const key of keys){archive.push({...ledger[key],releasedAt:now()});delete ledger[key];}
+    await storage.set({ledger,archive});return keys.length;
+  });
+  return {active:()=>new Set(active),cancel,releaseTask,job:requestId=>jobs.get(requestId)||Promise.reject(new Error('任务不存在。')),run,release:key=>serial(async()=>{
     const {ledger={},archive=[]}=await storage.get(['ledger','archive']);
     if(!ledger[key])throw new Error('记录不存在。');
-    if(active.has(ledger[key].requestId))throw new Error('该任务仍在后台进行，完成后再处理记录。');
+    if(active.has(ledger[key].requestId))throw new Error('该任务仍在后台进行，请先终止任务。');
     archive.push({...ledger[key],releasedAt:now()});delete ledger[key];await storage.set({ledger,archive});
   })};
 }

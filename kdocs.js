@@ -9,6 +9,8 @@ export async function readKdocsPage(script) {
   async function waitFor(fn,description,timeout=20000){
     const end=Date.now()+timeout;
     while(Date.now()<end){const value=fn();if(value)return value;await pause(150);}
+    // Background tabs get throttled timers; check once more after the deadline.
+    const value=fn();if(value)return value;
     throw new Error(description);
   }
   const visible=e=>e&&e.getClientRects().length>0;

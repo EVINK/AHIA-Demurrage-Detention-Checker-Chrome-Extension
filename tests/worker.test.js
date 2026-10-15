@@ -23,15 +23,18 @@ function setup({data={},run=async()=>({status:'draft',tabId:42}),read=async valu
   const tabMap=new Map(tabs.map(tab=>[tab.id,clone(tab)]));
   const readKdocsPage=()=>{},gmailPage=()=>{},coscoPage=()=>{},onePage=()=>{};
   const chrome={
-    storage:{local:{
+    storage:{session:{get:async()=>({}),set:async()=>{}},local:{
       setAccessLevel:async value=>{calls.access.push(clone(value));},
       get:async keys=>read(Object.fromEntries(keys.filter(key=>Object.hasOwn(db,key)).map(key=>[key,clone(db[key])])),keys),
       set:async value=>{const saved=clone(value);calls.writes.push(saved);db={...db,...saved};}
     }},
     notifications:{create:async(id,options)=>{calls.notifications.push({id,...clone(options)});return id;},clear:async()=>true,onClicked:{addListener:()=>{}}},
     windows:{
-      create:async options=>{calls.windows.push(clone(options));const id=500+calls.windows.length;if(options.tabId&&tabMap.has(options.tabId))tabMap.set(options.tabId,{...tabMap.get(options.tabId),windowId:id});return {id,type:options.type};},
-      get:async id=>({id,type:id>=500?'popup':'normal'}),update:async(id,options)=>{calls.windowUpdates.push({id,...clone(options)});return {id};},remove:async id=>{calls.windowRemoved.push(id);},
+      create:async options=>{calls.windows.push(clone(options));const id=500+calls.windows.length;
+        if(options.tabId&&tabMap.has(options.tabId))tabMap.set(options.tabId,{...tabMap.get(options.tabId),windowId:id});
+        if(options.url){const tab={id:700+calls.windows.length,status:'complete',url:options.url,windowId:id};tabMap.set(tab.id,tab);return {id,type:options.type,tabs:[clone(tab)]};}
+        return {id,type:options.type};},
+      get:async id=>({id,type:id>=500?'popup':'normal'}),getLastFocused:async()=>({id:1,left:0,top:0,width:1600,height:1000}),update:async(id,options)=>{calls.windowUpdates.push({id,...clone(options)});return {id};},remove:async id=>{calls.windowRemoved.push(id);},
       onFocusChanged:{addListener:()=>{},removeListener:()=>{}}
     },
     runtime:{id:'test-extension',getURL:path=>`chrome-extension://test-extension/${path}`,onMessage:{addListener:fn=>{listener=fn;}}},
@@ -270,7 +273,7 @@ test('COSCO submit waits for the post-submit page and reports the ticket',async(
   const result=await submitting;
   assert.equal(result.confirmed,true);
   assert.deepEqual(t.calls.scripts.map(s=>s.args[0]),['submit','result']);
-  assert.deepEqual(t.calls.windows,[{tabId:9,type:'popup',width:440,height:640,focused:true}],'captcha moves into a small floating window');
+  assert.deepEqual(t.calls.windows,[{tabId:9,type:'popup',width:456,height:700,focused:true}],'captcha moves into a small floating window');
   assert.deepEqual(t.calls.windowRemoved,[501],'the floating window closes once the ticket is submitted');
 });
 
@@ -279,12 +282,12 @@ test('COSCO submit errors raised in the page are marked as not submitted',async(
   await assert.rejects(t.deps.submitTicket({tabId:9},{requestId:'r'}),error=>error.notTransmitted===true);
 });
 
-test('COSCO tickets are always filled in a background tab',async()=>{
+test('COSCO tickets are filled in their own unfocused small popup window, not as a tab',async()=>{
   const t=setup();
   await t.deps.prepareTicket({submit:false});await t.deps.prepareTicket({submit:true});
-  assert.deepEqual(t.calls.created.map(c=>[c.url,c.active]),[['https://support.cosco-usa.com/support/tickets/new',false],['https://support.cosco-usa.com/support/tickets/new',false]]);
+  assert.deepEqual(t.calls.created,[],'no tab in the user window');
+  assert.deepEqual(t.calls.windows.map(w=>[w.url,w.type,w.focused]),[['https://support.cosco-usa.com/support/tickets/new','popup',false],['https://support.cosco-usa.com/support/tickets/new','popup',false]]);
   assert.deepEqual(t.calls.scripts.map(s=>s.args[0]),['fill','fill']);
-  assert.deepEqual(t.calls.windows,[],'no floating window before the captcha step');
 });
 
 test('state shows a background job lost by a worker restart as interrupted, without changing storage',async()=>{

@@ -204,24 +204,44 @@ function renderHistory(ledger={}){
   }
 }
 function renderTasks(ledger={}){
-  const groups=new Map();
-  for(const entry of Object.values(ledger))if(entry.running||entry.interrupted){const id=entry.requestId||entry.container;if(!groups.has(id))groups.set(id,[]);groups.get(id).push(entry);}
+  // Running tasks, plus tasks that need attention (failed, interrupted, unconfirmed) from the last 24 hours.
+  const groups=new Map(),dayAgo=Date.now()-86400000;
+  for(const entry of Object.values(ledger)){
+    const attention=entry.interrupted||(['needs_review','uncertain','preparing','sending'].includes(entry.status)&&(entry.time||0)>dayAgo);
+    if(!entry.running&&!attention)continue;
+    const id=entry.requestId||entry.container;if(!groups.has(id))groups.set(id,[]);groups.get(id).push(entry);
+  }
+  const all=[...groups.values()].sort((a,b)=>(b[0].time||0)-(a[0].time||0));
+  const running=all.filter(group=>group[0].running),attention=all.filter(group=>!group[0].running);
+  $('taskCount').textContent=running.length;
   const root=$('tasks');root.replaceChildren();
-  const running=[...groups.values()].filter(group=>group[0].running).length;$('taskCount').textContent=running;
-  if(!groups.size){const empty=document.createElement('p');empty.className='empty';empty.textContent='没有进行中的任务';root.append(empty);}
-  for(const group of [...groups.values()].sort((a,b)=>(b[0].time||0)-(a[0].time||0))){
-    const entry=group[0],row=document.createElement('div');row.className='task-row';
+  const heading=text=>{const h=document.createElement('h3');h.className='task-heading';h.textContent=text;root.append(h);};
+  const row=group=>{
+    const entry=group[0],item=document.createElement('div');item.className='task-row';
     const content=document.createElement('div'),name=document.createElement('strong');name.textContent=group.map(e=>e.container).join('、');content.append(name);
     const detail=document.createElement('p');const minutes=Math.max(0,Math.round((Date.now()-(entry.time||Date.now()))/60000));
-    detail.textContent=`${entry.carrierName||''} · ${types[entry.inquiryType]||''} · ${new Date(entry.time).toLocaleTimeString()} 开始 · 已 ${minutes} 分钟`;content.append(detail);
-    const step=document.createElement('div');step.className='task-step'+(entry.interrupted?' interrupted':'');step.textContent=entry.interrupted?'已中断，请打开页面核实结果':(entry.step||'进行中')+(entry.agent?` · ${entry.agent}`:'');content.append(step);
+    detail.textContent=`${entry.carrierName||''} · ${types[entry.inquiryType]||''} · ${new Date(entry.time).toLocaleTimeString()} 开始${entry.running?` · 已 ${minutes} 分钟`:''}`;content.append(detail);
+    const step=document.createElement('div');step.className='task-step'+(entry.running?'':' interrupted');
+    step.textContent=entry.running?(entry.step||'进行中')+(entry.agent?` · ${entry.agent}`:''):entry.interrupted?'已中断，请打开页面核实结果':`${entry.status==='uncertain'?'结果待核实':'未完成'}：${entry.detail||''}`;content.append(step);
     const buttons=document.createElement('div');buttons.className='history-buttons';
     if(Number.isInteger(entry.tabId)){const open=document.createElement('button');open.textContent=entry.channel==='one-chat'?'打开聊天':entry.channel==='cosco-portal'&&/人机验证/.test(entry.step||'')?'去验证':'打开页面';open.addEventListener('click',()=>openDraft(entry.tabId));buttons.append(open);}
-    row.append(content,buttons);root.append(row);
-  }
+    if(entry.running){
+      const stop=document.createElement('button');stop.textContent='终止';stop.className='danger-button';
+      stop.addEventListener('click',async()=>{if(!confirm(`终止 ${group.map(e=>e.container).join('、')} 的任务？插件会关闭它的窗口。已经发出的消息无法撤回。`))return;try{await rpc({type:'cancel',requestId:entry.requestId});status('任务已终止。');await refreshState();}catch(error){status(error.message,'error');}});
+      buttons.append(stop);
+    }else{
+      const remove=document.createElement('button');remove.textContent='删除';
+      remove.addEventListener('click',async()=>{if(!confirm(`删除 ${group.map(e=>e.container).join('、')} 的任务？会解除防重复锁，之后可以重新查询发送。${entry.status==='uncertain'?'\n\n注意：这个任务的结果待核实，消息可能已经发出，请先核实。':''}`))return;try{await rpc({type:'deleteTask',requestId:entry.requestId});status('任务已删除，可以重新发送。');await refreshState();}catch(error){status(error.message,'error');}});
+      buttons.append(remove);
+    }
+    item.append(content,buttons);root.append(item);
+  };
+  if(!all.length){const empty=document.createElement('p');empty.className='empty';empty.textContent='没有进行中的任务';root.append(empty);}
+  if(running.length){heading(`进行中（${running.length}）`);running.forEach(row);}
+  if(attention.length){heading(`需要处理（${attention.length}）`);attention.forEach(row);}
   // Keep the list fresh while anything runs in the background.
-  if(running&&!tasksTimer)tasksTimer=setInterval(()=>refreshState().catch(()=>{}),2000);
-  if(!running&&tasksTimer){clearInterval(tasksTimer);tasksTimer=null;}
+  if(running.length&&!tasksTimer)tasksTimer=setInterval(()=>refreshState().catch(()=>{}),2000);
+  if(!running.length&&tasksTimer){clearInterval(tasksTimer);tasksTimer=null;}
 }
 async function refreshState({initial=false}={}){
   const state=await rpc({type:'state'});settings=validateSettings(state.settings);renderHistory(state.ledger);renderTasks(state.ledger);
@@ -359,5 +379,6 @@ $('notFoundOk').addEventListener('click',()=>{$('notFound').close();$('container
 $('notFoundRetry').addEventListener('click',()=>{$('notFound').close();if($('container').value.trim().toUpperCase()!==notFoundContainer)$('container').value=notFoundContainer;perform('identify');});
 // Esc closes the dialog like 确定 would, but keeps the input so the user can correct it.
 $('notFound').addEventListener('cancel',()=>{status('柜号未找到，可修改后重新查询。','error');});
+$('testNotification').addEventListener('click',async()=>{try{await rpc({type:'testNotification'});status('已发送测试通知，请点击它。');}catch(error){status(error.message,'error');}});
 $('refresh').addEventListener('click',()=>refreshState().catch(error=>status(error.message,'error')));
 try{await refreshState({initial:true});}catch(error){status(error.message,'error');}finally{initializing=false;if(!lastResult&&!busy&&!$('notFound').open&&/^[A-Za-z]{4}\d{7}$/.test($('container').value.trim()))scheduleIdentify();}

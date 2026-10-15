@@ -18,7 +18,7 @@ export async function gmailPage(action,payload){
   const table=template.content.querySelector('table');
   if(template.content.querySelectorAll('table').length!==1||!table?.textContent.includes(payload.container)||!table?.textContent.includes(payload.mbl)||compact(template.content.textContent)!==compact(payload.bodyText))throw new Error('邮件正文模板与正文或柜号不符。');
   const pause=ms=>new Promise(r=>setTimeout(r,ms));
-  async function waitFor(fn,description,timeout=20000){const end=Date.now()+timeout;while(Date.now()<end){const v=fn();if(v)return v;await pause(150);}throw new Error(description);}
+  async function waitFor(fn,description,timeout=20000){const end=Date.now()+timeout;while(Date.now()<end){const v=fn();if(v)return v;await pause(150);}const v=fn();if(v)return v;throw new Error(description);}
   const visible=e=>e&&e.getClientRects().length>0;
   const digest=async text=>Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',new TextEncoder().encode(text)))).map(v=>v.toString(16).padStart(2,'0')).join('');
   const subject=await waitFor(()=>document.querySelector('input[name="subjectbox"]'),'Gmail 写信页未加载，或需要登录。');
