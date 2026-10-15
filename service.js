@@ -1,5 +1,5 @@
-import {containerNumber, mblNumber, lookup, cacheRecords, messageTemplate, portalTemplate, normalizeCarriers, addressList, inquiryType, recognizeCarrier, PORTAL_INQUIRY_TYPE} from './core.js';
-export function createService({storage, readSheet, prepareMail, sendMail, prepareTicket, submitTicket, now = Date.now, uuid = () => crypto.randomUUID()}) {
+import {containerNumber, mblNumber, lookup, cacheRecords, messageTemplate, portalTemplate, chatTemplate, normalizeCarriers, addressList, inquiryType, recognizeCarrier, PORTAL_INQUIRY_TYPE} from './core.js';
+export function createService({storage, readSheet, prepareMail, sendMail, prepareTicket, submitTicket, prepareChat, sendChat, now = Date.now, uuid = () => crypto.randomUUID()}) {
   let queue = Promise.resolve();
   function serial(action) {const work = queue.then(action); queue = work.catch(() => {}); return work;}
   async function run(value, mode, options={}) {
@@ -17,7 +17,7 @@ export function createService({storage, readSheet, prepareMail, sendMail, prepar
       if(carrier.channel==='email'){
         addressList(carrier.to,{allowEmpty:false});
         if(!carrier.bodyTemplate||!carrier.subjectTemplate)throw new Error('首次使用该船公司，请先配置正文模板和主题模板。');
-      }else if(!carrier.bodyTemplate||!carrier.portal.requester)throw new Error('首次使用该船公司，请先配置工单 Requester 和正文模板。');
+      }else if(carrier.channel==='cosco-portal'&&(!carrier.bodyTemplate||!carrier.portal.requester))throw new Error('首次使用该船公司，请先配置工单 Requester 和正文模板。');
     }
     let type=inquiryType(options.inquiryType!==undefined?options.inquiryType:settings.defaultInquiryType);
     const accounts=addressList(settings.account,{allowEmpty:false});
@@ -58,33 +58,37 @@ export function createService({storage, readSheet, prepareMail, sendMail, prepar
       }
     }
     record.carrierSource=carrierSource;
-    const portal=carrier.channel!=='email';
+    const channel=carrier.channel,portal=channel==='cosco-portal',chat=channel==='one-chat';
     if(portal)type=PORTAL_INQUIRY_TYPE;
-    if(mode==='identify')return {...record,carrierId:carrier.id,carrierName:carrier.name,channel:carrier.channel,inquiryType:type,
-      configurationMissing:portal?[...(!carrier.portal.requester?['requester']:[]),...(!carrier.bodyTemplate?['bodyTemplate']:[])]:
+    if(mode==='identify')return {...record,carrierId:carrier.id,carrierName:carrier.name,channel,inquiryType:type,
+      configurationMissing:chat?[]:portal?[...(!carrier.portal.requester?['requester']:[]),...(!carrier.bodyTemplate?['bodyTemplate']:[])]:
         [...(!carrier.to.length?['to']:[]),...(!carrier.bodyTemplate?['bodyTemplate']:[]),...(!carrier.subjectTemplate?['subjectTemplate']:[])]};
-    const message = portal?portalTemplate(record,{carrier}):messageTemplate(record,{carrier,inquiryType:type});
+    const message = chat?chatTemplate(record,{carrier,inquiryType:type}):portal?portalTemplate(record,{carrier}):messageTemplate(record,{carrier,inquiryType:type});
     if (mode === 'preview') return {...record, ...message};
     const key = JSON.stringify([account, record.container, record.mbl, carrier.id, type]);
     const legacyKey=JSON.stringify([account,record.container,record.mbl]);
     if (ledger[key]||(carrier.id==='maersk'&&type==='demurrage'&&ledger[legacyKey])) throw new Error('该柜号在所选船公司和查询类型下已有草稿、发送或待核实记录。请先核对发送记录，避免重复。');
     const entry = {...record, account,carrierId:carrier.id,carrierName:carrier.name,channel:carrier.channel,inquiryType:type,
-      ...(portal?{requester:message.requester,reference:message.reference}:{to:[...message.to],cc:[...message.cc],subject:message.subject}),requestId:uuid(),status:'preparing',time:now()};
+      ...(chat?{chatMessage:message.message,email:message.email}:portal?{requester:message.requester,reference:message.reference}:{to:[...message.to],cc:[...message.cc],subject:message.subject}),requestId:uuid(),status:'preparing',time:now()};
     ledger[key] = entry; await storage.set({ledger});
     let transmissionStarted = false;
     try {
-      const prepared = portal?await prepareTicket({...message,...record,requestId:entry.requestId,submit:mode==='send'})
+      const prepared = chat?await prepareChat({...message,...record,requestId:entry.requestId,send:mode==='send'})
+        :portal?await prepareTicket({...message,...record,requestId:entry.requestId,submit:mode==='send'})
         :await prepareMail({...message, ...record, account, gmailIndex:settings.gmailIndex, requestId:entry.requestId});
       entry.tabId = prepared.tabId;
+      if(prepared.agent)entry.agent=prepared.agent;
       entry.status = 'draft'; await storage.set({ledger});
       if (mode === 'draft') return entry;
       entry.status = 'sending'; await storage.set({ledger});
       transmissionStarted = true;
-      const sent = portal?await submitTicket(prepared,{...message,...record,requestId:entry.requestId})
+      const sent = chat?await sendChat(prepared,{...message,...record,requestId:entry.requestId})
+        :portal?await submitTicket(prepared,{...message,...record,requestId:entry.requestId})
         :await sendMail(prepared, {...message,...record,account,requestId:entry.requestId});
-      if (!sent?.confirmed) throw new Error(portal?'没有检测到 COSCO 工单提交成功。':'没有检测到 Gmail 发送成功确认。');
+      if (!sent?.confirmed) throw new Error(chat?'没有检测到 ONE 客服消息已送达。':portal?'没有检测到 COSCO 工单提交成功。':'没有检测到 Gmail 发送成功确认。');
       entry.status = 'sent'; entry.confirmation = sent.evidence;
       if(sent.ticketId)entry.ticketId=sent.ticketId;
+      if(sent.agent)entry.agent=sent.agent;
       await storage.set({ledger}); return entry;
     } catch (error) {
       // An adapter marks errors raised before anything was submitted (e.g. captcha never completed).
@@ -92,6 +96,7 @@ export function createService({storage, readSheet, prepareMail, sendMail, prepar
       entry.status = transmissionStarted ? 'uncertain' : 'needs_review'; entry.detail = error.message;
       await storage.set({ledger});
       if(portal&&!transmissionStarted)throw new Error(`${error.message} 工单未提交，页面已保留。`);
+      if(chat)throw new Error(transmissionStarted?`ONE 客服消息结果待核实（${error.message}），已阻止重试。请打开聊天页查看。`:`${error.message} 消息未发送，聊天页已保留。`);
       throw new Error(transmissionStarted ? `发送结果待核实（${error.message}），已阻止重试。请查看 Gmail 已发送和草稿后，再处理记录。` : `${error.message} 自动发送已停止，请检查 Gmail 草稿。`);
     }
   }

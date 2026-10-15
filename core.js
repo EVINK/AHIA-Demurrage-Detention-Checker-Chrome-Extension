@@ -5,11 +5,14 @@ export const DEFAULT_BODY_TEMPLATE='Dear {{steam shipping line}},\n\nCould you p
 export const DEFAULT_SUBJECT_TEMPLATE='{{Type}} LFD Inquiry - Container#{{container}} MBL#{{mbl}}';
 // COSCO USA takes LFD inquiries through its Freshdesk ticket portal; Per Diem is always Detention.
 export const COSCO_PORTAL=Object.freeze({requester:'service@darwinpacific.com',shipmentType:'Per Diem',service:'Last Free Day',reference:'AHIA'});
-export const CHANNELS=['email','cosco-portal'];
+export const CHANNELS=['email','cosco-portal','one-chat'];
+// ONE takes LFD inquiries through the live chat on one-line.com (Salesforce messaging, transferred to an agent).
+export const ONE_CHAT=Object.freeze({firstName:'LET',lastName:'TANG',email:'service@darwinpacific.com',country:'United States',message:'Please advise {{type}} LFD for {{container}} / {{mbl}}'});
 export const PORTAL_INQUIRY_TYPE='detention';
 export const DEFAULT_CARRIERS=[
   {id:'maersk',name:'Maersk',greeting:'MSK',to:[TO],cc:[...CC],aliases:['MAERSK','MSK','马士基'],mblPrefixes:['MAEU'],bodyTemplate:DEFAULT_BODY_TEMPLATE,subjectTemplate:DEFAULT_SUBJECT_TEMPLATE},
   {id:'msc',name:'MSC',greeting:'MSC',to:[],cc:[...CC],aliases:['MSC','地中海'],mblPrefixes:['MEDU'],bodyTemplate:DEFAULT_BODY_TEMPLATE,subjectTemplate:DEFAULT_SUBJECT_TEMPLATE},
+  {id:'one',name:'ONE',greeting:'ONE',channel:'one-chat',chat:{...ONE_CHAT},to:[],cc:[],aliases:['ONE','OCEAN NETWORK EXPRESS'],mblPrefixes:['ONEY'],bodyTemplate:'',subjectTemplate:''},
   {id:'cosco',name:'COSCO',greeting:'Cosco',channel:'cosco-portal',portal:{...COSCO_PORTAL},to:[],cc:[],aliases:['COSCO','COS','中远'],mblPrefixes:['COSU'],bodyTemplate:DEFAULT_BODY_TEMPLATE,subjectTemplate:''}
 ];
 export function addressList(value,{allowEmpty=true}={}){
@@ -67,6 +70,18 @@ function portalFields(value){
   return {requester:requester[0]||'',shipmentType:profileText(value.shipmentType,'Shipment Type'),
     service:profileText(value.service,'Per Diem Services'),reference:profileText(value.reference,'PD INV /BL /BKG /HOU # /SCAC Code')};
 }
+function chatFields(value){
+  if(!value||typeof value!=='object'||Array.isArray(value))throw new Error('ONE 在线客服配置格式无效。');
+  const email=addressList(value.email);
+  if(email.length!==1)throw new Error('ONE 在线客服 Email 须为一个有效邮箱。');
+  const message=String(value.message??'').trim();
+  if(!message||message.length>500||/[\u0000-\u001f\u007f]/.test(message))throw new Error('ONE 聊天消息模板须为 1–500 个字符的单行文本。');
+  const tokens=[...message.matchAll(/\{\{([^{}]*)\}\}/g)].map(m=>m[1]);
+  if(tokens.some(t=>!['type','Type','container','mbl','carrier'].includes(t))||/\{\{|\}\}/.test(message.replace(/\{\{([^{}]*)\}\}/g,'')))throw new Error('ONE 聊天消息模板含有未知或不完整的占位符。');
+  if(!tokens.includes('container')||!tokens.includes('mbl')||!tokens.some(t=>t==='type'||t==='Type'))throw new Error('ONE 聊天消息模板必须包含 {{type}}、{{container}} 和 {{mbl}}。');
+  return {firstName:profileText(value.firstName,'First Name'),lastName:profileText(value.lastName,'Last Name'),email:email[0],
+    country:profileText(value.country??ONE_CHAT.country,'Country'),message};
+}
 export function normalizeCarriers(input=DEFAULT_CARRIERS){
   if(!Array.isArray(input)||!input.length||input.length>50)throw new Error('船公司配置须包含 1–50 条记录。');
   const ids=new Set();
@@ -80,7 +95,8 @@ export function normalizeCarriers(input=DEFAULT_CARRIERS){
     const builtin=DEFAULT_CARRIERS.find(item=>item.id===id);
     const channel=profile.channel===undefined?builtin?.channel||'email':profile.channel;
     if(!CHANNELS.includes(channel))throw new Error('船公司发送方式无效。');
-    return {id,channel,...(channel==='cosco-portal'?{portal:portalFields(profile.portal===undefined?builtin?.portal||COSCO_PORTAL:profile.portal)}:{}),name:profileText(profile.name,'船公司名称'),greeting:profileText(profile.greeting,'邮件称呼'),to,cc,
+    return {id,channel,...(channel==='cosco-portal'?{portal:portalFields(profile.portal===undefined?builtin?.portal||COSCO_PORTAL:profile.portal)}:{}),
+      ...(channel==='one-chat'?{chat:chatFields(profile.chat===undefined?builtin?.chat||ONE_CHAT:profile.chat)}:{}),name:profileText(profile.name,'船公司名称'),greeting:profileText(profile.greeting,'邮件称呼'),to,cc,
       aliases:profileList(profile.aliases===undefined?builtin?.aliases||[]:profile.aliases,'船公司别名'),
       mblPrefixes:profileList(profile.mblPrefixes===undefined?builtin?.mblPrefixes||[]:profile.mblPrefixes,'MBL 前缀',true),
       bodyTemplate:templateText(profile.bodyTemplate===undefined?(builtin?builtin.bodyTemplate:''):profile.bodyTemplate,'body'),
@@ -163,6 +179,16 @@ export function portalTemplate(record,options={}){
   if(!profile.portal.requester)throw new Error('请先配置 COSCO 工单的 Requester 邮箱。');
   const {bodyText,html}=renderTemplates(record,profile,type);
   return {channel:profile.channel,...profile.portal,carrierId:profile.id,carrierName:profile.name,inquiryType:type,bodyText,html};
+}
+/** Chat message for a carrier whose channel is the ONE live chat; both inquiry types are supported. */
+export function chatTemplate(record,options={}){
+  if(!options||typeof options!=='object'||Array.isArray(options))throw new Error('聊天选项格式无效。');
+  const profile=normalizeCarriers([options.carrier])[0],type=inquiryType(options.inquiryType);
+  if(profile.channel!=='one-chat')throw new Error(`${profile.name} 不是 ONE 在线客服方式。`);
+  const container=containerNumber(record.container),mbl=mblNumber(record.mbl);
+  const values={type,Type:type[0].toUpperCase()+type.slice(1),container,mbl,carrier:profile.name};
+  const message=profile.chat.message.replace(/\{\{([^{}]*)\}\}/g,(_,token)=>values[token]);
+  return {channel:profile.channel,...profile.chat,message,carrierId:profile.id,carrierName:profile.name,inquiryType:type};
 }
 function renderTemplates(record,profile,type){
   const container=containerNumber(record.container),mbl=mblNumber(record.mbl);

@@ -2,6 +2,7 @@ import {createService} from './service.js';
 import {readKdocsPage} from './kdocs.js';
 import {gmailPage} from './gmail.js';
 import {coscoPage} from './cosco.js';
+import {onePage} from './one.js';
 import {validateSettings} from './config.js';
 chrome.storage.local.setAccessLevel({accessLevel:'TRUSTED_CONTEXTS'});
 async function execute(tabId,func,args=[],world='ISOLATED'){
@@ -17,6 +18,37 @@ const pause=ms=>new Promise(r=>setTimeout(r,ms));
 // send is still pending, e.g. when Chrome throttles or freezes the background tab.
 const SEND_CLOSE_TIMEOUT=60000;
 const COSCO_TICKET_URL='https://support.cosco-usa.com/support/tickets/new';
+const ONE_CHAT_URL='https://www.one-line.com/one-ecom/manage-shipment/cargo-tracking';
+const AGENT_TIMEOUT=10*60000,READ_TIMEOUT=5*60000;
+// Start the chat, walk the bot menus, transfer to an agent and, once one joins, `type` or `send` the message.
+async function toAgent(tabId,payload,last){
+  await inFrame(tabId,'chat','start',payload,90000);
+  await inFrame(tabId,'calc','finish',payload,60000);
+  await inFrame(tabId,'chat','transfer',payload,90000);
+  // Agents close idle chats within minutes, so act as soon as one joins.
+  const end=Date.now()+AGENT_TIMEOUT;
+  for(;;){
+    const state=await inFrame(tabId,'chat','agent');
+    if(state.agent)break;
+    if(state.ended)throw new Error('ONE 对话已结束，客服未接入');
+    if(Date.now()>end)throw new Error('等待 ONE 客服接入超时（10 分钟）');
+    await pause(3000);
+  }
+  return inFrame(tabId,'chat',last,payload);
+}
+// Run onePage in whichever frame of the tab is `kind`; frames appear asynchronously, so retry until one answers.
+async function inFrame(tabId,kind,action,payload={},timeout=45000){
+  const end=Date.now()+timeout;let lastError='';
+  while(Date.now()<end){
+    let results=[];
+    try{results=await chrome.scripting.executeScript({target:{tabId,allFrames:true},func:onePage,args:[kind,action,payload],world:'MAIN'});}
+    catch(error){lastError=error.message;}
+    const hit=results.map(r=>r?.result).find(r=>r&&!(r.ok&&r.data?.skip));
+    if(hit){if(!hit.ok)throw new Error(hit.error||'ONE 页面操作失败。');return hit.data;}
+    await pause(1000);
+  }
+  throw new Error(`ONE 页面没有加载出所需的${kind==='chat'?'聊天窗口':kind==='calc'?'计算器':'页面'}${lastError?'（'+lastError+'）':''}。`);
+}
 async function closedByGmail(tabId){const end=Date.now()+SEND_CLOSE_TIMEOUT;while(Date.now()<end){try{await chrome.tabs.get(tabId);}catch{return true;}await pause(500);}return false;}
 async function loaded(tabId){const end=Date.now()+25000;while(Date.now()<end){if((await chrome.tabs.get(tabId)).status==='complete')return;await new Promise(r=>setTimeout(r,200));}throw new Error('页面加载超时。');}
 const store={get:async keys=>{const result=await chrome.storage.local.get(keys);result.settings=validateSettings(result.settings||{});return result;},set:data=>chrome.storage.local.set(data)};
@@ -62,6 +94,28 @@ const service=createService({storage:store,
     // Still on the form with validation errors: the ticket was not accepted.
     if(result.formStillOpen&&result.reason)error.notTransmitted=true;
     throw error;
+  },
+  prepareChat:async payload=>{
+    const tab=await chrome.tabs.create({url:ONE_CHAT_URL,active:false});await loaded(tab.id);
+    // Start a new conversation every time: forget any unfinished chat ONE would resume, then reload.
+    await inFrame(tab.id,'top','reset');
+    await inFrame(tab.id,'chat','reset',{},8000).catch(()=>{});
+    await chrome.tabs.reload(tab.id);await pause(500);await loaded(tab.id);
+    await inFrame(tab.id,'top','open',payload);
+    await inFrame(tab.id,'chat','form',payload);
+    if(payload.send)return {tabId:tab.id};
+    // Test mode goes all the way to the agent and types the message, but never sends it.
+    const typed=await toAgent(tab.id,payload,'type');
+    return {tabId:tab.id,agent:typed.agent};
+  },
+  sendChat:async(prepared,payload)=>{
+    const tabId=prepared.tabId;
+    let sent;
+    try{sent=await toAgent(tabId,payload,'send');}catch(error){error.notTransmitted=true;throw error;}
+    // Done only when the agent has read it (Sent → Delivered → Read).
+    const end=Date.now()+READ_TIMEOUT;let receipt;
+    while(Date.now()<end){receipt=await inFrame(tabId,'chat','receipt',payload);if(/^Read$/i.test(receipt.status))return {confirmed:true,agent:sent.agent,evidence:receipt.evidence};await pause(3000);}
+    throw new Error(`ONE 客服 5 分钟内未读消息（当前状态：${receipt?.status||'未找到消息'}）`);
   },
   sendMail:async(prepared,payload)=>{
     const sent=await execute(prepared.tabId,gmailPage,['send',{...payload,bodyHash:prepared.bodyHash}]);
@@ -110,7 +164,7 @@ chrome.runtime.onMessage.addListener((message,sender,respond)=>{
       const {ledger={}}=await store.get(['ledger']);
       if(!Number.isInteger(message.tabId)||!Object.values(ledger).some(entry=>entry.tabId===message.tabId&&['draft','uncertain','needs_review'].includes(entry.status)))throw new Error('草稿标签页不在插件记录中。请到 Gmail 草稿中查看。');
       const tab=await chrome.tabs.get(message.tabId);
-      if(!['https://mail.google.com/','https://support.cosco-usa.com/'].some(origin=>tab.url?.startsWith(origin)))throw new Error('原草稿标签页已变更，请到 Gmail 草稿中查看。');
+      if(!['https://mail.google.com/','https://support.cosco-usa.com/','https://www.one-line.com/'].some(origin=>tab.url?.startsWith(origin)))throw new Error('原草稿标签页已变更，请到 Gmail 草稿中查看。');
       await chrome.tabs.update(message.tabId,{active:true});return true;
     }
     if(message.type==='settings'){

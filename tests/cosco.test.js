@@ -5,6 +5,7 @@ import {validateSettings,createConfig,parseConfig} from '../config.js';
 import {createService} from '../service.js';
 
 const record={container:'MSMU7504817',mbl:'COSU6123456780',row:12,carrier:'COS'};
+const COSCO_DEFAULT=DEFAULT_CARRIERS.find(p=>p.id==='cosco');
 const cosco=()=>normalizeCarriers().find(profile=>profile.id==='cosco');
 
 function setup({testMode=false,...overrides}={}){
@@ -31,10 +32,10 @@ test('COSCO is a built-in portal carrier recognized from the sheet SSL "COS"',()
 });
 
 test('portal config validates channel and a single requester, and round-trips through JSON',()=>{
-  assert.throws(()=>normalizeCarriers([{...DEFAULT_CARRIERS[2],channel:'fax'}]),/发送方式/);
-  assert.throws(()=>normalizeCarriers([{...DEFAULT_CARRIERS[2],portal:{...COSCO_PORTAL,requester:'a@example.com, b@example.com'}}]),/Requester/);
-  assert.throws(()=>normalizeCarriers([{...DEFAULT_CARRIERS[2],portal:{...COSCO_PORTAL,reference:''}}]),/SCAC/);
-  const settings=validateSettings({carriers:[{...DEFAULT_CARRIERS[2],portal:{...COSCO_PORTAL,requester:'Ops@Example.com'}}],defaultCarrierId:'cosco'});
+  assert.throws(()=>normalizeCarriers([{...COSCO_DEFAULT,channel:'fax'}]),/发送方式/);
+  assert.throws(()=>normalizeCarriers([{...COSCO_DEFAULT,portal:{...COSCO_PORTAL,requester:'a@example.com, b@example.com'}}]),/Requester/);
+  assert.throws(()=>normalizeCarriers([{...COSCO_DEFAULT,portal:{...COSCO_PORTAL,reference:''}}]),/SCAC/);
+  const settings=validateSettings({carriers:[{...COSCO_DEFAULT,portal:{...COSCO_PORTAL,requester:'Ops@Example.com'}}],defaultCarrierId:'cosco'});
   assert.equal(settings.carriers[0].portal.requester,'ops@example.com');
   assert.deepEqual(parseConfig(JSON.stringify(createConfig(settings))).carriers,settings.carriers);
   const email=normalizeCarriers([{id:'x',name:'X',greeting:'X',to:[],cc:[]}])[0];

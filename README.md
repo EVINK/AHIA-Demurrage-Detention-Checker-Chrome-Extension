@@ -1,4 +1,4 @@
-# LFD Inquiry v0.3.4 — Chrome 插件使用说明
+# LFD Inquiry v0.3.5 — Chrome 插件使用说明
 
 输入柜号，插件从金山文档「提柜」查出 MBL 和船公司，再按所选 Demurrage / Detention 类型准备查询邮件，保留 Gmail 原签名。支持 Maersk、MSC 和自行添加的船公司，收件邮箱与邮件模板均可配置。
 
@@ -16,9 +16,9 @@
 
 ## 已安装用户升级
 
-1. 确认原插件目录已经更新为 v0.3.4 文件。如果使用压缩包，将文件解压到原来加载的目录。
+1. 确认原插件目录已经更新为 v0.3.5 文件。如果使用压缩包，将文件解压到原来加载的目录。
 2. 在 Chrome 手动打开 `chrome://extensions`，找到 **LFD Inquiry**，点击刷新图标。
-3. 点击工具栏上的 LFD Inquiry 图标，打开新版弹窗；确认底部显示 `v0.3.4`、顶部显示「测试模式 · 不发送」。
+3. 点击工具栏上的 LFD Inquiry 图标，打开新版弹窗；确认底部显示 `v0.3.5`、顶部显示「测试模式 · 不发送」。
 
 新版使用真正的工具栏弹窗，尺寸为 780 × 600，包含「查询 / 配置 / 记录」三个页面，不再为主界面新开标签页。v0.2.6 新增 unlimitedStorage，解除 chrome.storage.local 默认容量配额；实际仍受磁盘空间和性能限制。缓存逻辑保持不变。原有连接设置、草稿和发送锁定记录保留。
 
@@ -267,3 +267,18 @@ COSCO 不发邮件，改为在 https://support.cosco-usa.com/support/tickets/new
 编辑器内部（运行、保存按钮、Monaco 编辑器、新建脚本命名框）中英文结构相同，不依赖文字。另外：点「效率 / Tools」时如果该页签本已选中，金山会收起工具栏，插件现在找不到「高级开发」时会再点一次展开。
 
 真实验证（调试 Chrome 切换为英文界面）：读表成功；把脚本临时改名后，插件在英文界面下自动新建 LFD_ReadOnly_v1，刷新后内容与插件自带一致；测试用的备份脚本已删除。
+
+## v0.3.5 ONE 在线客服（Demurrage / Detention）
+
+船司 ONE（表中 SSL「ONE」或 MBL 前缀 ONEY）不发邮件，改为在 one-line.com 在线客服询问。消息模板：`Please advise {{type}} LFD for {{container}} / {{mbl}}`，Demurrage 和 Detention 都支持（按查询类型替换）。
+
+流程（全部在后台标签页）：
+1. 打开 cargo-tracking 页面，**清除 ONE 记住的未结束对话**后刷新，保证每次查询都是新对话；旧对话不动，让它自然过期。
+2. 点聊天图标 → 选国家（默认 United States）→ Continue → ONE Chat → 填 First Name / Last Name / Email、Reference Type = Container Number、Reference Number = 柜号，勾选同意条款 → Start the Chat。
+3. 机器人菜单：Import → Last Free Day / Demurrage & Detention → （费用计算器里的）FINISHED MY INQUIRY → Transfer to a Customer Care Agent。
+4. 等真人客服接入（最长 10 分钟），接入后立即填入消息并发送；客服显示 **Read** 后记为「已查询」（最长等 5 分钟，否则「待核实」）。
+5. **测试模式**走到第 4 步填好消息为止，不发送，记录为「客服已接入 · 消息未发送」。
+
+配置页可改 First Name（默认 LET）、Last Name（TANG）、Email（service@darwinpacific.com）、Country 和消息模板。旧配置中没有 ONE 时，查询结果点「新增或选择船公司」会自动带出 ONE 默认配置。新增权限：www.one-line.com、one-line.my.site.com、*.one-line.com（费用计算器 iframe）。
+
+真实验证（调试 Chrome，测试模式）：TRHU6206940 Demurrage，后台 63 秒内开新对话、走完菜单、客服 Janrey 接入，消息已填入未发送。正式发送与「Read」判定尚未真实测试。
