@@ -1,6 +1,6 @@
 # LFD Inquiry — Agent 交接文档
 
-更新时间：2026-10-09（America/Los_Angeles）。代码版本：**0.3.10**（可选本机邮件程序；On-Hire；ONE 对话复用、独立小窗、终止/删除；浮动小窗+通知；查询不阻塞/后台任务/ONE 多柜号；ONE 在线客服；英文界面兼容；2026-10-14：发送确认加严、COSCO 工单网站、取消DO 后分段读取、日志虚拟列表读取、脚本自动安装、找不到柜号提示框，见第 6 节）。
+更新时间：2026-10-09（America/Los_Angeles）。代码版本：**0.3.11**（On-Hire 多柜号、ONE 气泡文字修复；可选本机邮件程序；On-Hire；ONE 对话复用、独立小窗、终止/删除；浮动小窗+通知；查询不阻塞/后台任务/ONE 多柜号；ONE 在线客服；英文界面兼容；2026-10-14：发送确认加严、COSCO 工单网站、取消DO 后分段读取、日志虚拟列表读取、脚本自动安装、找不到柜号提示框，见第 6 节）。
 Chrome 现直接从 WSL 目录 `/home/evink/demurrage-lfd-extension` 加载；git 分支 `fix/gmail-send-confirmation`。
 本文件依据本次对话及当前源码整理；它是工程交接，不代表安装在 Chrome 中的版本已自动更新。
 
@@ -172,6 +172,7 @@ kdocs 适配器要求新的 START、同 id、分段连续、条数正确和 END�
 | 0.2.7 | 柜号吸顶、输入框内按钮、按钮也缓存优先 |
 | 0.2.8 | 按第一条完整行去重，仅删除本地重复项 |
 | 0.2.9 | 不完整记录不缓存、旧缓存清理、配置页清缓存 |
+| 0.3.11 | renderTemplates 支持 more（表格多行，{{container}}/{{mbl}} 逗号拼接），On-Hire 默认文案 ON_HIRE_BODY/SUBJECT_TEMPLATE（空模板回落默认）。service：more 允许 chat 与 on-hire，额外柜号只要在缓存中就校验船公司。UI：粘贴多柜号拆行、以首柜号 carrierId 为基准红框（.extra-row.mismatch）、#removeMain 删除首框后补位。ONE：出站气泡是 c-pilot-messaging-text-bubble，MAIN world 下 li.textContent 为空——必须用 TreeWalker 读文本（deepText），匹配用 includes；页面错误带 sent 计数回传以判 uncertain；markSent 支持 uncertain/needs_review/中断 → 用户核实已发送 |
 | 0.3.10 | settings.mailClient 'gmail'(默认)/'system'。system 时 service 不起后台任务，直接生成 mailto（纯文本 bodyText，\r\n），entry.status='draft'、mailClient='system'、mailto；popup 用 a.click() 打开（需用户手势）；service.markSent 由用户确认已发送。UI 选择 system 时显示限制并 confirm |
 | 0.3.9 | inquiryType 增加 on-hire（INQUIRY_TYPES 标题）。carrier.onHire={to,cc,subjectTemplate,bodyTemplate}，默认全空由用户填写，模板不强制 {{type}}。inquiryChannel：on-hire→email，COSCO on-hire→'cosco-onhire'（流程待用户提供，识别提示 coscoOnHire，发送拒绝）。messageTemplate 对 on-hire 使用 onHire 收件人与模板 |
 | 0.3.8 | ONE 每浏览器只有一个 MIAW 对话（共享 localStorage，开着的窗口会写回会话），曾尝试按窗口隔离存储，用户改为：客服还在→追加到当前对话；客服结束/窗口关闭→新窗口新对话。worker chatTurn 串行 ONE 任务，liveChat 读 storage.session.chatTab 并查 'agent' 状态，已结束则关旧窗。live 模式在 prepareChat 内完成发送+等已读（deliver），发送后的失败经 sendChat 抛出→uncertain。openWork 建 focused:false 小 popup 窗口（右下角）。终止：service.cancel+关 tab；删除：service.releaseTask。inFrame 遇 tab 关闭立即失败 |

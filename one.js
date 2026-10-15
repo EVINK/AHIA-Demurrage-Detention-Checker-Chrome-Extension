@@ -120,8 +120,10 @@ export async function onePage(kind,action,payload){
     return {ok:true,data:{agent:agent(),ended}};
   }
   const messages=Array.isArray(payload?.messages)&&payload.messages.length?payload.messages:[payload?.message];
+  // Message bubbles are custom components whose text the page hides from textContent; walk the text nodes.
+  const deepText=root=>{const w=document.createTreeWalker(root,NodeFilter.SHOW_TEXT);let out='';for(let n=w.nextNode();n;n=w.nextNode())out+=' '+n.nodeValue;return out.replace(/\s+/g,' ').trim();};
   const bubbles=()=>deepAll(e=>e.matches('li.slds-chat-listitem_outbound'));
-  const bubble=message=>bubbles().filter(li=>text(li).startsWith(message)).at(-1);
+  const bubble=message=>bubbles().filter(li=>deepText(li).includes(message.replace(/\s+/g,' ').trim())).at(-1);
   if(action==='type'||action==='send'){
     const name=agent();if(!name)throw new Error('ONE 客服还没有接入，消息未发送。');
     const box=textarea();if(!box||box.disabled)throw new Error('ONE 聊天输入框不可用，消息未发送。');
@@ -152,19 +154,22 @@ export async function onePage(kind,action,payload){
   if(action==='replies'){
     // Agent messages that arrived after our last inquiry message (system events are separate list items).
     const items=deepAll(e=>e.matches('li.slds-chat-listitem_inbound,li.slds-chat-listitem_outbound'));
-    const last=items.findLastIndex(li=>li.matches('.slds-chat-listitem_outbound')&&messages.some(m=>text(li).startsWith(m)));
-    const replies=last<0?[]:items.slice(last+1).filter(li=>li.matches('.slds-chat-listitem_inbound')).map(li=>text(li).replace(/\s*\S+ \(ONE\) • .*$/,'')).filter(Boolean);
+    const last=items.findLastIndex(li=>li.matches('.slds-chat-listitem_outbound')&&messages.some(m=>deepText(li).includes(m)));
+    const replies=last<0?[]:items.slice(last+1).filter(li=>li.matches('.slds-chat-listitem_inbound')).map(li=>deepText(li).replace(/\s*\S+ \(ONE\) • .*$/,'')).filter(Boolean);
     return {ok:true,data:{replies,ended:events().some(e=>/ended the chat|chat (has )?ended|conversation ended|timed out/i.test(e))}};
   }
   if(action==='receipt'){
     // Receipt under each outbound bubble: Sent → Delivered → Read.
     const statuses=messages.map(message=>{
       const mine=bubble(message);
-      const receipt=mine&&deepAll(e=>e.classList?.contains('embedded-messaging-chat-message-receipt-text')&&mine.contains(e))[0];
+      // Walk the bubble itself: component boundaries can hide descendants from contains()/querySelector.
+      let receipt=null;
+      if(mine){const w=document.createTreeWalker(mine,NodeFilter.SHOW_ELEMENT);for(let n=w.nextNode();n&&!receipt;n=w.nextNode())if(n.classList?.contains('embedded-messaging-chat-message-receipt-text'))receipt=n;}
       return receipt?text(receipt).split('•')[0].trim():'';
     });
     return {ok:true,data:{statuses}};
   }
   throw new Error('未知 ONE 聊天操作。');
-  }catch(error){return {ok:false,error:error.message||String(error)};}
+  // `sent` tells the extension a message already went out before the error (so the result is "uncertain").
+  }catch(error){return {ok:false,error:error.message||String(error),...(error.sent?{sent:error.sent}:{})};}
 }

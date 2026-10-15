@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {normalizeCarriers,messageTemplate,INQUIRY_TYPES,inquiryType} from '../core.js';
+import {normalizeCarriers,messageTemplate,INQUIRY_TYPES,inquiryType,ON_HIRE_BODY_TEMPLATE,ON_HIRE_SUBJECT_TEMPLATE} from '../core.js';
 import {validateSettings,createConfig,parseConfig} from '../config.js';
 import {createService} from '../service.js';
 
@@ -13,7 +13,7 @@ test('On-Hire is a third inquiry type with its own title',()=>{
 
 test('every carrier gets On-Hire email settings; recipients must be configured first',()=>{
   const [maersk]=normalizeCarriers();
-  assert.deepEqual(maersk.onHire,{to:[],cc:[],subjectTemplate:'',bodyTemplate:''},'templates are left for the user to write');
+  assert.deepEqual(maersk.onHire,{to:[],cc:[],subjectTemplate:ON_HIRE_SUBJECT_TEMPLATE,bodyTemplate:ON_HIRE_BODY_TEMPLATE},'standard On-Hire text until the user writes their own');
   assert.throws(()=>messageTemplate({container:'MRSU4786640',mbl:'MAEU276301677'},{carrier:maersk,inquiryType:'on-hire'}),/On-Hire 收件邮箱/);
   const custom={...maersk,onHire:{to:['onhire@example.com'],cc:['ops@example.com'],subjectTemplate:'On-Hire {{container}} {{mbl}}',bodyTemplate:'Please confirm on-hire.\n{{table}}'}};
   const message=messageTemplate({container:'MRSU4786640',mbl:'MAEU276301677'},{carrier:custom,inquiryType:'on-hire'});
@@ -60,7 +60,24 @@ test('On-Hire for ONE is sent by email, not chat; COSCO On-Hire waits for its ti
 test('missing On-Hire recipients are reported by identify and stop a send',async()=>{
   const t=setup(normalizeCarriers(),{container:'MRSU4786640',mbl:'MAEU276301677',row:3,carrier:'MSK'});
   const identified=await t.run('MRSU4786640','identify',{inquiryType:'on-hire'});
-  assert.deepEqual(identified.configurationMissing,['onHireTo','onHireBody','onHireSubject']);
+  assert.deepEqual(identified.configurationMissing,['onHireTo']);
   await assert.rejects(t.run('MRSU4786640','send',{inquiryType:'on-hire'}),/On-Hire/);
   assert.equal(t.calls.mail.length,0);
+});
+
+test('On-Hire sends several containers of the same carrier in one email table; another carrier is refused',async()=>{
+  const records=[{container:'OOLU9995789',mbl:'OOLU4055290001',row:1,carrier:'OOCL'},{container:'FFAU8502590',mbl:'OOLU4055290002',row:2,carrier:'OOCL'},{container:'TIIU8074576',mbl:'ZIMUNGB208771',row:3,carrier:'ZIM'}];
+  const carriers=[...normalizeCarriers(),{id:'oocl',name:'OOCL',greeting:'OOCL',to:[],cc:[],aliases:['OOCL'],mblPrefixes:['OOLU'],onHire:{to:['onhire@oocl.example']}},{id:'zim',name:'ZIM',greeting:'ZIM',to:[],cc:[],aliases:['ZIM'],mblPrefixes:[]}];
+  let db={settings:{account:'me@example.com',gmailIndex:0,testMode:false,carriers},ledger:{}};const mails=[];
+  const service=createService({storage:{get:async()=>structuredClone(db),set:async x=>{db={...db,...structuredClone(x)};}},readSheet:async()=>({records,readAt:1}),
+    prepareMail:async p=>{mails.push(p);return {tabId:8};},sendMail:async()=>({confirmed:true,evidence:'ok'}),uuid:()=>'r'});
+  await service.run('OOLU9995789','identify',{inquiryType:'on-hire'});
+  await assert.rejects(service.run('OOLU9995789','send',{inquiryType:'on-hire',more:[{container:'TIIU8074576',mbl:'ZIMUNGB208771'}]}),/不是 OOCL/);
+  const started=await service.run('OOLU9995789','send',{inquiryType:'on-hire',more:[{container:'FFAU8502590',mbl:'OOLU4055290002'}]});
+  await service.job(started.requestId);
+  assert.equal(mails.length,1,'one email for both containers');
+  assert.equal(mails[0].bodyText.split('\n').slice(-2).join('|'),'OOLU9995789\tOOLU4055290001|FFAU8502590\tOOLU4055290002');
+  assert.match(mails[0].subject,/OOLU9995789, FFAU8502590/);
+  assert.deepEqual(Object.values(db.ledger).map(e=>[e.container,e.status]),[['OOLU9995789','sent'],['FFAU8502590','sent']]);
+  await assert.rejects(service.run('OOLU9995789','send',{inquiryType:'demurrage',more:[{container:'FFAU8502590',mbl:'OOLU4055290002'}]}),/On-Hire/);
 });

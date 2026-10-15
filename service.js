@@ -75,17 +75,18 @@ export function createService({storage, readSheet, prepareMail, sendMail, prepar
       configurationMissing:channel==='cosco-onhire'?['coscoOnHire']:type===ON_HIRE?[...(!carrier.onHire.to.length?['onHireTo']:[]),...(!carrier.onHire.bodyTemplate?['onHireBody']:[]),...(!carrier.onHire.subjectTemplate?['onHireSubject']:[])]:chat?[]:portal?[...(!carrier.portal.requester?['requester']:[]),...(!carrier.bodyTemplate?['bodyTemplate']:[])]:
         [...(!carrier.to.length?['to']:[]),...(!carrier.bodyTemplate?['bodyTemplate']:[]),...(!carrier.subjectTemplate?['subjectTemplate']:[])]};
     const more=Array.isArray(options.more)?options.more:[];
-    if(more.length&&(!chat||mode==='identify'||mode==='preview'))throw new Error('只有 ONE 在线客服支持在一个会话中查询多个柜号。');
+    if(more.length&&(!(chat||type===ON_HIRE)||mode==='identify'))throw new Error('只有 ONE 在线客服和 On-Hire 邮件支持一次查询多个柜号。');
     // Extra containers must be cached ONE records of the same carrier (or explicitly carry a manual MBL).
     const extras=more.map(item=>{
       const extraContainer=containerNumber(item?.container);
       const cached=sheet?.records.find(r=>String(r.container).trim().toUpperCase()===extraContainer);
-      if(cached&&!item.mbl){const found=recognizeCarrier(cached,carriers).carrier;if(found.id!==carrier.id)throw new Error(`${extraContainer} 不是 ${carrier.name} 的柜号，不能放在同一会话。`);}
+      // Every container must belong to the first container's carrier (the user removes the others).
+      if(cached){let found;try{found=recognizeCarrier(cached,carriers).carrier;}catch{}if(found?.id!==carrier.id)throw new Error(`${extraContainer} 不是 ${carrier.name} 的柜号，请从列表中删除后再发送。`);}
       if(!cached&&!item.mbl)throw new Error(`${extraContainer} 尚未查询，请先查询后再加入。`);
       return {container:extraContainer,mbl:mblNumber(item.mbl||cached.mbl)};
     });
     if(channel==='cosco-onhire')throw new Error('COSCO On-Hire 工单流程尚未配置，暂不能发送。');
-    const message = chat?chatTemplate(record,{carrier,inquiryType:type,more:extras}):portal?portalTemplate(record,{carrier}):messageTemplate(record,{carrier,inquiryType:type});
+    const message = chat?chatTemplate(record,{carrier,inquiryType:type,more:extras}):portal?portalTemplate(record,{carrier}):messageTemplate(record,{carrier,inquiryType:type,more:extras});
     if (mode === 'preview') return {...record, ...message};
     const items=[{container:record.container,mbl:record.mbl},...extras];
     const keys=items.map(item=>JSON.stringify([account, item.container, item.mbl, carrier.id, type]));
@@ -165,9 +166,11 @@ export function createService({storage, readSheet, prepareMail, sendMail, prepar
   // 「我已发送」 for a mail-program draft: only the user knows it went out.
   const markSent=requestId=>serial(async()=>{
     const {ledger={}}=await storage.get(['ledger']);
-    const keys=Object.keys(ledger).filter(key=>ledger[key].requestId===requestId&&ledger[key].mailClient==='system'&&ledger[key].status==='draft');
+    // Mail-program drafts, and failed/uncertain tasks the user checked and found sent. The lock stays.
+    if(active.has(requestId))throw new Error('该任务仍在后台进行。');
+    const keys=Object.keys(ledger).filter(key=>ledger[key].requestId===requestId&&((ledger[key].mailClient==='system'&&ledger[key].status==='draft')||['uncertain','needs_review','preparing','sending'].includes(ledger[key].status)));
     if(!keys.length)throw new Error('记录不存在或已确认。');
-    for(const key of keys)ledger[key]={...ledger[key],status:'sent',confirmation:'用户确认已在邮件程序中发送',sentAt:now()};
+    for(const key of keys)ledger[key]={...ledger[key],status:'sent',confirmation:ledger[key].mailClient==='system'?'用户确认已在邮件程序中发送':'用户核实已发送',sentAt:now(),running:false,interrupted:false};
     await storage.set({ledger});return keys.length;
   });
   async function cancel(requestId){

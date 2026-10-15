@@ -163,7 +163,7 @@ async function inFrame(tabId,kind,action,payload={},timeout=45000){
     try{results=await chrome.scripting.executeScript({target:{tabId,allFrames:true},func:onePage,args:[kind,action,payload],world:'MAIN'});}
     catch(error){lastError=error.message;if(/No tab with id|tab was closed|No frame/i.test(error.message))throw Object.assign(new Error('ONE 页面已被关闭'),{closed:true});}
     const hit=results.map(r=>r?.result).find(r=>r&&!(r.ok&&r.data?.skip));
-    if(hit){if(!hit.ok)throw new Error(hit.error||'ONE 页面操作失败。');return hit.data;}
+    if(hit){if(!hit.ok)throw Object.assign(new Error(hit.error||'ONE 页面操作失败。'),hit.sent?{sent:hit.sent}:{});return hit.data;}
     await pause(1000);
   }
   throw new Error(`ONE 页面没有加载出所需的${kind==='chat'?'聊天窗口':kind==='calc'?'计算器':'页面'}${lastError?'（'+lastError+'）':''}。`);

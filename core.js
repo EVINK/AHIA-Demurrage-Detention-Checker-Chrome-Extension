@@ -69,10 +69,13 @@ function templateText(value,kind,{requireType=true}={}){
   if(!body&&(!tokens.includes('container')||!tokens.includes('mbl')))throw new Error('主题模板必须包含 {{container}} 和 {{mbl}}。');
   return result;
 }
+export const ON_HIRE_BODY_TEMPLATE='Dear {{steam shipping line}},\n\nPlease on-hire below containers to Terminal A, B,C,D,...,etc.\n\n{{table}}';
+export const ON_HIRE_SUBJECT_TEMPLATE='On-Hire Request - Container#{{container}} MBL#{{mbl}}';
 function onHireFields(value){
   if(!value||typeof value!=='object'||Array.isArray(value))throw new Error('On-Hire 邮件配置格式无效。');
   const to=addressList(value.to),cc=addressList(value.cc).filter(address=>!to.includes(address));
-  return {to,cc,subjectTemplate:templateText(value.subjectTemplate??'','subject',{requireType:false}),bodyTemplate:templateText(value.bodyTemplate??'','body',{requireType:false})};
+  // Empty templates fall back to the standard On-Hire text.
+  return {to,cc,subjectTemplate:templateText(value.subjectTemplate||ON_HIRE_SUBJECT_TEMPLATE,'subject',{requireType:false}),bodyTemplate:templateText(value.bodyTemplate||ON_HIRE_BODY_TEMPLATE,'body',{requireType:false})};
 }
 function portalFields(value){
   if(!value||typeof value!=='object'||Array.isArray(value))throw new Error('COSCO 工单配置格式无效。');
@@ -183,7 +186,8 @@ export function messageTemplate(record,options={}){
   const profile=type===ON_HIRE?{...base,...base.onHire}:base;
   if(!profile.bodyTemplate||!profile.subjectTemplate)throw new Error('首次使用该船公司，请先配置正文模板和主题模板。');
   const to=addressList(profile.to,{allowEmpty:false});
-  const {subject,bodyText,html}=renderTemplates(record,profile,type);
+  if(options.more?.length&&type!==ON_HIRE)throw new Error('只有 On-Hire 邮件支持一次发送多个柜号。');
+  const {subject,bodyText,html}=renderTemplates(record,profile,type,options.more||[]);
   return {to,cc:[...profile.cc],question:`Could you please advise the ${type} LFD for the container below?`,carrierId:profile.id,carrierName:profile.name,inquiryType:type,subject,bodyText,html};
 }
 /** Ticket content for a carrier whose channel is a support portal instead of email. */
@@ -210,14 +214,18 @@ export function chatTemplate(record,options={}){
   const message=messages.join('\n');
   return {channel:profile.channel,...profile.chat,message,messages,containers:items.map(item=>item.container),carrierId:profile.id,carrierName:profile.name,inquiryType:type};
 }
-function renderTemplates(record,profile,type){
-  const container=containerNumber(record.container),mbl=mblNumber(record.mbl);
-  const values={'steam shipping line':profile.greeting,carrier:profile.name,type,Type:INQUIRY_TYPES[type],container,mbl,table:`Container#\tMBL#\n${container}\t${mbl}`};
+function renderTemplates(record,profile,type,more=[]){
+  // Several containers in one email (On-Hire): one table row each; {{container}} / {{mbl}} list them all.
+  const items=[record,...more].map(item=>({container:containerNumber(item.container),mbl:mblNumber(item.mbl)}));
+  if(new Set(items.map(item=>item.container)).size!==items.length)throw new Error('同一封邮件中的柜号不能重复。');
+  if(items.length>30)throw new Error('一封邮件最多 30 个柜号。');
+  const container=items.map(item=>item.container).join(', '),mbl=[...new Set(items.map(item=>item.mbl))].join(', ');
+  const values={'steam shipping line':profile.greeting,carrier:profile.name,type,Type:INQUIRY_TYPES[type],container,mbl,table:`Container#\tMBL#\n${items.map(item=>`${item.container}\t${item.mbl}`).join('\n')}`};
   const fill=text=>text.replace(/\{\{([^{}]*)\}\}/g,(_,token)=>values[token]);
   const subject=profile.subjectTemplate?fill(profile.subjectTemplate):'';
   if(subject.length>998)throw new Error('生成的邮件主题过长，请缩短主题模板。');
   const htmlText=text=>fill(text).trim().split(/\n[\t ]*\n+/).filter(Boolean).map(p=>`<p>${escapeHtml(p).replace(/\n/g,'<br>')}</p>`).join('');
-  const table=`<table cellpadding="7" cellspacing="0" style="border-collapse:collapse;font-family:Arial,sans-serif;font-size:14px"><tr><th style="border:1px solid #888;text-align:left">Container#</th><th style="border:1px solid #888;text-align:left">MBL#</th></tr><tr><td style="border:1px solid #888">${escapeHtml(container)}</td><td style="border:1px solid #888">${escapeHtml(mbl)}</td></tr></table>`;
+  const table=`<table cellpadding="7" cellspacing="0" style="border-collapse:collapse;font-family:Arial,sans-serif;font-size:14px"><tr><th style="border:1px solid #888;text-align:left">Container#</th><th style="border:1px solid #888;text-align:left">MBL#</th></tr>${items.map(item=>`<tr><td style="border:1px solid #888">${escapeHtml(item.container)}</td><td style="border:1px solid #888">${escapeHtml(item.mbl)}</td></tr>`).join('')}</table>`;
   const [before,after]=profile.bodyTemplate.split('{{table}}');
   const html=htmlText(before)+table+htmlText(after);
   if(html.length>20000)throw new Error('生成的邮件正文过长，请缩短正文模板。');

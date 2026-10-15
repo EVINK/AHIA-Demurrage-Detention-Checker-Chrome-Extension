@@ -59,8 +59,8 @@ function setBusy(value){
   if(!value){syncSendButtons();$('deleteCarrier').disabled=!newProfile&&settings.carriers.length<2;}
 }
 function syncSendButtons(){
-  const pendingExtra=[...document.querySelectorAll('.extra-row')].some(row=>row.dataset.state==='pending');
-  $('send').disabled=busy||lookingUp||pendingExtra||missingConfiguration||!$('manualMbl').value.trim();$('draft').disabled=$('send').disabled;
+  const pendingExtra=$('extraContainers').hidden?0:blockedRows();
+  $('send').disabled=busy||lookingUp||pendingExtra>0||missingConfiguration||!$('manualMbl').value.trim();$('draft').disabled=$('send').disabled;
 }
 function syncMode(){
   const test=settings.testMode!==false;
@@ -68,10 +68,12 @@ function syncMode(){
   $('modeBadge').classList.toggle('live',!test&&!demo);
   const channel=matchedChannel(),portal=channel==='cosco-portal',chat=channel==='one-chat';
   // 「＋」 (more containers in the same chat) only exists for ONE; other carriers hide it and any extra boxes.
-  $('addContainer').hidden=!chat;$('extraContainers').hidden=!chat&&Boolean(matchedProfile());
-  const count=chat?1+extraContainers().length:1;
+  // Several containers: ONE chats and On-Hire emails.
+  const multi=chat||(Boolean(matchedProfile())&&$('inquiryType').value===ON_HIRE);
+  $('addContainer').hidden=!multi;$('extraContainers').hidden=!multi&&Boolean(matchedProfile());$('removeMain').hidden=!rows().length;
+  const count=multi?1+extraContainers().length:1,suffix=count>1?` · ${count} 个柜号`:'';
   const system=channel==='email'&&settings.mailClient==='system';
-  $('send').textContent=system?(test?'打开邮件程序（测试模式）':'打开邮件程序发送'):chat?(test?`联系 ONE 客服（测试模式·不发送）${count>1?' · '+count+' 个柜号':''}`:`发送 ONE 在线客服消息${count>1?'（'+count+' 个柜号）':''}`):portal?(test?'填写 COSCO 工单（测试模式）':'提交 COSCO 工单'):test?'生成草稿（测试模式）':'发送邮件';
+  $('send').textContent=system?(test?'打开邮件程序（测试模式）':'打开邮件程序发送')+suffix:chat?(test?`联系 ONE 客服（测试模式·不发送）${count>1?' · '+count+' 个柜号':''}`:`发送 ONE 在线客服消息${count>1?'（'+count+' 个柜号）':''}`):portal?(test?'填写 COSCO 工单（测试模式）':'提交 COSCO 工单'):(test?'生成草稿（测试模式）':'发送邮件')+suffix;
   $('draft').textContent=system?'打开邮件程序':chat?'转人工但不发送':portal?'仅填写工单':'仅生成草稿';
 }
 // The channel the current inquiry will use (On-Hire is always email).
@@ -131,6 +133,7 @@ function renderResult(data){
   const missing=data.configurationMissing||(channel==='cosco-onhire'?['coscoOnHire']:onHire&&profile?[...(!profile.onHire.to.length?['onHireTo']:[]),...(!profile.onHire.bodyTemplate?['onHireBody']:[]),...(!profile.onHire.subjectTemplate?['onHireSubject']:[])]
     :chat?[]:[...(!profile?['carrier']:[]),...(profile&&!portal&&!profile.to.length?['to']:[]),...(portal&&!profile.portal.requester?['requester']:[]),...(profile&&!profile.bodyTemplate?['bodyTemplate']:[])]);
   if(portal)$('inquiryType').value=PORTAL_INQUIRY_TYPE;
+  refreshRows();
   missingConfiguration=missing.length>0||Boolean(data.unrecognizedCarrier);
   $('matchCarrier').textContent=data.unrecognizedCarrier?'需要选择船公司':data.carrierName||profile?.name||'等待识别';
   $('manualMbl').value=record.mbl||'';$('matchMbl').textContent=record.mbl||'请手动填写 MBL';
@@ -153,7 +156,7 @@ function renderResult(data){
         const ticket=portalTemplate(record,{carrier:profile});
         $('to').textContent=`COSCO 工单 · Requester ${ticket.requester}`;$('cc').textContent='—';$('subject').textContent=`${ticket.shipmentType} · ${ticket.service} · ${ticket.reference}`;$('mailBody').innerHTML=ticket.html;
       }else{
-        const message=messageTemplate(record,{carrier:profile,inquiryType:type});
+        const message=messageTemplate(record,{carrier:profile,inquiryType:type,...(onHire?{more:extraContainers()}:{})});
         $('to').textContent=message.to.join(', ');$('cc').textContent=message.cc.join(', ')||'—';$('subject').textContent=message.subject;$('mailBody').innerHTML=message.html;
       }
     }catch(error){clearPreview();status(error.message,'error');}
@@ -245,6 +248,10 @@ function renderTasks(ledger={}){
         const reopen=document.createElement('button');reopen.textContent='重新打开邮件';reopen.addEventListener('click',()=>openMailto(entry.mailto));
         const sent=document.createElement('button');sent.textContent='我已发送';sent.addEventListener('click',()=>markSent(entry.requestId));buttons.append(reopen,sent);
       }
+      if(['uncertain','needs_review'].includes(entry.status)&&!entry.interrupted||entry.interrupted){
+        const verified=document.createElement('button');verified.textContent='我已核实已发送';verified.title='在对应页面确认消息/邮件确实已经发出后点击，记录改为已发送并保持防重复锁';
+        verified.addEventListener('click',()=>{if(confirm('确认这条消息/邮件确实已经发出？记录会改为已发送，并继续防止重复发送。'))markSent(entry.requestId);});buttons.append(verified);
+      }
       const remove=document.createElement('button');remove.textContent='删除';
       remove.addEventListener('click',async()=>{if(!confirm(`删除 ${group.map(e=>e.container).join('、')} 的任务？会解除防重复锁，之后可以重新查询发送。${entry.status==='uncertain'?'\n\n注意：这个任务的结果待核实，消息可能已经发出，请先核实。':''}`))return;try{await rpc({type:'deleteTask',requestId:entry.requestId});status('任务已删除，可以重新发送。');await refreshState();}catch(error){status(error.message,'error');}});
       buttons.append(remove);
@@ -276,7 +283,9 @@ function startPolling(){
 }
 async function perform(mode,forceRefresh=false){
   clearTimeout(debounce);if(busy||initializing||!$('inquiry').reportValidity())return;
-  const more=mode==='identify'||matchedChannel()!=='one-chat'?[]:extraContainers();
+  const multi=matchedChannel()==='one-chat'||$('inquiryType').value===ON_HIRE;
+  const more=mode==='identify'||!multi?[]:extraContainers();
+  if(mode!=='identify'&&multi&&blockedRows()){status('列表中有柜号尚未查到、找不到或船公司不同，请删除后再发送。','error');return;}
   if(mode==='identify'){lastResult=null;$('manualMbl').value='';missingConfiguration=false;clearPreview();}
   // Lookups never lock the popup: the user can type the next container while this one is read.
   const sequence=++requestSequence;rememberInput();
@@ -288,6 +297,7 @@ async function perform(mode,forceRefresh=false){
     if(sequence!==requestSequence)return;
     lookingUp=false;setBusy(false);
     if(data.mailto)openMailto(data.mailto);
+    if(data.mailto||data.background){$('extraContainers').replaceChildren();syncMode();}
     reportResult(data,mode);
     if(data.background){$('extraContainers').replaceChildren();syncMode();}
     const state=await rpc({type:'state'});renderHistory(state.ledger);renderTasks(state.ledger);if(state.operation?.id!==previousOperation){lastOperationId=state.operation?.id||lastOperationId;lastRenderedOperation=lastOperationId;}
@@ -367,36 +377,77 @@ $('applyImport').addEventListener('click',async()=>{if(!pendingImport)return;try
 $('cancelImport').addEventListener('click',()=>{pendingImport=null;$('importReview').hidden=true;});
 $('copyScript').addEventListener('click',async()=>{try{const text=await scriptText();try{await navigator.clipboard.writeText(text);status('只读脚本已复制，可到金山文档粘贴并保存。','success');}catch{$('scriptFallback').hidden=false;$('scriptFallback').value=text;$('scriptFallback').focus();$('scriptFallback').select();status('请复制下方已选中的脚本，或点击下载。');}}catch(error){status(error.message,'error');}});
 $('downloadScript').addEventListener('click',async()=>{try{download(await scriptText(),'LFD_ReadOnly_v1.js','text/javascript');status('只读脚本已下载。','success');}catch(error){status(error.message,'error');}});
-// Extra containers for one multi-container ONE chat. Each box is looked up on its own without
-// replacing the main result; only boxes confirmed as ONE are sent.
-function extraContainers(){return [...document.querySelectorAll('.extra-row')].filter(row=>row.dataset.state==='ok').map(row=>({container:row.dataset.container,mbl:row.dataset.mbl}));}
-function addExtraRow(){
-  if(document.querySelectorAll('.extra-row').length>=9){status('一个 ONE 会话最多 10 个柜号。','error');return;}
+// Extra containers (On-Hire email, ONE chat). Each box is looked up on its own without replacing the main
+// result. The first container's carrier is the reference: other carriers get a red border and block sending.
+const parseContainers=text=>[...new Set(String(text||'').toUpperCase().match(/[A-Z]{4}\d{7}/g)||[])];
+const baseCarrier=()=>lastResult&&!lastResult.unrecognizedCarrier?lastResult.carrierId:null;
+const rows=()=>[...document.querySelectorAll('.extra-row')];
+function refreshRows(){
+  const base=baseCarrier(),baseName=lastResult?.carrierName||'第一个柜号';
+  for(const row of rows()){
+    if(row.dataset.state!=='checked')continue;
+    const mismatch=Boolean(base)&&row.dataset.carrierId!==base,note=row.querySelector('.extra-status');
+    row.classList.toggle('mismatch',mismatch);
+    note.className='extra-status '+(mismatch?'error':'ok');
+    note.textContent=mismatch?`${row.dataset.carrierName||'未识别船公司'} · 与第一个柜号的船公司（${baseName}）不同，请删除`:`${row.dataset.carrierName} · ${row.dataset.mbl}`;
+  }
+}
+function extraContainers(){const base=baseCarrier();return rows().filter(row=>row.dataset.state==='checked'&&row.dataset.carrierId===base).map(row=>({container:row.dataset.container,mbl:row.dataset.mbl}));}
+// Rows still loading, not found, or of another carrier must be resolved before sending.
+function blockedRows(){const base=baseCarrier();return rows().filter(row=>['pending','error'].includes(row.dataset.state)||(row.dataset.state==='checked'&&base&&row.dataset.carrierId!==base)).length;}
+function addExtraRow(value='',{focus=true,after=null}={}){
+  if(rows().length>=29){status('一次最多 30 个柜号。','error');return null;}
   const row=document.createElement('div');row.className='extra-row';
-  const input=document.createElement('input');input.maxLength=32;input.placeholder='同一 ONE 会话再查一个柜号…';input.autocomplete='off';input.spellcheck=false;
+  const input=document.createElement('input');input.maxLength=32;input.placeholder='再加一个柜号…';input.autocomplete='off';input.spellcheck=false;
   const remove=document.createElement('button');remove.type='button';remove.textContent='×';remove.title='移除这个柜号';
   const note=document.createElement('span');note.className='extra-status';note.textContent='粘贴柜号后自动查询';
   let timer,sequence=0;
-  const done=(state,text,cls='')=>{row.dataset.state=state;note.textContent=text;note.className='extra-status '+cls;syncSendButtons();syncMode();if(lastResult)renderResult(lastResult);};
-  input.addEventListener('input',()=>{
-    input.value=input.value.toUpperCase().replace(/\s/g,'');clearTimeout(timer);delete row.dataset.container;
-    if(!/^[A-Z]{4}\d{7}$/.test(input.value)){done('', input.value?'柜号须为 4 个字母 + 7 位数字':'粘贴柜号后自动查询');return;}
+  const done=(state,text,cls='')=>{row.dataset.state=state;note.textContent=text;note.className='extra-status '+cls;row.classList.remove('mismatch');refreshRows();syncSendButtons();syncMode();if(lastResult)renderResult(lastResult);};
+  const lookup=()=>{
+    input.value=input.value.toUpperCase().replace(/\s/g,'');clearTimeout(timer);for(const key of ['container','mbl','carrierId','carrierName'])delete row.dataset[key];
+    if(!/^[A-Z]{4}\d{7}$/.test(input.value)){done('',input.value?'柜号须为 4 个字母 + 7 位数字':'粘贴柜号后自动查询');return;}
     const container=input.value,mine=++sequence;
-    if(container===$('container').value.trim().toUpperCase()||extraContainers().some(item=>item.container===container)){done('error','这个柜号已经在列表里了','error');return;}
+    if(container===$('container').value.trim().toUpperCase()||rows().some(other=>other!==row&&other.dataset.container===container)){done('error','这个柜号已经在列表里了','error');return;}
     done('pending','正在查询…');
     timer=setTimeout(async()=>{
       try{
         const data=await rpc({type:'peek',container,options:{carrierId:'auto',inquiryType:$('inquiryType').value}});
         if(mine!==sequence)return;
-        if(data.channel!=='one-chat'){done('error',`${data.carrierName||data.unrecognizedCarrier||'未识别船公司'} 不是 ONE，不能放在同一会话`,'error');return;}
-        row.dataset.container=container;row.dataset.mbl=data.mbl;done('ok',`ONE · ${data.mbl}`,'ok');
+        Object.assign(row.dataset,{container,mbl:data.mbl||'',carrierId:data.unrecognizedCarrier?'':data.carrierId||'',carrierName:data.carrierName||data.unrecognizedCarrier||''});
+        if(!data.mbl){done('error','没有取得 MBL，请删除或在表格中补全','error');return;}
+        done('checked','');
       }catch(error){if(mine===sequence)done('error',notFound(error.message)?'提柜表中找不到这个柜号':error.message,'error');}
     },400);
+  };
+  input.addEventListener('input',lookup);
+  // Pasting several containers into a row fills it with the first and adds rows below for the rest.
+  input.addEventListener('paste',event=>{
+    const list=parseContainers(event.clipboardData?.getData('text'));if(list.length<2)return;
+    event.preventDefault();input.value=list[0];lookup();
+    let last=row;for(const container of list.slice(1))last=addExtraRow(container,{focus:false,after:last})||last;
   });
-  remove.addEventListener('click',()=>{row.remove();syncSendButtons();syncMode();if(lastResult)renderResult(lastResult);});
-  row.append(input,remove,note);$('extraContainers').append(row);input.focus();
+  remove.addEventListener('click',()=>{row.remove();refreshRows();syncSendButtons();syncMode();if(lastResult)renderResult(lastResult);});
+  row.append(input,remove,note);
+  if(after)after.after(row);else $('extraContainers').append(row);
+  if(value){input.value=value;lookup();}
+  if(focus)input.focus();
+  return row;
 }
-$('addContainer').addEventListener('click',addExtraRow);
+$('addContainer').addEventListener('click',()=>addExtraRow());
+// Pasting several containers into the main box: the first stays here, each of the others gets a row.
+$('container').addEventListener('paste',event=>{
+  const list=parseContainers(event.clipboardData?.getData('text'));if(list.length<2)return;
+  event.preventDefault();$('extraContainers').replaceChildren();
+  $('container').value=list[0];$('container').dispatchEvent(new Event('input',{bubbles:true}));
+  for(const container of list.slice(1))addExtraRow(container,{focus:false});
+  status(`已识别 ${list.length} 个柜号，正在逐个查询 MBL 和船公司。`,'running');
+});
+// Removing the first box moves the next one up.
+$('removeMain').addEventListener('click',()=>{
+  const next=rows()[0];
+  $('container').value=next?next.querySelector('input').value:'';next?.remove();
+  $('container').dispatchEvent(new Event('input',{bubbles:true}));$('container').focus();
+});
 $('notFoundOk').addEventListener('click',()=>{$('notFound').close();$('container').value='';scheduleIdentify();$('matchCarrier').textContent='尚未识别船公司';$('matchSource').textContent='选择船公司可覆盖自动识别结果';status('请重新输入柜号。');$('container').focus();});
 $('notFoundRetry').addEventListener('click',()=>{$('notFound').close();if($('container').value.trim().toUpperCase()!==notFoundContainer)$('container').value=notFoundContainer;perform('identify');});
 // Esc closes the dialog like 确定 would, but keeps the input so the user can correct it.

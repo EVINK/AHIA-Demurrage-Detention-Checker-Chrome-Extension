@@ -96,3 +96,12 @@ test('a multi-container chat sends one message per container and partial reads a
   assert.deepEqual(entries.map(e=>[e.container,e.status]),[['TRHU6206940','sent'],['ONEU4567236','uncertain']]);
   assert.deepEqual(entries.map(e=>e.chatMessage),sent.messages);
 });
+
+test('a failed task the user verified as sent becomes sent and keeps its duplicate lock',async()=>{
+  const t=setup({sendChat:async()=>{throw new Error('消息没有出现在对话中');}});
+  await assert.rejects(t.service.run(record.container,'send'),/待核实/);
+  const [entry]=Object.values(t.db().ledger);assert.equal(entry.status,'uncertain');
+  await t.service.markSent(entry.requestId);
+  const [verified]=Object.values(t.db().ledger);assert.equal(verified.status,'sent');assert.equal(verified.confirmation,'用户核实已发送');
+  await assert.rejects(t.service.run(record.container,'send'),/已有/);
+});
