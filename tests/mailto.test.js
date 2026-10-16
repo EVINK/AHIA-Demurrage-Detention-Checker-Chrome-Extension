@@ -33,3 +33,18 @@ test('with the system mail program a send opens a mailto draft and waits for 「
   const [saved]=Object.values(db.ledger);assert.equal(saved.status,'sent');assert.match(saved.confirmation,/用户确认/);
   await assert.rejects(service.markSent('r'),/已确认/);
 });
+
+test('a duplicate lock reports the blocking record, and releasing it allows a forced resend',async()=>{
+  let db={settings:{account:'me@example.com',gmailIndex:0,testMode:false,mailClient:'system',carriers:normalizeCarriers()},ledger:{}};
+  let id=0;
+  const service=createService({storage:{get:async()=>structuredClone(db),set:async x=>{db={...db,...structuredClone(x)};}},
+    readSheet:async()=>({records:[record],readAt:1}),prepareMail:async()=>({tabId:8}),sendMail:async()=>({confirmed:true}),uuid:()=>`r${++id}`});
+  const first=await service.run(record.container,'send');
+  const error=await service.run(record.container,'send').then(()=>null,e=>e);
+  assert.match(error.message,/已有/);
+  assert.deepEqual(error.duplicate.map(b=>[b.container,b.status,b.requestId,b.running]),[[record.container,'draft',first.requestId,false]]);
+  await service.release(error.duplicate[0].key);
+  const again=await service.run(record.container,'send');
+  assert.equal(again.status,'draft');assert.notEqual(again.requestId,first.requestId);
+  assert.equal(db.archive.length,1,'the released record is archived, not lost');
+});

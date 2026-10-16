@@ -98,8 +98,10 @@ export function createService({storage, readSheet, prepareMail, sendMail, prepar
     // Check and take the duplicate locks atomically; this is the only serialized step of a send.
     const first=await serial(async()=>{
       const {ledger={}}=await storage.get(['ledger']);
-      keys.forEach((key,index)=>{if(ledger[key])throw new Error(`${items[index].container} 在所选船公司和查询类型下已有草稿、发送或待核实记录。请先核对发送记录，避免重复。`);});
-      if(carrier.id==='maersk'&&type==='demurrage'&&ledger[legacyKey])throw new Error('该柜号在所选船公司和查询类型下已有草稿、发送或待核实记录。请先核对发送记录，避免重复。');
+      // Tell the popup which records block the send, so it can offer to look at them or force a resend.
+      const blocking=[...keys.map((key,index)=>[key,items[index].container]),...(carrier.id==='maersk'&&type==='demurrage'?[[legacyKey,record.container]]:[])]
+        .filter(([key])=>ledger[key]).map(([key,container])=>({key,container,status:ledger[key].status,time:ledger[key].time,requestId:ledger[key].requestId,running:active.has(ledger[key].requestId)}));
+      if(blocking.length)throw Object.assign(new Error(`${blocking.map(b=>b.container).join('、')} 在所选船公司和查询类型下已有草稿、发送或待核实记录。请先核对发送记录，避免重复。`),{duplicate:blocking});
       keys.forEach((key,index)=>{ledger[key]={...(index?{container:items[index].container,mbl:items[index].mbl,sourceTime:record.sourceTime}:record),...base,...(chat?{chatMessage:message.messages[index]}:{})};});
       await storage.set({ledger});return ledger[keys[0]];
     });

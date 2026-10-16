@@ -1,6 +1,6 @@
 # LFD Inquiry — Agent 交接文档
 
-更新时间：2026-10-09（America/Los_Angeles）。代码版本：**0.3.15**（Gmail 收件人兼容其他插件；ONE 白屏修复；COSCO On-Hire 工单；On-Hire 多柜号、ONE 气泡文字修复；可选本机邮件程序；On-Hire；ONE 对话复用、独立小窗、终止/删除；浮动小窗+通知；查询不阻塞/后台任务/ONE 多柜号；ONE 在线客服；英文界面兼容；2026-10-14：发送确认加严、COSCO 工单网站、取消DO 后分段读取、日志虚拟列表读取、脚本自动安装、找不到柜号提示框，见第 6 节）。
+更新时间：2026-10-09（America/Los_Angeles）。代码版本：**0.3.16**（重复锁可强制重发；Gmail 收件人兼容其他插件；ONE 白屏修复；COSCO On-Hire 工单；On-Hire 多柜号、ONE 气泡文字修复；可选本机邮件程序；On-Hire；ONE 对话复用、独立小窗、终止/删除；浮动小窗+通知；查询不阻塞/后台任务/ONE 多柜号；ONE 在线客服；英文界面兼容；2026-10-14：发送确认加严、COSCO 工单网站、取消DO 后分段读取、日志虚拟列表读取、脚本自动安装、找不到柜号提示框，见第 6 节）。
 Chrome 现直接从 WSL 目录 `/home/evink/demurrage-lfd-extension` 加载；git 分支 `fix/gmail-send-confirmation`。
 本文件依据本次对话及当前源码整理；它是工程交接，不代表安装在 Chrome 中的版本已自动更新。
 
@@ -172,6 +172,7 @@ kdocs 适配器要求新的 START、同 id、分段连续、条数正确和 END�
 | 0.2.7 | 柜号吸顶、输入框内按钮、按钮也缓存优先 |
 | 0.2.8 | 按第一条完整行去重，仅删除本地重复项 |
 | 0.2.9 | 不完整记录不缓存、旧缓存清理、配置页清缓存 |
+| 0.3.16 | service 重复锁错误带 duplicate=[{key,container,status,time,requestId,running}]，worker respond 透传，app rpc 挂到 error.duplicate；#duplicate 对话框「强制重发」逐个 release(key) 后 perform(原 mode)。需要处理列表不限时间，新增「重新发送」= deleteTask + refill 查询页 |
 | 0.3.15 | gmail.js recipientMismatch：只要求配置的 To/Cc 都存在，额外 Cc/Bcc 放行（用户明确要求）；prepare 时最多等 10 秒让收件人 chip 渲染完整再校验，错误信息列出缺少的地址 |
 | 0.3.14 | one.js top 'open'：点 Continue 前查 .selected-status-icon 是否 offline、.start-chat 是否 disabled；点后等待 #embeddedMessagingFrame 或 .mtn-combile-block（维护）30 秒；已接回旧对话直接返回。chatOnly 仅在 #embeddedMessagingFrame 存在时注入样式（否则白屏）。用户真实 Chrome 中白屏的确切原因未复现（调试环境当时美国在线） |
 | 0.3.12 | cosco.js 改为 payload.fields=[{label,value,kind}] 按标签依次填写（等待联动字段出现），verify 同样按清单。portalTemplate：Detention→support.cosco-usa.com 三个字段；On-Hire→portal.onHire.url（coscoshippingla.freshdesk.com）Type/Services/Region/Number of Containers/Container #/SCAC Code，正文用 carrier.onHire.bodyTemplate，{{table}} 起初为 'lines' 样式，用户要求改为与邮件相同的 Container#/MBL# 表格（v0.3.13）。COSCO 内置 onHire 正文 COSCO_ON_HIRE_BODY，若保存的是通用默认文案则替换为 COSCO 默认 |

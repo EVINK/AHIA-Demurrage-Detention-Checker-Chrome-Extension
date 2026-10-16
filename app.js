@@ -33,7 +33,7 @@ async function rpc(message){
     throw new Error('界面演示不会操作真实 Gmail 或在线表格。');
   }
   const response=await chrome.runtime.sendMessage(message);
-  if(!response?.ok)throw new Error(response?.error||'插件未返回结果。请检查 Gmail 后再操作。');
+  if(!response?.ok)throw Object.assign(new Error(response?.error||'插件未返回结果。请检查 Gmail 后再操作。'),response?.duplicate?{duplicate:response.duplicate}:{});
   return response.data;
 }
 // Not found in the cache nor in the sheet: query once, then let the user decide whether to look again.
@@ -43,6 +43,17 @@ function showNotFound(container){
   notFoundContainer=container;
   $('notFoundText').textContent=`提柜表中找不到柜号 ${container}，请检查柜号是否输入正确。`;
   if(!$('notFound').open)$('notFound').showModal();
+}
+// Sending was blocked by existing records (duplicate lock): show them and offer a forced resend.
+const recordStatus={preparing:'准备中',draft:'草稿已生成 / 已填写未提交',sending:'发送中',sent:'已发送',uncertain:'结果待核实',needs_review:'未完成'};
+let duplicateRetry=null;
+function showDuplicate(blocking,mode){
+  const running=blocking.some(b=>b.running);
+  $('duplicateText').textContent=blocking.map(b=>`${b.container}：${recordStatus[b.status]||b.status}${b.time?'（'+new Date(b.time).toLocaleString()+'）':''}`).join('\n')
+    +(running?'\n\n该任务仍在后台进行，请先在「进行中」终止。':'\n\n「强制重发」会解除这条记录的锁定并重新发送；如果之前其实已经发出，对方会收到重复的邮件 / 消息。');
+  $('duplicateForce').disabled=running;
+  duplicateRetry={blocking,mode};
+  if(!$('duplicate').open)$('duplicate').showModal();
 }
 function status(text,type=''){ $('status').textContent=text;$('status').className=type;$('statusDot').className='status-dot '+type; }
 function lookupError(message){
@@ -219,9 +230,9 @@ function renderHistory(ledger={}){
 }
 function renderTasks(ledger={}){
   // Running tasks, plus tasks that need attention (failed, interrupted, unconfirmed) from the last 24 hours.
-  const groups=new Map(),dayAgo=Date.now()-86400000;
+  const groups=new Map();
   for(const entry of Object.values(ledger)){
-    const attention=entry.interrupted||(entry.mailClient==='system'&&entry.status==='draft')||(['needs_review','uncertain','preparing','sending'].includes(entry.status)&&(entry.time||0)>dayAgo);
+    const attention=entry.interrupted||(entry.mailClient==='system'&&entry.status==='draft')||['needs_review','uncertain','preparing','sending'].includes(entry.status);
     if(!entry.running&&!attention)continue;
     const id=entry.requestId||entry.container;if(!groups.has(id))groups.set(id,[]);groups.get(id).push(entry);
   }
@@ -252,6 +263,12 @@ function renderTasks(ledger={}){
         const verified=document.createElement('button');verified.textContent='我已核实已发送';verified.title='在对应页面确认消息/邮件确实已经发出后点击，记录改为已发送并保持防重复锁';
         verified.addEventListener('click',()=>{if(confirm('确认这条消息/邮件确实已经发出？记录会改为已发送，并继续防止重复发送。'))markSent(entry.requestId);});buttons.append(verified);
       }
+      // Release the lock and put the containers back on the query page for the user to send again.
+      const resend=document.createElement('button');resend.textContent='重新发送';
+      resend.addEventListener('click',async()=>{
+        if(!confirm(`解除 ${group.map(e=>e.container).join('、')} 的锁定并重新填回查询页？${entry.status==='uncertain'?'\n\n注意：结果待核实，之前可能已经发出，重新发送可能重复。':''}`))return;
+        try{await rpc({type:'deleteTask',requestId:entry.requestId});await refreshState();refill(group.map(e=>e.container),entry);}catch(error){status(error.message,'error');}
+      });buttons.append(resend);
       const remove=document.createElement('button');remove.textContent='删除';
       remove.addEventListener('click',async()=>{if(!confirm(`删除 ${group.map(e=>e.container).join('、')} 的任务？会解除防重复锁，之后可以重新查询发送。${entry.status==='uncertain'?'\n\n注意：这个任务的结果待核实，消息可能已经发出，请先核实。':''}`))return;try{await rpc({type:'deleteTask',requestId:entry.requestId});status('任务已删除，可以重新发送。');await refreshState();}catch(error){status(error.message,'error');}});
       buttons.append(remove);
@@ -264,6 +281,14 @@ function renderTasks(ledger={}){
   // Keep the list fresh while anything runs in the background.
   if(running.length&&!tasksTimer)tasksTimer=setInterval(()=>refreshState().catch(()=>{}),2000);
   if(!running.length&&tasksTimer){clearInterval(tasksTimer);tasksTimer=null;}
+}
+// Put containers back on the query page (first in the main box, others as extra rows) with the same type.
+function refill(containers,entry){
+  showPage('query');$('extraContainers').replaceChildren();
+  if(entry.inquiryType)$('inquiryType').value=entry.inquiryType;
+  $('container').value=containers[0];$('container').dispatchEvent(new Event('input',{bubbles:true}));
+  for(const container of containers.slice(1))addExtraRow(container,{focus:false});
+  status('已解除锁定并填回查询页，确认后点击发送。');
 }
 async function refreshState({initial=false}={}){
   const state=await rpc({type:'state'});settings=validateSettings(state.settings);renderHistory(state.ledger);renderTasks(state.ledger);
@@ -301,7 +326,8 @@ async function perform(mode,forceRefresh=false){
     reportResult(data,mode);
     if(data.background){$('extraContainers').replaceChildren();syncMode();}
     const state=await rpc({type:'state'});renderHistory(state.ledger);renderTasks(state.ledger);if(state.operation?.id!==previousOperation){lastOperationId=state.operation?.id||lastOperationId;lastRenderedOperation=lastOperationId;}
-  }catch(error){if(sequence===requestSequence){lookingUp=false;setBusy(false);if(mode==='identify')lookupError(error.message);status(error.message,'error');if(mode==='identify'&&notFound(error.message))showNotFound($('container').value.trim().toUpperCase());try{const state=await rpc({type:'state'});renderHistory(state.ledger);renderTasks(state.ledger);lastRenderedOperation=state.operation?.id||lastRenderedOperation;}catch{}}}
+  }catch(error){if(sequence===requestSequence&&error.duplicate&&mode!=='identify'){lookingUp=false;setBusy(false);status(error.message,'error');showDuplicate(error.duplicate,mode);return;}
+    if(sequence===requestSequence){lookingUp=false;setBusy(false);if(mode==='identify')lookupError(error.message);status(error.message,'error');if(mode==='identify'&&notFound(error.message))showNotFound($('container').value.trim().toUpperCase());try{const state=await rpc({type:'state'});renderHistory(state.ledger);renderTasks(state.ledger);lastRenderedOperation=state.operation?.id||lastRenderedOperation;}catch{}}}
   finally{if(sequence===requestSequence&&!busy&&!lookingUp){clearInterval(pollTimer);pollTimer=null;}}
 }
 function editMatch(){
@@ -447,6 +473,13 @@ $('removeMain').addEventListener('click',()=>{
   const next=rows()[0];
   $('container').value=next?next.querySelector('input').value:'';next?.remove();
   $('container').dispatchEvent(new Event('input',{bubbles:true}));$('container').focus();
+});
+$('duplicateCancel').addEventListener('click',()=>$('duplicate').close());
+$('duplicateView').addEventListener('click',()=>{$('duplicate').close();showPage('history');});
+$('duplicateForce').addEventListener('click',async()=>{
+  const retry=duplicateRetry;$('duplicate').close();if(!retry)return;
+  try{for(const b of retry.blocking)await rpc({type:'release',key:b.key});status('已解除旧记录的锁定，正在重新发送…','running');await refreshState();perform(retry.mode);}
+  catch(error){status(error.message,'error');}
 });
 $('notFoundOk').addEventListener('click',()=>{$('notFound').close();$('container').value='';scheduleIdentify();$('matchCarrier').textContent='尚未识别船公司';$('matchSource').textContent='选择船公司可覆盖自动识别结果';status('请重新输入柜号。');$('container').focus();});
 $('notFoundRetry').addEventListener('click',()=>{$('notFound').close();if($('container').value.trim().toUpperCase()!==notFoundContainer)$('container').value=notFoundContainer;perform('identify');});

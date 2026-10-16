@@ -345,5 +345,5 @@ chrome.runtime.onMessage.addListener((message,sender,respond)=>{
       await chrome.storage.local.set({settings});return settings;
     }
     throw new Error('未知操作。');
-  })().then(data=>respond({ok:true,data}),error=>respond({ok:false,error:error.message}));return true;
+  })().then(data=>respond({ok:true,data}),error=>respond({ok:false,error:error.message,...(error.duplicate?{duplicate:error.duplicate}:{})}));return true;
 });
