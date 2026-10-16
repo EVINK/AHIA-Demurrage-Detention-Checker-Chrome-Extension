@@ -395,6 +395,16 @@ $('deleteCarrier').addEventListener('click',async()=>{
 $('mailClient').addEventListener('change',()=>{$('mailClientNotice').hidden=$('mailClient').value!=='system';});
 $('connectionForm').addEventListener('submit',async event=>{event.preventDefault();if($('mailClient').value==='system'&&settings.mailClient!=='system'&&!confirm('改用电脑默认邮件程序后，插件只能打开写好的邮件，不能自动发送，也无法确认是否已发出，需要你发完后点「我已发送」。推荐继续使用 Gmail 网页。\n\n确定改用电脑默认邮件程序？'))return;try{await saveSettings({...settings,sheetUrl:$('sheetUrl').value.trim(),account:$('account').value.trim(),gmailIndex:Number($('gmailIndex').value),testMode:$('testMode').checked,defaultCarrierId:$('defaultCarrierId').value,defaultInquiryType:$('defaultInquiryType').value,mailClient:$('mailClient').value});status('连接与默认选项已保存。','success');}catch(error){status(error.message,'error');}});
 $('exportConfig').addEventListener('click',()=>{try{download(JSON.stringify(createConfig(settings),null,2)+'\n','lfd-inquiry-config.json','application/json');status('配置 JSON 已导出。','success');}catch(error){status(error.message,'error');}});
+// The system file picker makes the toolbar popup go blank/close on Windows, so importing from the popup
+// opens the extension page in a normal tab (straight to this section), where the picker works.
+$('importLabel').addEventListener('click',event=>{
+  if(demo||!chrome.tabs?.getCurrent)return;
+  event.preventDefault();
+  chrome.tabs.getCurrent(tab=>{
+    if(tab){$('importFile').click();return;}
+    chrome.tabs.create({url:chrome.runtime.getURL('app.html#import')});window.close();
+  });
+});
 $('importFile').addEventListener('change',async event=>{
   pendingImport=null;$('importReview').hidden=true;const file=event.target.files[0];if(!file)return;
   try{if(file.size>MAX_CONFIG_BYTES)throw new Error('配置文件超过 256 KiB。');pendingImport=parseConfig(await file.text());$('importSummary').textContent=`将替换为 ${pendingImport.carriers.length} 家船公司：${pendingImport.carriers.map(p=>p.name).join('、')}。发件账号：${pendingImport.account}。操作记录保留，测试模式开启。`;$('importReview').hidden=false;status('已校验配置文件；查看摘要后点击应用。');}catch(error){status(error.message,'error');}finally{event.target.value='';}
@@ -488,3 +498,5 @@ $('notFound').addEventListener('cancel',()=>{status('柜号未找到，可修改
 $('testNotification').addEventListener('click',async()=>{try{await rpc({type:'testNotification'});status('已发送测试通知，请点击它。');}catch(error){status(error.message,'error');}});
 $('refresh').addEventListener('click',()=>refreshState().catch(error=>status(error.message,'error')));
 try{await refreshState({initial:true});}catch(error){status(error.message,'error');}finally{initializing=false;if(!lastResult&&!busy&&!$('notFound').open&&/^[A-Za-z]{4}\d{7}$/.test($('container').value.trim()))scheduleIdentify();}
+// Opened from the popup's 「选择 JSON 文件」: go straight to the import section of the config page.
+if(location.hash==='#import'){showPage('config');$('importSection').open=true;$('page-config').scrollTop=$('importSection').offsetTop-$('page-config').offsetTop-12;status('在此页面点击「选择 JSON 文件」导入配置。');}
