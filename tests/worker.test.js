@@ -296,3 +296,13 @@ test('state shows a background job lost by a worker restart as interrupted, with
   assert.equal(state.ledger.k.interrupted,true);assert.equal(state.ledger.k.running,false);assert.match(state.ledger.k.detail,/中断/);
   assert.equal(t.db().ledger.k.running,true,'the stored entry is left for the user to verify');
 });
+
+test('the extension page opened in a tab with a #fragment (e.g. #import) is accepted; look-alike URLs are not',async()=>{
+  const t=setup();
+  const tab=await t.send({type:'state'},{from:{id:'test-extension',url:appUrl+'#import'}}).response;
+  assert.equal(tab.ok,true);
+  for(const url of [appUrl+'?x=1','chrome-extension://test-extension/app.html.evil','chrome-extension://other/app.html#import']){
+    const result=t.send({type:'state'},{from:{id:'test-extension',url},ignoreResponse:true});
+    assert.equal(result.accepted,false,url);
+  }
+});

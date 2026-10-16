@@ -311,7 +311,8 @@ async function state(){
   return value;
 }
 chrome.runtime.onMessage.addListener((message,sender,respond)=>{
-  if(sender.id!==chrome.runtime.id||sender.url!==chrome.runtime.getURL('app.html'))return false;
+  // Only this extension's own app.html (popup or tab, any #fragment such as #import).
+  if(sender.id!==chrome.runtime.id||String(sender.url||'').split('#')[0]!==chrome.runtime.getURL('app.html'))return false;
   (async()=>{
     if(message.type==='run')return runOperation(message);
     // Look up an extra container for a multi-container ONE chat without replacing the popup's main result.
