@@ -39,16 +39,28 @@ export async function gmailPage(action,payload){
   const chips=name=>[...document.querySelectorAll(`[name="${name}"] [role="option"][data-hovercard-id]`)];
   const addresses=name=>chips(name).map(e=>e.getAttribute('data-hovercard-id').toLowerCase()).sort();
   const equal=(a,b)=>JSON.stringify([...a].sort())===JSON.stringify([...b].sort());
+  // Every configured To / Cc must be on the page. Extra recipients (e.g. added by another auto-Cc/Bcc
+  // extension the user also runs) are accepted. Returns '' when complete, else what is missing.
+  function recipientMismatch(){
+    const parts=[];
+    for(const [name,label,expected] of [['to','To',payload.to],['cc','Cc',payload.cc]]){
+      const actual=addresses(name),missing=expected.map(v=>v.toLowerCase()).filter(v=>!actual.includes(v));
+      if(missing.length)parts.push(`${label} 缺少 ${missing.join(', ')}`);
+    }
+    return parts.join('；');
+  }
   function verify(){
     if(account()!==payload.account.toLowerCase())throw new Error('当前 Gmail 发件账号与设置不符。');
     if(subject.value!==payload.subject)throw new Error('邮件主题发生变化。');
-    if(!equal(addresses('to'),payload.to.map(v=>v.toLowerCase()))||!equal(addresses('cc'),payload.cc.map(v=>v.toLowerCase()))||addresses('bcc').length)throw new Error('收件人、抄送或密送与配置不符。请检查其他自动抄送插件。');
+    const mismatch=recipientMismatch();
+    if(mismatch)throw new Error(`Gmail 写信页中的收件人与配置不符（${mismatch}）。`);
     for(const name of ['to','cc','bcc'])if([...document.querySelectorAll(`[name="${name}"] input`)].some(e=>e.value.trim()))throw new Error('存在尚未确认的收件地址。');
     if(!signature.textContent.trim()&&!signature.querySelector('img'))throw new Error('签名为空。');
   }
   if(action==='prepare'){
     if(body.dataset.lfdRequest)throw new Error('此写信页已处理，不能重复插入。');
-    await pause(1000);verify();
+    // Gmail renders the recipient chips lazily (slower in a background tab): wait until they settle.
+    await pause(1000);await waitFor(()=>!recipientMismatch(),'',10000).catch(()=>{});verify();
     const originalSignature=signature.outerHTML;
     const clone=body.cloneNode(true);clone.querySelectorAll('.gmail_signature').forEach(e=>e.remove());
     if(clone.textContent.trim())throw new Error('写信页已有正文，已停止以避免覆盖。');
