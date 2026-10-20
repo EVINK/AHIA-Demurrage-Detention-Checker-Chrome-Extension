@@ -46,13 +46,24 @@ test('Foxmail On-Hire: several containers become table rows, its own recipients,
   assert.deepEqual(Object.values(t.db().ledger).map(e=>[e.container,e.status,e.mailClient]),[['WHSU8284830','draft','foxmail'],['WHSU1234567','draft','foxmail']]);
 });
 
-test('Foxmail drafts wait for 「我已发送」 and keep the duplicate lock; other mail programs stay plain text',async()=>{
+test('Foxmail drafts wait for 「我已发送」 and keep the duplicate lock; the former "system" option behaves the same',async()=>{
   const t=setup();
   const entry=await t.service.run(record.container,'send');
   await assert.rejects(t.service.run(record.container,'send'),/已有/);
   await t.service.markSent(entry.requestId);
   assert.equal(Object.values(t.db().ledger)[0].status,'sent');
-  const plain=setup('system');
-  const body=parts((await plain.service.run(record.container,'send')).mailto).body;
-  assert.doesNotMatch(body,/<br>|<table/);assert.match(body,/Container#: WHSU8284830\r\nMBL#: WHLC031G594231/);
+  // Records created under the former 'system' option still reopen and confirm the same way.
+  const legacy=setup('system');
+  const old=await legacy.service.run(record.container,'send');
+  assert.match(parts(old.mailto).body,/<br><br>.*<table border=1/);
+});
+
+test('Outlook gets a plain-text body (it shows HTML tags literally); recipients stay semicolon separated',async()=>{
+  const t=setup('outlook');
+  const entry=await t.service.run(record.container,'send',{inquiryType:'demurrage'});
+  assert.equal(entry.mailClient,'outlook');
+  const mail=parts(entry.mailto);
+  assert.equal(mail.to,'useqc@wanhai.com');assert.equal(mail.cc,'truck@darwinpacific.com;service@darwinpacific.com');
+  assert.equal(mail.body,'Dear WHL,\r\n\r\nCould you please advise the demurrage LFD for the container below?\r\n\r\nContainer#: WHSU8284830\r\nMBL#: WHLC031G594231');
+  assert.doesNotMatch(mail.body,/<br>|<table/);
 });

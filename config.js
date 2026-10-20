@@ -11,8 +11,9 @@ export const DEFAULT_SETTINGS=Object.freeze({
   carriers:DEFAULT_CARRIERS,
   defaultCarrierId:'auto',
   defaultInquiryType:'demurrage',
-  // 'gmail': Gmail web compose (automatic); 'foxmail': Foxmail via mailto with an HTML body (line breaks and
-  // table kept); 'system': any other default mail program via mailto with a plain-text body.
+  // 'gmail': Gmail web compose (automatic). The computer's default mail program via mailto: 'foxmail' reads the
+  // body as HTML (<br> + bordered table); 'outlook' reads it as plain text. Verified in both on 2026-10-20.
+  // The former 'system' option becomes 'foxmail'.
   mailClient:'gmail'
 });
 const SETTING_KEYS=Object.keys(DEFAULT_SETTINGS);
@@ -37,7 +38,8 @@ function pickSettings(value,label){
 }
 
 function mailClient(value){
-  if(!['gmail','foxmail','system'].includes(value))throw new Error('邮件发送方式须为 Gmail 网页、Foxmail 或电脑默认邮件程序。');
+  if(value==='system')return 'foxmail';
+  if(!['gmail','foxmail','outlook'].includes(value))throw new Error('邮件发送方式须为 Gmail 网页或电脑默认邮件程序（Foxmail / Outlook）。');
   return value;
 }
 /** Validate a partial update and return only the supported, normalized settings. */

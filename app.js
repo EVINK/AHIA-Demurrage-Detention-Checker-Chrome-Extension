@@ -100,7 +100,8 @@ function fillSelect(id,includeAuto,value){
 function hydrateSettings(){
   const selected=$('carrier').value||settings.defaultCarrierId;
   fillSelect('carrier',true,selected);fillSelect('defaultCarrierId',true,settings.defaultCarrierId);fillSelect('editCarrier',false,editingId||settings.carriers[0].id);
-  for(const key of ['sheetUrl','account','gmailIndex','defaultInquiryType','mailClient'])$(key).value=settings[key];syncMailClientNotice();
+  for(const key of ['sheetUrl','account','gmailIndex','defaultInquiryType'])$(key).value=settings[key];
+  $('mailClient').value=mailProgram(settings.mailClient)?'program':'gmail';$('mailProgram').value=settings.mailClient==='outlook'?'outlook':'foxmail';syncMailClientNotice();
   $('testMode').checked=settings.testMode!==false;syncMode();
   loadProfile($('editCarrier').value);
 }
@@ -173,13 +174,13 @@ function renderResult(data){
     }catch(error){clearPreview();status(error.message,'error');}
   }
   draftTabId=data.status==='draft'&&Number.isInteger(data.tabId)?data.tabId:null;$('openDraft').hidden=draftTabId===null;
-  $('openDraft').textContent=chat?'打开 ONE 聊天页 ↗':portal?'打开 COSCO 工单页 ↗':'打开 Gmail 草稿 ↗';$('signatureNote').hidden=portal||chat;$('signatureNote').textContent=settings.mailClient==='foxmail'?'＋ Foxmail 中的签名':settings.mailClient==='system'?'＋ 邮件程序中的签名（纯文本正文）':'＋ Gmail 中的原签名';
+  $('openDraft').textContent=chat?'打开 ONE 聊天页 ↗':portal?'打开 COSCO 工单页 ↗':'打开 Gmail 草稿 ↗';$('signatureNote').hidden=portal||chat;$('signatureNote').textContent=settings.mailClient==='outlook'?'＋ Outlook 中的签名（纯文本正文）':mailProgram(settings.mailClient)?'＋ Foxmail 中的签名':'＋ Gmail 中的原签名';
   syncMode();setBusy(busy);
 }
 function reportResult(data,mode){
   renderResult(data);
   const portal=data.channel==='cosco-portal',chat=data.channel==='one-chat';
-  if(mailProgram(data.mailClient)&&data.status==='draft'){status(`已打开${data.mailClient==='foxmail'?' Foxmail ':'邮件程序'}写信窗口。请检查后在邮件程序里发送，发完后到「进行中」或「记录」点「我已发送」。`,'success');return;}
+  if(mailProgram(data.mailClient)&&data.status==='draft'){const name=data.mailClient==='outlook'?'Outlook':'Foxmail';status(`已请求打开 ${name} 写信窗口：检查后在 ${name} 里发送，发完后到「进行中」或「记录」点「我已发送」。如果没有弹出写信窗口，请确认已安装 ${name} 并设为 Windows 默认邮件程序（配置页有下载和设置入口）。`,'success');return;}
   if(data.background){status(`已加入后台任务：${(data.containers||[data.container]).join('、')}。可在「进行中」查看进度，现在可以继续查询其他柜号。`,'success');return;}
   if(data.status==='draft')status(chat?`ONE 客服${data.agent?' '+data.agent:''}已接入，消息已填入聊天框，测试模式下未发送。可打开聊天页查看。`:portal?'COSCO 工单已填好，测试模式下未提交。可打开工单页检查。':'Gmail 草稿已填好，原签名已保留，尚未发送。可打开草稿检查。','success');
   else if(data.status==='sent')status(chat?`已查询：ONE 客服${data.agent?' '+data.agent:''}已读消息，回复请在聊天页查看。`:portal?`COSCO 工单已提交${data.ticketId?' #'+data.ticketId:''}。`:'Gmail 已显示发送成功。','success');
@@ -359,8 +360,9 @@ async function saveSettings(next){
   const normalized=validateSettings(next);settings=validateSettings(await rpc({type:'settings',settings:normalized}));hydrateSettings();
   if(lastResult){const refreshed={...lastResult,configurationMissing:undefined};renderResult(refreshed);}setBusy(false);
 }
-// Mail drafts opened in a local program (Foxmail, or another default mail program) are sent by the user.
-function mailProgram(client){return client==='foxmail'||client==='system';}
+// Mail drafts opened in the computer's mail program (Foxmail or Outlook) are sent by the user. 'system' is the
+// former name of the option, still found on older records.
+function mailProgram(client){return ['foxmail','outlook','system'].includes(client);}
 // Launch the computer's default mail program with the filled message.
 function openMailto(url){const a=document.createElement('a');a.href=url;a.rel='noopener';document.body.append(a);a.click();a.remove();}
 async function markSent(requestId){try{await rpc({type:'markSent',requestId});status('已记录为已发送。','success');await refreshState();}catch(error){status(error.message,'error');}}
@@ -394,9 +396,17 @@ $('deleteCarrier').addEventListener('click',async()=>{
   if(!confirm(`删除 ${profile.name} 的船公司配置？操作记录仍然保留。`))return;
   try{const carriers=settings.carriers.filter(p=>p.id!==editingId);editingId=carriers[0].id;await saveSettings({...settings,carriers,defaultCarrierId:settings.defaultCarrierId===profile.id?'auto':settings.defaultCarrierId});status('船公司配置已删除。');}catch(error){status(error.message,'error');}
 });
-function syncMailClientNotice(){const value=$('mailClient').value;$('mailClientNotice').hidden=!mailProgram(value);$('mailClientFoxmail').hidden=value!=='foxmail';$('mailClientSystem').hidden=value!=='system';}
+const chosenMailClient=()=>$('mailClient').value==='program'?$('mailProgram').value:'gmail';
+function syncMailClientNotice(){
+  const program=$('mailClient').value==='program';$('mailClientNotice').hidden=!program;$('mailProgramRow').hidden=!program;
+  $('mailProgramHint').textContent=$('mailProgram').value==='outlook'
+    ?'Outlook：正文为纯文本，柜号以「Container#: … / MBL#: …」逐行显示（Outlook 不显示表格）。'
+    :'Foxmail：正文分行和带边框的 Container# / MBL# 表格会自动填好（Demurrage / Detention / On-Hire 都适用）。';
+}
+$('mailProgram').addEventListener('change',syncMailClientNotice);
+$('defaultAppsLink').addEventListener('click',event=>{event.preventDefault();openMailto('ms-settings:defaultapps');});
 $('mailClient').addEventListener('change',syncMailClientNotice);
-$('connectionForm').addEventListener('submit',async event=>{event.preventDefault();if(mailProgram($('mailClient').value)&&!mailProgram(settings.mailClient)&&!confirm('改用电脑上的邮件程序（Foxmail 等）后，插件只能打开写好的邮件，不能自动发送，也无法确认是否已发出，需要你发完后点「我已发送」。推荐继续使用 Gmail 网页。\n\n确定改用电脑上的邮件程序？'))return;try{await saveSettings({...settings,sheetUrl:$('sheetUrl').value.trim(),account:$('account').value.trim(),gmailIndex:Number($('gmailIndex').value),testMode:$('testMode').checked,defaultCarrierId:$('defaultCarrierId').value,defaultInquiryType:$('defaultInquiryType').value,mailClient:$('mailClient').value});status('连接与默认选项已保存。','success');}catch(error){status(error.message,'error');}});
+$('connectionForm').addEventListener('submit',async event=>{event.preventDefault();if(mailProgram(chosenMailClient())&&!mailProgram(settings.mailClient)&&!confirm('改用电脑上的邮件程序（Foxmail 等）后，插件只能打开写好的邮件，不能自动发送，也无法确认是否已发出，需要你发完后点「我已发送」。推荐继续使用 Gmail 网页。\n\n确定改用电脑上的邮件程序？'))return;try{await saveSettings({...settings,sheetUrl:$('sheetUrl').value.trim(),account:$('account').value.trim(),gmailIndex:Number($('gmailIndex').value),testMode:$('testMode').checked,defaultCarrierId:$('defaultCarrierId').value,defaultInquiryType:$('defaultInquiryType').value,mailClient:chosenMailClient()});status('连接与默认选项已保存。','success');}catch(error){status(error.message,'error');}});
 $('exportConfig').addEventListener('click',()=>{try{download(JSON.stringify(createConfig(settings),null,2)+'\n','lfd-inquiry-config.json','application/json');status('配置 JSON 已导出。','success');}catch(error){status(error.message,'error');}});
 // The system file picker makes the toolbar popup go blank/close on Windows, so importing from the popup
 // opens the extension page in a normal tab (straight to this section), where the picker works.
