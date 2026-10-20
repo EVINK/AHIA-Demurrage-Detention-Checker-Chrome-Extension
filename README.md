@@ -1,4 +1,4 @@
-# LFD Inquiry v0.3.18 — Chrome 插件使用说明
+# LFD Inquiry v0.3.21 — Chrome 插件使用说明
 
 输入柜号，插件从金山文档「提柜」查出 MBL 和船公司，再按所选 Demurrage / Detention 类型准备查询邮件，保留 Gmail 原签名。支持 Maersk、MSC 和自行添加的船公司，收件邮箱与邮件模板均可配置。
 
@@ -18,7 +18,7 @@
 
 1. 确认原插件目录已经更新为 v0.3.18 文件。如果使用压缩包，将文件解压到原来加载的目录。
 2. 在 Chrome 手动打开 `chrome://extensions`，找到 **LFD Inquiry**，点击刷新图标。
-3. 点击工具栏上的 LFD Inquiry 图标，打开新版弹窗；确认底部显示 `v0.3.18`、顶部显示「测试模式 · 不发送」。
+3. 点击工具栏上的 LFD Inquiry 图标，打开新版弹窗；确认底部显示 `v0.3.21`、顶部显示「测试模式 · 不发送」。
 
 新版使用真正的工具栏弹窗，尺寸为 780 × 600，包含「查询 / 配置 / 记录」三个页面，不再为主界面新开标签页。v0.2.6 新增 unlimitedStorage，解除 chrome.storage.local 默认容量配额；实际仍受磁盘空间和性能限制。缓存逻辑保持不变。原有连接设置、草稿和发送锁定记录保留。
 
@@ -385,3 +385,21 @@ COSCO 的 On-Hire 提交到 **https://coscoshippingla.freshdesk.com/support/tick
 ## v0.3.18 修复导入页「插件未返回结果」
 
 v0.3.17 中从弹窗打开的导入页地址为 `app.html#import`，后台只接受 `app.html` 的消息，因此「应用导入配置」时报「插件未返回结果」，导入失败。现在比较地址时忽略 `#` 后的部分；其他网页或其他插件的请求仍然拒绝。已在调试 Chrome 中用真实配置文件验证导入成功。
+
+
+## v0.3.19 — Foxmail compose formatting (2026-10-20)
+
+System mail drafts use labelled Container#/MBL# lines instead of tab-separated tables, CRLF line endings, and semicolon-separated To/Cc addresses for Foxmail compatibility. Gmail HTML is unchanged. The client supplies its own signature; the extension does not append or replace it. Sending remains manual and must be confirmed by the user. Actual Foxmail rendering requires an unsent compose check after reloading.
+
+
+## v0.3.20 — Foxmail rich-text clipboard fallback
+
+Foxmail may flatten mailto line breaks even with CRLF. In Tasks/History, click 复制格式化正文, select only the original inquiry body in Foxmail (not the signature), and paste with Ctrl+V. This explicitly copies text/plain and text/html and requires clipboardWrite. Existing system-mail drafts can recover the text from their stored mailto URL. Nothing is sent automatically. Actual Foxmail paste behavior still needs user verification.
+
+## v0.3.21 Foxmail 自动填写（正文分行、带框表格）
+
+- 「邮件发送方式」新增 **Foxmail（自动填写，手动发送）**。插件用 mailto 打开 Foxmail 写信窗口，自动填好 To、Cc（分号分隔）、主题和正文；**正文分行和带边框的 Container# / MBL# 表格都能正确显示**，Foxmail 签名保留。Demurrage、Detention、On-Hire（含多柜号）都适用。
+- 原因：Foxmail 把 mailto 的正文当 HTML 处理，普通换行会被压成空格（所以改 CRLF 无效）。改为 `<br>` 换行，表格用 `border=1` 属性（Foxmail 会去掉 style 里的边框）。已于 2026-10-20 在用户的 Foxmail 中实测：换行、表格边框、签名均正常；不需要安装任何辅助程序。
+- 仍需你在 Foxmail 里点发送；插件无法得知是否已发出，发完后在「进行中」或「记录」点「我已发送」（用户决定不做自动核对）。
+- 「其他电脑默认邮件程序」保留纯文本格式（柜号以 Container#: / MBL#: 逐行显示，v0.3.19）。
+- 移除 v0.3.20 的「复制格式化正文」按钮及剪贴板权限（用户不需要手动复制）。

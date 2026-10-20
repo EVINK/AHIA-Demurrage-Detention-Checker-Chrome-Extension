@@ -196,8 +196,8 @@ export function messageTemplate(record,options={}){
   if(!profile.bodyTemplate||!profile.subjectTemplate)throw new Error('首次使用该船公司，请先配置正文模板和主题模板。');
   const to=addressList(profile.to,{allowEmpty:false});
   if(options.more?.length&&type!==ON_HIRE)throw new Error('只有 On-Hire 邮件支持一次发送多个柜号。');
-  const {subject,bodyText,html}=renderTemplates(record,profile,type,options.more||[]);
-  return {to,cc:[...profile.cc],question:`Could you please advise the ${type} LFD for the container below?`,carrierId:profile.id,carrierName:profile.name,inquiryType:type,subject,bodyText,html};
+  const {subject,bodyText,html,mailtoHtml}=renderTemplates(record,profile,type,options.more||[],options.plainTextLayout==='labels'?'labels':'table');
+  return {to,cc:[...profile.cc],question:`Could you please advise the ${type} LFD for the container below?`,carrierId:profile.id,carrierName:profile.name,inquiryType:type,subject,bodyText,html,mailtoHtml};
 }
 /** Ticket content for a carrier whose channel is a support portal instead of email. */
 export function portalTemplate(record,options={}){
@@ -242,7 +242,7 @@ function renderTemplates(record,profile,type,more=[],tableStyle='table'){
   const container=items.map(item=>item.container).join(', '),mbl=[...new Set(items.map(item=>item.mbl))].join(', ');
   const lines=tableStyle==='lines';
   const values={'steam shipping line':profile.greeting,carrier:profile.name,type,Type:INQUIRY_TYPES[type],container,mbl,
-    table:lines?items.map(item=>`${item.container} ${item.mbl}`).join('\n'):`Container#\tMBL#\n${items.map(item=>`${item.container}\t${item.mbl}`).join('\n')}`};
+    table:tableStyle==='labels'?items.map(item=>`Container#: ${item.container}\nMBL#: ${item.mbl}`).join('\n\n'):lines?items.map(item=>`${item.container} ${item.mbl}`).join('\n'):`Container#\tMBL#\n${items.map(item=>`${item.container}\t${item.mbl}`).join('\n')}`};
   const fill=text=>text.replace(/\{\{([^{}]*)\}\}/g,(_,token)=>values[token]);
   const subject=profile.subjectTemplate?fill(profile.subjectTemplate):'';
   if(subject.length>998)throw new Error('生成的邮件主题过长，请缩短主题模板。');
@@ -251,5 +251,10 @@ function renderTemplates(record,profile,type,more=[],tableStyle='table'){
   const [before,after]=profile.bodyTemplate.split('{{table}}');
   const html=htmlText(before)+(lines?`<p>${items.map(item=>escapeHtml(`${item.container} ${item.mbl}`)).join('<br>')}</p>`:table)+htmlText(after);
   if(html.length>20000)throw new Error('生成的邮件正文过长，请缩短正文模板。');
-  return {subject,bodyText:fill(profile.bodyTemplate),html,items};
+  // Foxmail reads a mailto body as HTML: line breaks must be <br> and only attribute-based table borders
+  // survive (verified in Foxmail on 2026-10-20).
+  const brText=text=>escapeHtml(fill(text)).replace(/\r\n|\r|\n/g,'<br>');
+  const mailtoTable=`<table border=1 cellpadding=6 cellspacing=0 bordercolor=#888888><tr><th align=left>Container#</th><th align=left>MBL#</th></tr>${items.map(item=>`<tr><td>${escapeHtml(item.container)}</td><td>${escapeHtml(item.mbl)}</td></tr>`).join('')}</table>`;
+  const mailtoHtml=brText(before)+mailtoTable+brText(after||'');
+  return {subject,bodyText:fill(profile.bodyTemplate),html,items,mailtoHtml};
 }

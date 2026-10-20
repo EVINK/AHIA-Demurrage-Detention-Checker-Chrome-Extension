@@ -86,7 +86,7 @@ export function createService({storage, readSheet, prepareMail, sendMail, prepar
       if(!cached&&!item.mbl)throw new Error(`${extraContainer} 尚未查询，请先查询后再加入。`);
       return {container:extraContainer,mbl:mblNumber(item.mbl||cached.mbl)};
     });
-    const message = chat?chatTemplate(record,{carrier,inquiryType:type,more:extras}):portal?portalTemplate(record,{carrier,inquiryType:type,more:extras}):messageTemplate(record,{carrier,inquiryType:type,more:extras});
+    const message = chat?chatTemplate(record,{carrier,inquiryType:type,more:extras}):portal?portalTemplate(record,{carrier,inquiryType:type,more:extras}):messageTemplate(record,{carrier,inquiryType:type,more:extras,plainTextLayout:settings.mailClient==='system'?'labels':'table'});
     if (mode === 'preview') return {...record, ...message};
     const items=[{container:record.container,mbl:record.mbl},...extras];
     const keys=items.map(item=>JSON.stringify([account, item.container, item.mbl, carrier.id, type]));
@@ -105,12 +105,12 @@ export function createService({storage, readSheet, prepareMail, sendMail, prepar
       keys.forEach((key,index)=>{ledger[key]={...(index?{container:items[index].container,mbl:items[index].mbl,sourceTime:record.sourceTime}:record),...base,...(chat?{chatMessage:message.messages[index]}:{})};});
       await storage.set({ledger});return ledger[keys[0]];
     });
-    if(channel==='email'&&settings.mailClient==='system'){
+    if(channel==='email'&&['system','foxmail'].includes(settings.mailClient)){
       // Opened by the popup itself (a user click is needed to launch an external program).
-      const mailto=mailtoUrl(message);
+      const mailto=mailtoUrl(message,settings.mailClient);
       return serial(async()=>{
         const {ledger={}}=await storage.get(['ledger']);
-        for(const key of keys)if(ledger[key]?.requestId===requestId)ledger[key]={...ledger[key],status:'draft',mailClient:'system',mailto,running:false,step:''};
+        for(const key of keys)if(ledger[key]?.requestId===requestId)ledger[key]={...ledger[key],status:'draft',mailClient:settings.mailClient,mailto,bodyText:message.bodyText,running:false,step:''};
         await storage.set({ledger});return {...ledger[keys[0]],containers:items.map(item=>item.container)};
       });
     }
@@ -122,10 +122,14 @@ export function createService({storage, readSheet, prepareMail, sendMail, prepar
   }
   // The computer's default mail program: the extension can only open a filled compose window; sending is
   // done (and confirmed with 「我已发送」) by the user.
-  function mailtoUrl(message){
-    const query=[['cc',message.cc.join(',')],['subject',message.subject],['body',message.bodyText.replace(/\n/g,'\r\n')]]
+  function mailtoUrl(message,client){
+    const body=client==='foxmail'?message.mailtoHtml:message.bodyText.replace(/\r\n|\r|\n/g,'\r\n');
+    const query=[['cc',message.cc.join(';')],['subject',message.subject],['body',body]]
       .filter(([,value])=>value).map(([key,value])=>`${key}=${encodeURIComponent(value)}`).join('&');
-    return `mailto:${message.to.map(encodeURIComponent).join(',')}?${query}`;
+    const url=`mailto:${message.to.map(encodeURIComponent).join(';')}?${query}`;
+    // Windows hands mailto links to the mail program through a command line of limited length.
+    if(url.length>8000)throw new Error('邮件内容过长，无法通过邮件程序打开，请减少柜号或改用 Gmail 网页。');
+    return url;
   }
   // Only background jobs call this; the run that created the entries already released the queue.
   async function transmit({keys,mode,channel,message,record,account,settings,requestId}){
@@ -170,9 +174,9 @@ export function createService({storage, readSheet, prepareMail, sendMail, prepar
     const {ledger={}}=await storage.get(['ledger']);
     // Mail-program drafts, and failed/uncertain tasks the user checked and found sent. The lock stays.
     if(active.has(requestId))throw new Error('该任务仍在后台进行。');
-    const keys=Object.keys(ledger).filter(key=>ledger[key].requestId===requestId&&((ledger[key].mailClient==='system'&&ledger[key].status==='draft')||['uncertain','needs_review','preparing','sending'].includes(ledger[key].status)));
+    const keys=Object.keys(ledger).filter(key=>ledger[key].requestId===requestId&&((['system','foxmail'].includes(ledger[key].mailClient)&&ledger[key].status==='draft')||['uncertain','needs_review','preparing','sending'].includes(ledger[key].status)));
     if(!keys.length)throw new Error('记录不存在或已确认。');
-    for(const key of keys)ledger[key]={...ledger[key],status:'sent',confirmation:ledger[key].mailClient==='system'?'用户确认已在邮件程序中发送':'用户核实已发送',sentAt:now(),running:false,interrupted:false};
+    for(const key of keys)ledger[key]={...ledger[key],status:'sent',confirmation:['system','foxmail'].includes(ledger[key].mailClient)?'用户确认已在邮件程序中发送':'用户核实已发送',sentAt:now(),running:false,interrupted:false};
     await storage.set({ledger});return keys.length;
   });
   async function cancel(requestId){

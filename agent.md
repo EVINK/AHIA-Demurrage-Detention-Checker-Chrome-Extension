@@ -1,6 +1,6 @@
 # LFD Inquiry — Agent 交接文档
 
-更新时间：2026-10-09（America/Los_Angeles）。代码版本：**0.3.18**（导入改在标签页；重复锁可强制重发；Gmail 收件人兼容其他插件；ONE 白屏修复；COSCO On-Hire 工单；On-Hire 多柜号、ONE 气泡文字修复；可选本机邮件程序；On-Hire；ONE 对话复用、独立小窗、终止/删除；浮动小窗+通知；查询不阻塞/后台任务/ONE 多柜号；ONE 在线客服；英文界面兼容；2026-10-14：发送确认加严、COSCO 工单网站、取消DO 后分段读取、日志虚拟列表读取、脚本自动安装、找不到柜号提示框，见第 6 节）。
+更新时间：2026-10-09（America/Los_Angeles）。代码版本：**0.3.21**（Foxmail 自动填写；导入改在标签页；重复锁可强制重发；Gmail 收件人兼容其他插件；ONE 白屏修复；COSCO On-Hire 工单；On-Hire 多柜号、ONE 气泡文字修复；可选本机邮件程序；On-Hire；ONE 对话复用、独立小窗、终止/删除；浮动小窗+通知；查询不阻塞/后台任务/ONE 多柜号；ONE 在线客服；英文界面兼容；2026-10-14：发送确认加严、COSCO 工单网站、取消DO 后分段读取、日志虚拟列表读取、脚本自动安装、找不到柜号提示框，见第 6 节）。
 Chrome 现直接从 WSL 目录 `/home/evink/demurrage-lfd-extension` 加载；git 分支 `fix/gmail-send-confirmation`。
 本文件依据本次对话及当前源码整理；它是工程交接，不代表安装在 Chrome 中的版本已自动更新。
 
@@ -172,7 +172,7 @@ kdocs 适配器要求新的 START、同 id、分段连续、条数正确和 END�
 | 0.2.7 | 柜号吸顶、输入框内按钮、按钮也缓存优先 |
 | 0.2.8 | 按第一条完整行去重，仅删除本地重复项 |
 | 0.2.9 | 不完整记录不缓存、旧缓存清理、配置页清缓存 |
-| 0.3.18 | worker 消息来源校验忽略 #fragment（app.html#import 也是自己的页面），否则导入页所有请求被静默拒绝 |
+| 0.3.20 | worker 消息来源校验忽略 #fragment（app.html#import 也是自己的页面），否则导入页所有请求被静默拒绝 |
 | 0.3.17 | 弹窗里打开文件选择框会让 popup 白屏/关闭：#importLabel 点击时 chrome.tabs.getCurrent 为空（popup）则打开 app.html#import 新标签并 window.close()；#import 加载后定位到 #importSection |
 | 0.3.16 | service 重复锁错误带 duplicate=[{key,container,status,time,requestId,running}]，worker respond 透传，app rpc 挂到 error.duplicate；#duplicate 对话框「强制重发」逐个 release(key) 后 perform(原 mode)。需要处理列表不限时间，新增「重新发送」= deleteTask + refill 查询页 |
 | 0.3.15 | gmail.js recipientMismatch：只要求配置的 To/Cc 都存在，额外 Cc/Bcc 放行（用户明确要求）；prepare 时最多等 10 秒让收件人 chip 渲染完整再校验，错误信息列出缺少的地址 |
@@ -235,3 +235,11 @@ kdocs 适配器要求新的 START、同 id、分段连续、条数正确和 END�
 ## 9. 交接后的建议第一步
 
 询问/接收用户下一项具体任务；若只是继续验收，则请其确认 popup 版本0.2.9，测试一次已缓存完整柜号、一次不完整/重复柜号、清缓存再查询。记录实际现象后修复，不再重复从零研究已解决的菜单定位问题。
+
+
+## 2026-10-20 v0.3.20 Foxmail compatibility
+System mail uses labelled Container#/MBL# plain text, normalized CRLF, and semicolon-separated recipient lists. Gmail HTML is unchanged. Signature remains owned by the mail client. No actual mail was sent. Four targeted mailto tests pass; actual Foxmail compose rendering remains to be verified after reload.
+
+
+## 2026-10-20 v0.3.20 Foxmail clipboard fallback
+User screenshot confirmed v0.3.19 recipient separation works but Foxmail flattens mailto body line breaks. app.js now offers 复制格式化正文 for system-client drafts in both task/history lists. system-mail.js builds safe rich text from saved bodyText or legacy mailto body, preserving line breaks. clipboardWrite is added; clipboard is only written on explicit click. User must replace only inquiry text in Foxmail, leaving signature untouched. Six targeted tests pass, app.js syntax and git diff checks pass; live clipboard/paste validation not performed, no email sent.

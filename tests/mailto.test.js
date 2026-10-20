@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {normalizeCarriers} from '../core.js';
+import {normalizeCarriers,messageTemplate} from '../core.js';
 import {validateSettings,createConfig,parseConfig,DEFAULT_SETTINGS} from '../config.js';
 import {createService} from '../service.js';
 
@@ -24,10 +24,10 @@ test('with the system mail program a send opens a mailto draft and waits for 「
   assert.equal(entry.status,'draft');assert.equal(entry.mailClient,'system');assert.equal(entry.background,undefined);
   const url=new URL(entry.mailto);
   assert.equal(url.protocol,'mailto:');assert.equal(decodeURIComponent(url.pathname),'us.customerexperience@maersk.com');
-  assert.equal(url.searchParams.get('cc'),'truck@darwinpacific.com,service@darwinpacific.com');
+  assert.equal(url.searchParams.get('cc'),'truck@darwinpacific.com;service@darwinpacific.com');
   assert.equal(url.searchParams.get('subject'),'Demurrage LFD Inquiry - Container#MRSU4786640 MBL#MAEU276301677');
   assert.match(url.searchParams.get('body'),/^Dear MSK,\r\n\r\nCould you please advise the demurrage LFD/);
-  assert.match(url.searchParams.get('body'),/MRSU4786640\tMAEU276301677$/);
+  assert.match(url.searchParams.get('body'),/Container#: MRSU4786640\r\nMBL#: MAEU276301677$/);
   await assert.rejects(service.run(record.container,'send'),/已有/,'the lock still prevents a second message');
   await service.markSent('r');
   const [saved]=Object.values(db.ledger);assert.equal(saved.status,'sent');assert.match(saved.confirmation,/用户确认/);
@@ -47,4 +47,18 @@ test('a duplicate lock reports the blocking record, and releasing it allows a fo
   const again=await service.run(record.container,'send');
   assert.equal(again.status,'draft');assert.notEqual(again.requestId,first.requestId);
   assert.equal(db.archive.length,1,'the released record is archived, not lost');
+});
+
+
+test('system text labels preserve a custom template and each On-Hire container; Gmail retains its table',()=>{
+  const carrier=normalizeCarriers()[0];
+  carrier.onHire={...carrier.onHire,to:['first@example.com','second@example.com'],bodyTemplate:'Dear {{steam shipping line}},\r\n\r\nPlease arrange on-hire.\r\n\r\n{{table}}\r\n\r\nThank you.',subjectTemplate:'On-Hire {{container}} {{mbl}}'};
+  const options={carrier,inquiryType:'on-hire',more:[{container:'MSDU6134964',mbl:'MEDUACU76689'}]};
+  const plain=messageTemplate(record,{...options,plainTextLayout:'labels'});
+  assert.match(plain.bodyText,/Container#: MRSU4786640\nMBL#: MAEU276301677\n\nContainer#: MSDU6134964\nMBL#: MEDUACU76689/);
+  assert.match(plain.bodyText,/Thank you\.$/);
+  assert.doesNotMatch(plain.bodyText,/\t/);
+  const gmail=messageTemplate(record,options);
+  assert.match(gmail.bodyText,/Container#\tMBL#/);
+  assert.equal(plain.html,gmail.html);
 });
