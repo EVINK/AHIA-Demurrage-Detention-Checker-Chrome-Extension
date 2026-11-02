@@ -23,7 +23,8 @@ export async function gmailPage(action,payload){
   const digest=async text=>Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',new TextEncoder().encode(text)))).map(v=>v.toString(16).padStart(2,'0')).join('');
   const subject=await waitFor(()=>document.querySelector('input[name="subjectbox"]'),'Gmail 写信页未加载，或需要登录。');
   const body=await waitFor(()=>[...document.querySelectorAll('[contenteditable="true"][role="textbox"]')].find(visible),'未找到邮件正文。');
-  const signature=await waitFor(()=>body.querySelector('.gmail_signature'),'未检测到 Gmail 原签名，已停止。');
+  // Kept untouched when the account has one; an account without a signature sends just the same.
+  const signature=await waitFor(()=>body.querySelector('.gmail_signature'),'',4000).catch(()=>null);
   const addressesIn=text=>String(text||'').toLowerCase().match(/[a-z0-9.!#$%&'*+/=?^_`{|}~-]+@[a-z0-9-]+(?:\.[a-z0-9-]+)+/g)||[];
   const pendingInputs=name=>[...document.querySelectorAll(`[name="${name}"] input,[name="${name}"] textarea`)];
   // One field: its chips, plus any plain or hidden input carrying the same name.
@@ -65,7 +66,6 @@ export async function gmailPage(action,payload){
     // Text still in a recipient box is fine when it is one of the configured addresses Gmail has yet to turn into a chip.
     const configured=[...payload.to,...payload.cc].map(v=>v.toLowerCase());
     for(const name of ['to','cc','bcc'])if(pendingInputs(name).some(e=>{const text=e.value.trim(),found=addressesIn(text);return text&&(!found.length||found.some(v=>!configured.includes(v)));}))throw new Error('存在尚未确认的收件地址。');
-    if(!signature.textContent.trim()&&!signature.querySelector('img'))throw new Error('签名为空。');
   }
   if(action==='prepare'){
     if(body.dataset.lfdRequest)throw new Error('此写信页已处理，不能重复插入。');
@@ -73,7 +73,7 @@ export async function gmailPage(action,payload){
     await pause(1000);await waitFor(()=>!recipientMismatch(),'',4000).catch(()=>{});
     if(recipientMismatch()){expandRecipients();await waitFor(()=>!recipientMismatch(),'',6000).catch(()=>{});}
     verify();
-    const originalSignature=signature.outerHTML;
+    const originalSignature=signature?.outerHTML;
     const clone=body.cloneNode(true);clone.querySelectorAll('.gmail_signature').forEach(e=>e.remove());
     if(clone.textContent.trim())throw new Error('写信页已有正文，已停止以避免覆盖。');
     body.focus();const selection=window.getSelection(),range=document.createRange();
@@ -82,9 +82,9 @@ export async function gmailPage(action,payload){
     body.dispatchEvent(new InputEvent('input',{bubbles:true,inputType:'insertText'}));
     await pause(300);
     if(!body.textContent.includes(payload.container)||!body.textContent.includes(payload.mbl)||!compact(body.textContent).startsWith(compact(payload.bodyText)))throw new Error('正文插入验证失败。');
-    if(body.querySelector('.gmail_signature')?.outerHTML!==originalSignature)throw new Error('签名发生变化，已停止。');
+    if(signature&&body.querySelector('.gmail_signature')?.outerHTML!==originalSignature)throw new Error('签名发生变化，已停止。');
     body.dataset.lfdRequest=payload.requestId;verify();
-    return {ok:true,data:{bodyHash:await digest(body.innerHTML),signatureText:signature.innerText}};
+    return {ok:true,data:{bodyHash:await digest(body.innerHTML),signatureText:signature?.innerText||''}};
   }
   if(action!=='send')throw new Error('未知 Gmail 操作。');
   verify();
