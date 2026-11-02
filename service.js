@@ -1,4 +1,4 @@
-import {containerNumber, mblNumber, lookup, cacheRecords, messageTemplate, portalTemplate, chatTemplate, normalizeCarriers, addressList, inquiryType, recognizeCarrier, inquiryChannel, PORTAL_INQUIRY_TYPE, ON_HIRE} from './core.js';
+import {containerNumber, mblNumber, lookup, cacheRecords, messageTemplate, portalTemplate, chatTemplate, normalizeCarriers, normalizeTerminals, inquiryType, recognizeCarrier, inquiryChannel, resolveType, findType, missingConfiguration, supportsManyContainers} from './core.js';
 export function createService({storage, readSheet, prepareMail, sendMail, prepareTicket, submitTicket, prepareChat, sendChat, now = Date.now, uuid = () => crypto.randomUUID()}) {
   let queue = Promise.resolve();
   const active=new Set(),jobs=new Map(),cancelled=new Set();
@@ -12,31 +12,24 @@ export function createService({storage, readSheet, prepareMail, sendMail, prepar
     if(!options||typeof options!=='object'||Array.isArray(options))throw new Error('查询选项格式无效。');
     const container = containerNumber(value);
     const {settings = {}} = await storage.get(['settings']);
-    const carriers=normalizeCarriers(settings.carriers);
-    const selectedId=options.carrierId!==undefined?options.carrierId:settings.defaultCarrierId!==undefined?settings.defaultCarrierId:'auto';
-    if(typeof selectedId!=='string'||!selectedId.trim())throw new Error('请先选择并配置船公司。');
+    const carriers=normalizeCarriers(settings.carriers),terminals=normalizeTerminals(settings.terminals);
+    const terminalMode=(options.mode??settings.mode)==='terminal',profiles=terminalMode?terminals:carriers,kind=terminalMode?'码头':'船公司';
+    const selectedId=options.carrierId!==undefined?options.carrierId:terminalMode?'auto':settings.defaultCarrierId!==undefined?settings.defaultCarrierId:'auto';
+    if(typeof selectedId!=='string'||!selectedId.trim())throw new Error(`请先选择并配置${kind}。`);
     const selected=selectedId.trim().toLowerCase();
-    let carrier=selected==='auto'?null:carriers.find(profile=>profile.id===selected);
-    if(selected!=='auto'&&!carrier)throw new Error('选中的船公司不存在，请检查配置。');
-    const requestedType=inquiryType(options.inquiryType!==undefined?options.inquiryType:settings.defaultInquiryType);
-    if(carrier&&mode!=='identify'&&requestedType===ON_HIRE&&carrier.channel==='cosco-portal'){
-      if(!carrier.portal.requester)throw new Error('请先配置 COSCO 工单的 Requester 邮箱。');
-    }else if(carrier&&mode!=='identify'&&requestedType===ON_HIRE){
-      if(!carrier.onHire.to.length)throw new Error(`请先在 ${carrier.name} 的配置中填写 On-Hire 收件邮箱。`);
-      if(!carrier.onHire.bodyTemplate||!carrier.onHire.subjectTemplate)throw new Error(`请先在 ${carrier.name} 的配置中填写 On-Hire 正文模板和主题模板。`);
-    }else if(carrier&&mode!=='identify'){
-      if(carrier.channel==='email'){
-        addressList(carrier.to,{allowEmpty:false});
-        if(!carrier.bodyTemplate||!carrier.subjectTemplate)throw new Error('首次使用该船公司，请先配置正文模板和主题模板。');
-      }else if(carrier.channel==='cosco-portal'&&(!carrier.bodyTemplate||!carrier.portal.requester))throw new Error('首次使用该船公司，请先配置工单 Requester 和正文模板。');
-    }
-    let type=requestedType;
-    const accounts=addressList(settings.account,{allowEmpty:false});
-    if(accounts.length!==1)throw new Error('请配置唯一的 Gmail 发件账号。');
-    const account=accounts[0];
-    // Test mode is enforced in the background, not just by a disabled UI button.
-    if(mode==='send' && settings.testMode!==false) mode='draft';
-    const cacheKey=JSON.stringify([settings.sheetUrl,account]);
+    let carrier=selected==='auto'?null:profiles.find(profile=>profile.id===selected);
+    if(selected!=='auto'&&!carrier)throw new Error(`选中的${kind}不存在，请检查配置。`);
+    const requestedType=inquiryType(options.inquiryType||settings.defaultInquiryType||'demurrage',[...carriers,...terminals]);
+    const requireConfigured=profile=>{
+      const id=resolveType(profile,requestedType);
+      if(!id)throw new Error(`${profile.name} 没有配置这个查询类型，请在配置页添加。`);
+      const missing=missingConfiguration(profile,id),label=findType(profile,id).label;
+      if(missing.includes('requester'))throw new Error('请先配置 COSCO 工单的 Requester 邮箱。');
+      if(missing.includes('to'))throw new Error(`请先在 ${profile.name} 的配置中填写 ${label} 收件邮箱。`);
+      if(missing.length)throw new Error(`首次使用该类型，请先配置 ${profile.name} 的 ${label} 正文模板和主题模板。`);
+    };
+    if(carrier&&mode!=='identify')requireConfigured(carrier);
+    const cacheKey=JSON.stringify([settings.sheetUrl]);
     const {sheetCache}=await storage.get(['sheetCache']);
     let sheet=sheetCache?.version===1&&sheetCache.key===cacheKey&&Array.isArray(sheetCache.records)?sheetCache:null;
     if(sheet){
@@ -62,45 +55,49 @@ export function createService({storage, readSheet, prepareMail, sendMail, prepar
     const record = {...(matched||{container}),...(manual?{mbl:mblNumber(options.manualMbl)}:{}),sourceTime:sheet?.readAt,fromCache:!!cacheHit};
     let carrierSource='manual';
     if(selected==='auto'){
+      // The sheet says nothing about terminals: the user always picks one.
+      if(terminalMode){
+        if(mode==='identify')return {...record,inquiryType:requestedType,unrecognizedCarrier:'',needsTerminal:true,configurationMissing:['carrier'],recognitionError:terminals.length?'请选择码头。':'还没有码头配置，请先到配置页添加码头。'};
+        throw new Error('请先选择码头。');
+      }
       try{({carrier,carrierSource}=recognizeCarrier(record,carriers));}
       catch(error){
-        if(mode==='identify')return {...record,inquiryType:type,unrecognizedCarrier:record.carrier||'',configurationMissing:['carrier'],recognitionError:error.message};
+        if(mode==='identify')return {...record,inquiryType:requestedType,unrecognizedCarrier:record.carrier||'',configurationMissing:['carrier'],recognitionError:error.message};
         throw error;
       }
+      if(mode!=='identify')requireConfigured(carrier);
     }
     record.carrierSource=carrierSource;
-    // On-Hire is an email for every carrier; COSCO's portal only handles Detention.
-    const channel=inquiryChannel(carrier,type),portal=channel==='cosco-portal',chat=channel==='one-chat';
-    if(portal&&type!==ON_HIRE)type=PORTAL_INQUIRY_TYPE;
-    if(mode==='identify')return {...record,carrierId:carrier.id,carrierName:carrier.name,channel,inquiryType:type,
-      configurationMissing:portal&&type===ON_HIRE?(carrier.portal.requester?[]:['requester']):type===ON_HIRE?[...(!carrier.onHire.to.length?['onHireTo']:[]),...(!carrier.onHire.bodyTemplate?['onHireBody']:[]),...(!carrier.onHire.subjectTemplate?['onHireSubject']:[])]:chat?[]:portal?[...(!carrier.portal.requester?['requester']:[]),...(!carrier.bodyTemplate?['bodyTemplate']:[])]:
-        [...(!carrier.to.length?['to']:[]),...(!carrier.bodyTemplate?['bodyTemplate']:[]),...(!carrier.subjectTemplate?['subjectTemplate']:[])]};
+    const type=resolveType(carrier,requestedType)||carrier.types[0]?.id||requestedType;
+    const channel=inquiryChannel(carrier,type),portal=channel==='cosco-portal',chat=channel==='one-chat',typeLabel=findType(carrier,type)?.label;
+    if(mode==='identify')return {...record,carrierId:carrier.id,carrierName:carrier.name,channel,inquiryType:type,typeLabel,configurationMissing:missingConfiguration(carrier,type)};
     const more=Array.isArray(options.more)?options.more:[];
-    if(more.length&&(!(chat||type===ON_HIRE)||mode==='identify'))throw new Error('只有 ONE 在线客服和 On-Hire 邮件支持一次查询多个柜号。');
+    if(more.length&&(!supportsManyContainers(carrier,type)||mode==='identify'))throw new Error('只有 ONE 在线客服、On-Hire 和自定义类型支持一次查询多个柜号。');
     // Extra containers must be cached ONE records of the same carrier (or explicitly carry a manual MBL).
     const extras=more.map(item=>{
       const extraContainer=containerNumber(item?.container);
       const cached=sheet?.records.find(r=>String(r.container).trim().toUpperCase()===extraContainer);
       // Every container must belong to the first container's carrier (the user removes the others).
-      if(cached){let found;try{found=recognizeCarrier(cached,carriers).carrier;}catch{}if(found?.id!==carrier.id)throw new Error(`${extraContainer} 不是 ${carrier.name} 的柜号，请从列表中删除后再发送。`);}
+      if(cached&&!terminalMode){let found;try{found=recognizeCarrier(cached,carriers).carrier;}catch{}if(found?.id!==carrier.id)throw new Error(`${extraContainer} 不是 ${carrier.name} 的柜号，请从列表中删除后再发送。`);}
       if(!cached&&!item.mbl)throw new Error(`${extraContainer} 尚未查询，请先查询后再加入。`);
       return {container:extraContainer,mbl:mblNumber(item.mbl||cached.mbl)};
     });
     const message = chat?chatTemplate(record,{carrier,inquiryType:type,more:extras}):portal?portalTemplate(record,{carrier,inquiryType:type,more:extras}):messageTemplate(record,{carrier,inquiryType:type,more:extras,plainTextLayout:settings.mailClient==='outlook'?'labels':'table'});
     if (mode === 'preview') return {...record, ...message};
     const items=[{container:record.container,mbl:record.mbl},...extras];
-    const keys=items.map(item=>JSON.stringify([account, item.container, item.mbl, carrier.id, type]));
-    const legacyKey=JSON.stringify([account,record.container,record.mbl]);
+    const keys=items.map(item=>JSON.stringify([item.container, item.mbl, carrier.id, type]));
     const requestId=uuid();
-    const base={account,carrierId:carrier.id,carrierName:carrier.name,channel,inquiryType:type,
+    const base={carrierId:carrier.id,carrierName:carrier.name,channel,inquiryType:type,typeLabel,
       ...(chat?{chatMessage:message.message,email:message.email,...(extras.length?{batch:items.map(item=>item.container)}:{})}:portal?{requester:message.requester,reference:message.reference}:{to:[...message.to],cc:[...message.cc],subject:message.subject}),
       requestId,status:'preparing',time:now(),running:true,step:'排队中'};
     // Check and take the duplicate locks atomically; this is the only serialized step of a send.
     const first=await serial(async()=>{
       const {ledger={}}=await storage.get(['ledger']);
       // Tell the popup which records block the send, so it can offer to look at them or force a resend.
-      const blocking=[...keys.map((key,index)=>[key,items[index].container]),...(carrier.id==='maersk'&&type==='demurrage'?[[legacyKey,record.container]]:[])]
-        .filter(([key])=>ledger[key]).map(([key,container])=>({key,container,status:ledger[key].status,time:ledger[key].time,requestId:ledger[key].requestId,running:active.has(ledger[key].requestId)}));
+      // Compared by content, so records kept under an older key format (which included the sender account, and
+      // earliest of all only Maersk Demurrage without carrier or type) still block a repeat.
+      const blocking=Object.entries(ledger).filter(([,entry])=>items.some(item=>entry.container===item.container&&entry.mbl===item.mbl)&&(entry.carrierId||'maersk')===carrier.id&&(entry.inquiryType||'demurrage')===type)
+        .map(([key,entry])=>({key,container:entry.container,status:entry.status,time:entry.time,requestId:entry.requestId,running:active.has(entry.requestId)}));
       if(blocking.length)throw Object.assign(new Error(`${blocking.map(b=>b.container).join('、')} 在所选船公司和查询类型下已有草稿、发送或待核实记录。请先核对发送记录，避免重复。`),{duplicate:blocking});
       keys.forEach((key,index)=>{ledger[key]={...(index?{container:items[index].container,mbl:items[index].mbl,sourceTime:record.sourceTime}:record),...base,...(chat?{chatMessage:message.messages[index]}:{})};});
       await storage.set({ledger});return ledger[keys[0]];
@@ -115,7 +112,7 @@ export function createService({storage, readSheet, prepareMail, sendMail, prepar
       });
     }
     // Every channel transmits as a background job so the popup never waits on Gmail, COSCO or ONE.
-    const job=transmit({keys,mode,channel,message,record,account,settings,requestId});
+    const job=transmit({keys,mode,channel,message,record,settings,requestId});
     active.add(requestId);jobs.set(requestId,job);
     job.catch(()=>{}).finally(()=>{active.delete(requestId);setTimeout(()=>jobs.delete(requestId),60000);});
     return {...first,background:true,containers:items.map(item=>item.container)};
@@ -133,7 +130,7 @@ export function createService({storage, readSheet, prepareMail, sendMail, prepar
     return url;
   }
   // Only background jobs call this; the run that created the entries already released the queue.
-  async function transmit({keys,mode,channel,message,record,account,settings,requestId}){
+  async function transmit({keys,mode,channel,message,record,settings,requestId}){
     const chat=channel==='one-chat',portal=channel==='cosco-portal';
     const write=(patch,only=keys)=>serial(async()=>{
       const {ledger={}}=await storage.get(['ledger']);
@@ -147,14 +144,14 @@ export function createService({storage, readSheet, prepareMail, sendMail, prepar
       const payload={...message,...record,requestId};
       const prepared = chat?await prepareChat({...payload,send:mode==='send'},progress)
         :portal?await prepareTicket({...payload,submit:mode==='send'},progress)
-        :await prepareMail({...payload, account, gmailIndex:settings.gmailIndex});
+        :await prepareMail({...payload, gmailIndex:settings.gmailIndex});
       let entry=await write({tabId:prepared.tabId,...(prepared.agent?{agent:prepared.agent}:{}),status:'draft',...(mode==='draft'?{running:false,step:''}:{})});
       if (mode === 'draft') return entry;
       await write({status:'sending'});
       transmissionStarted = true;
       const sent = chat?await sendChat(prepared,payload,progress)
         :portal?await submitTicket(prepared,payload,progress)
-        :await sendMail(prepared, {...payload,account});
+        :await sendMail(prepared, payload);
       if (!sent?.confirmed) throw new Error(chat?'没有检测到 ONE 客服已读消息。':portal?'没有检测到 COSCO 工单提交成功。':'没有检测到 Gmail 发送成功确认。');
       return await write({status:'sent',confirmation:sent.evidence,running:false,step:'',...(sent.ticketId?{ticketId:sent.ticketId}:{}),...(sent.agent?{agent:sent.agent}:{})});
     } catch (error) {

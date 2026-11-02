@@ -18,26 +18,25 @@ const json=patch=>JSON.stringify({...createConfig(settings()),...patch});
 test('portable configuration round-trips custom carriers, routing and editable templates',()=>{
   const initial=settings();
   const exported=createConfig(initial);
-  assert.equal(exported.format,'lfd-inquiry-config');assert.equal(exported.version,1);
+  assert.equal(exported.format,'lfd-inquiry-config');assert.equal(exported.version,2);
   assert.deepEqual(Object.keys(exported),['format','version','settings']);
   const result=parseConfig(JSON.stringify(exported));
-  assert.deepEqual(result,{...initial,testMode:true});
+  assert.deepEqual(result,initial);
   assert.deepEqual(result.carriers[0].aliases,['EXAMPLE LINE']);
   assert.deepEqual(result.carriers[0].mblPrefixes,['EXLU']);
-  assert.equal(result.carriers[0].bodyTemplate,custom.bodyTemplate.replaceAll('{{greeting}}','{{steam shipping line}}'));
-  assert.equal(result.account,'operator@example.com');
+  assert.equal(result.carriers[0].types[0].bodyTemplate,custom.bodyTemplate.replaceAll('{{greeting}}','{{steam shipping line}}'));
   assert.deepEqual(parseConfig('\uFEFF'+JSON.stringify(exported)),result);
 });
 
-test('import always re-enables test mode even when exported from live send mode',()=>{
-  assert.equal(createConfig(settings()).settings.testMode,false);
-  assert.equal(parseConfig(json()).testMode,true);
+test('the retired account and test mode settings are accepted from old data and dropped',()=>{
+  for(const key of ['account','testMode','extraCc'])assert.equal(Object.hasOwn(settings(),key),false);
+  const old=parseConfig(JSON.stringify({format:'lfd-inquiry-config',version:1,settings:{account:'x@example.com',testMode:true,carriers:[custom],defaultCarrierId:'custom'}}));
+  assert.equal(old.carriers[0].id,'custom');assert.equal(Object.hasOwn(old,'testMode'),false);
 });
 
 test('legacy saved settings receive new defaults and partial edits preserve prior configuration',()=>{
   const legacy={sheetUrl:DEFAULT_SETTINGS.sheetUrl,account:'legacy@example.com',gmailIndex:2,extraCc:false,testMode:false};
   const migrated=validateSettings(legacy);
-  assert.equal(migrated.account,'legacy@example.com');assert.equal(migrated.testMode,false);
   assert.equal(migrated.defaultCarrierId,'auto');assert.equal(migrated.defaultInquiryType,'demurrage');
   assert.ok(migrated.carriers.some(carrier=>carrier.id==='maersk'));
   assert.ok(migrated.carriers.some(carrier=>carrier.id==='msc'));
@@ -54,7 +53,7 @@ test('automatic carrier choice is valid without any manually selected carrier',(
 test('configuration copies do not mutate source settings or shared defaults',()=>{
   const original=structuredClone(custom);
   const result=validateSettings({carriers:[original],defaultCarrierId:'custom'});
-  result.carriers[0].to.push('additional@example.com');
+  result.carriers[0].types[0].to.push('additional@example.com');
   assert.deepEqual(original,custom);
   const defaults=validateSettings();defaults.carriers[0].name='Changed';
   assert.notEqual(validateSettings().carriers[0].name,'Changed');
@@ -64,18 +63,16 @@ test('invalid JSON, format, version and missing settings fail with actionable me
   assert.throws(()=>parseConfig('{oops'),/JSON 格式/);
   for(const value of ['null','[]','42'])assert.throws(()=>parseConfig(value),/对象/);
   assert.throws(()=>parseConfig(json({format:'other-app'})),/format/);
-  for(const version of [0,2,'1',null])assert.throws(()=>parseConfig(json({version})),/version/);
+  for(const version of [0,3,'1',null])assert.throws(()=>parseConfig(json({version})),/version/);
   assert.throws(()=>parseConfig('{"format":"lfd-inquiry-config","version":1}'),/settings/);
   assert.throws(()=>parseConfig(json({settings:null})),/对象/);
 });
 
-test('settings reject bad account, untrusted sheet URL, invalid index and coerced booleans',()=>{
-  for(const account of ['not-an-email','.x@example.com','x..y@example.com','x@example.com\nBcc: other@example.com','x@example.com,other@example.com'])
-    assert.throws(()=>validateSettings({account}),/账号地址/);
+test('settings reject untrusted sheet URL, invalid index and invalid mode',()=>{
   for(const sheetUrl of ['http://www.kdocs.cn/l/example','https://evil.example/l/example','https://www.kdocs.cn/l/example?x=y','https://www.kdocs.cn/l/example#x','https://user:pass@www.kdocs.cn/l/example','javascript:alert(1)'])
     assert.throws(()=>validateSettings({sheetUrl}),/分享链接/);
   for(const gmailIndex of [-1,21,1.5,'0'])assert.throws(()=>validateSettings({gmailIndex}),/编号/);
-  assert.throws(()=>validateSettings({testMode:'false'}),/testMode/);
+  assert.throws(()=>validateSettings({mode:'harbor'}),/模式/);
   assert.equal(Object.hasOwn(validateSettings({extraCc:true}),'extraCc'),false);
 });
 
@@ -104,4 +101,31 @@ test('configuration size is measured in UTF-8 bytes, including multibyte content
   assert.ok(multibyte.length<MAX_CONFIG_BYTES);
   assert.throws(()=>parseConfig(multibyte),/256 KiB/);
   assert.throws(()=>parseConfig(new Uint8Array(1)),/JSON 文本/);
+});
+
+test('the supplied configuration ships built in, in the new structure',()=>{
+  const defaults=validateSettings();
+  assert.deepEqual(defaults.carriers.map(p=>p.name),['Maersk','MSC','EMC','COSCO','ZIM','ONE','CMA','HMM','OOCL','SML','WHL','HPL']);
+  assert.equal(defaults.sheetUrl,'https://www.kdocs.cn/l/ce3LmgRtHK2F');assert.deepEqual(defaults.terminals,[]);assert.equal(defaults.mode,'carrier');
+  const type=(name,id)=>defaults.carriers.find(p=>p.name===name).types.find(t=>t.id===id);
+  assert.deepEqual(type('MSC','demurrage').to,['usa-import.customerservice@msc.com']);
+  assert.deepEqual(type('CMA','demurrage').to,['ddsmdisputes@cma-cgm.com']);assert.deepEqual(type('CMA','on-hire').to,['lax-lgb.u.equip@cma-cgm.com']);
+  assert.match(type('CMA','on-hire').bodyTemplate,/^Dear CMA Team,/);
+  assert.equal(type('COSCO','on-hire').channel,'cosco-portal');assert.equal(type('COSCO','demurrage'),undefined);
+  assert.equal(type('ONE','demurrage').channel,'one-chat');assert.equal(type('ONE','on-hire').channel,'email');
+});
+
+test('importing a version 1 file converts it and leaves terminals alone; a version 2 file round-trips them',()=>{
+  const terminals=[{id:'terminal-a',name:'PCT',greeting:'PCT',aliases:[],mblPrefixes:[],types:[]}];
+  const current=validateSettings({terminals});
+  const v1=JSON.stringify({format:'lfd-inquiry-config',version:1,settings:{carriers:[custom],defaultCarrierId:'custom'}});
+  assert.deepEqual(parseConfig(v1,current).terminals.map(t=>t.name),['PCT']);
+  assert.deepEqual(parseConfig(JSON.stringify(createConfig(current))).terminals,current.terminals);
+  assert.equal(createConfig(current).version,2);
+});
+
+test('a default carrier that pointed at a merged duplicate falls back to automatic recognition',()=>{
+  const carriers=[custom,{...custom,id:'custom-2'}];
+  const result=validateSettings({carriers,defaultCarrierId:'custom-2'});
+  assert.equal(result.carriers.length,1);assert.equal(result.defaultCarrierId,'auto');
 });

@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {normalizeCarriers,DEFAULT_BODY_TEMPLATE,DEFAULT_SUBJECT_TEMPLATE} from '../core.js';
+import {DEFAULT_BODY_TEMPLATE,DEFAULT_SUBJECT_TEMPLATE} from '../core.js';
 import {createService} from '../service.js';
 
 const record={container:'WHSU8284830',mbl:'WHLC031G594231',row:1,carrier:'WHL'};
@@ -9,7 +9,7 @@ const whl={id:'whl',name:'WHL',greeting:'WHL',to:['useqc@wanhai.com'],cc:['truck
 const table=rows=>`<table border=1 cellpadding=6 cellspacing=0 bordercolor=#888888><tr><th align=left>Container#</th><th align=left>MBL#</th></tr>${rows.map(([c,m])=>`<tr><td>${c}</td><td>${m}</td></tr>`).join('')}</table>`;
 
 function setup(mailClient='foxmail',records=[record]){
-  let db={settings:{account:'me@example.com',gmailIndex:0,testMode:false,mailClient,carriers:[...normalizeCarriers(),whl]},ledger:{}};let id=0;
+  let db={settings:{gmailIndex:0,mailClient,carriers:[whl]},ledger:{}};let id=0;
   const service=createService({storage:{get:async()=>structuredClone(db),set:async x=>{db={...db,...structuredClone(x)};}},
     readSheet:async()=>({records,readAt:1}),prepareMail:async()=>{throw new Error('Gmail must not be used');},sendMail:async()=>({confirmed:true}),uuid:()=>`r${++id}`});
   return {service,db:()=>db};

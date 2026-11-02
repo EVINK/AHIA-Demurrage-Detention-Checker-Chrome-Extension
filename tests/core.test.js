@@ -2,8 +2,10 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import vm from 'node:vm';
 import {readFileSync} from 'node:fs';
-import {containerNumber,lookup,messageTemplate,QUESTION,TO,CC,DEFAULT_CARRIERS,DEFAULT_BODY_TEMPLATE,DEFAULT_SUBJECT_TEMPLATE,addressList,inquiryType,normalizeCarriers,recognizeCarrier} from '../core.js';
+import {containerNumber,lookup,messageTemplate,QUESTION,TO,CC,DEFAULT_CARRIERS,DEFAULT_BODY_TEMPLATE,DEFAULT_SUBJECT_TEMPLATE,addressList,inquiryType,normalizeCarriers,normalizeTerminals,recognizeCarrier,findType,newProfile,newInquiryType,missingConfiguration,ON_HIRE_BODY_TEMPLATE} from '../core.js';
 import {createService} from '../service.js';
+const withType=(profile,id,patch)=>({...profile,types:profile.types.map(type=>type.id===id?{...type,...patch}:type)});
+const withAllTypes=(profile,patch)=>({...profile,types:profile.types.map(type=>({...type,...patch}))});
 const record={container:'MRSU4786640',mbl:'MAEU276301677',row:326};
 test('normalizes casing but rejects partial numbers and header injection',()=>{
   assert.equal(containerNumber(' mrsu4786640 '),record.container);
@@ -62,10 +64,10 @@ test('address lists accept common separators, normalize and deduplicate; invalid
 });
 test('carrier configuration copies whitelisted fields, fills old defaults, rejects duplicate ids and controls',()=>{
   const input=[{id:'maersk',name:'Maersk',greeting:'MSK',to:TO,cc:CC,unknown:'ignored'}];
-  const profiles=normalizeCarriers(input);assert.equal(profiles[0].bodyTemplate,DEFAULT_BODY_TEMPLATE);assert.equal(profiles[0].subjectTemplate,DEFAULT_SUBJECT_TEMPLATE);
+  const profiles=normalizeCarriers(input),demurrage=findType(profiles[0],'demurrage');assert.equal(demurrage.bodyTemplate,DEFAULT_BODY_TEMPLATE);assert.equal(demurrage.subjectTemplate,DEFAULT_SUBJECT_TEMPLATE);
   assert.deepEqual(profiles[0].aliases,['MAERSK','MSK','马士基']);assert.deepEqual(profiles[0].mblPrefixes,['MAEU']);assert.ok(!('unknown' in profiles[0]));
-  profiles[0].to.push('other@example.com');assert.equal(input[0].to,TO);
-  assert.throws(()=>normalizeCarriers([DEFAULT_CARRIERS[0],{...DEFAULT_CARRIERS[0],id:'MAERSK'}]),/重复/);
+  demurrage.to.push('other@example.com');assert.equal(input[0].to,TO);
+  assert.equal(normalizeCarriers([DEFAULT_CARRIERS[0],{...DEFAULT_CARRIERS[0],id:'MAERSK'}]).length,1,'same id is one carrier');
   assert.throws(()=>normalizeCarriers([{...DEFAULT_CARRIERS[0],name:'Maersk\nBcc:'}]),/单行/);
   assert.throws(()=>normalizeCarriers([JSON.parse('{"id":"custom","name":"Custom","greeting":"Team","to":[],"__proto__":{}}')]),/不允许/);
 });
@@ -75,10 +77,10 @@ test('detention is an explicit type with corresponding subject and body',()=>{
   assert.equal(mail.subject,`Detention LFD Inquiry - Container#${record.container} MBL#${record.mbl}`);
   assert.equal(mail.question,'Could you please advise the detention LFD for the container below?');assert.ok(mail.html.includes(mail.question));
 });
-test('MSC may be saved without recipients but cannot produce an inquiry until configured',()=>{
-  const msc=normalizeCarriers().find(profile=>profile.id==='msc');assert.deepEqual(msc.to,[]);
+test('a carrier may be saved without recipients but cannot produce an inquiry until configured',()=>{
+  const msc=withAllTypes(normalizeCarriers().find(profile=>profile.id==='msc'),{to:[]});
   assert.throws(()=>messageTemplate(record,{carrier:msc}),/收件邮箱/);
-  const mail=messageTemplate(record,{carrier:{...msc,to:'one@example.com;two@example.com'},inquiryType:'detention'});
+  const mail=messageTemplate(record,{carrier:withType(msc,'detention',{to:'one@example.com;two@example.com'}),inquiryType:'detention'});
   assert.deepEqual(mail.to,['one@example.com','two@example.com']);assert.equal(mail.carrierId,'msc');assert.ok(mail.html.startsWith('<p>Dear MSC,</p>'));
 });
 test('custom templates replace supported tokens and preserve table position and plain body text',()=>{
@@ -96,14 +98,14 @@ test('custom names, greetings and body markup are literal text, never active HTM
   assert.ok(!mail.html.includes('<img'));assert.ok(!mail.html.includes('<script>'));assert.equal((mail.html.match(/<table\b/g)||[]).length,1);
 });
 test('HTML expansion beyond the Gmail adapter limit fails before returning a usable message',()=>{
-  const carrier={...DEFAULT_CARRIERS[0],bodyTemplate:'<'.repeat(6000)+' {{type}} {{table}}'};
-  assert.ok(normalizeCarriers([carrier])[0].bodyTemplate.length<10000,'plain text is within the saved-template limit');
+  const carrier=withType(DEFAULT_CARRIERS[0],'demurrage',{bodyTemplate:'<'.repeat(6000)+' {{type}} {{table}}'});
+  assert.ok(findType(normalizeCarriers([carrier])[0],'demurrage').bodyTemplate.length<10000,'plain text is within the saved-template limit');
   assert.throws(()=>messageTemplate(record,{carrier}),/邮件正文过长/);
 });
-test('template validation prevents missing type, missing table, unknown tokens and subject header injection',()=>{
+test('template validation prevents missing table, unknown tokens and subject header injection',()=>{
   const p=DEFAULT_CARRIERS[0];
-  for(const bodyTemplate of ['Hello {{table}}','{{type}} no table','{{type}} {{table}} {{table}}','{{type}} {{table}} {{unknown}}','{{type}} {{table}} {{oops'])assert.throws(()=>normalizeCarriers([{...p,bodyTemplate}]));
-  for(const subjectTemplate of ['{{container}} {{mbl}}','{{Type}} {{container}}','{{Type}} {{container}} {{mbl}} {{table}}','{{Type}} {{container}} {{mbl}}\nBcc: bad@example.com'])assert.throws(()=>normalizeCarriers([{...p,subjectTemplate}]));
+  for(const bodyTemplate of ['{{type}} no table','{{type}} {{table}} {{table}}','{{type}} {{table}} {{unknown}}','{{type}} {{table}} {{oops'])assert.throws(()=>normalizeCarriers([withType(p,'demurrage',{bodyTemplate})]));
+  for(const subjectTemplate of ['{{Type}} {{container}}','{{Type}} {{container}} {{mbl}} {{table}}','{{Type}} {{container}} {{mbl}}\nBcc: bad@example.com'])assert.throws(()=>normalizeCarriers([withType(p,'demurrage',{subjectTemplate})]));
 });
 test('lookup preserves source carrier text when present without synthesizing it',()=>{
   assert.equal(lookup([{...record,carrier:' 马士基 '}],record.container).carrier,' 马士基 ');
@@ -136,7 +138,7 @@ function setup(overrides={}){
 }
 
 test('identify then draft reuses persisted data even after service restart',async()=>{
-  const t=setup();t.db().sheetCache={version:1,key:JSON.stringify([undefined,'me@example.com']),records:[{...record,carrier:'MSK'}],readAt:1};await t.service.run(record.container,'identify');
+  const t=setup();t.db().sheetCache={version:1,key:JSON.stringify([undefined]),records:[{...record,carrier:'MSK'}],readAt:1};await t.service.run(record.container,'identify');
   const restarted=createService(t.dependencies);
   const draft=await restarted.run(record.container,'draft');
   assert.equal(t.calls.read,0);assert.equal(draft.fromCache,true);
@@ -187,13 +189,14 @@ test('confirmed send never reads the sheet and requires manual fields when absen
 });
 test('preview cannot compose or send',async()=>{const t=setup();await t.service.run(record.container,'preview');assert.equal(t.calls.prepare,0);assert.equal(t.calls.send,0);assert.deepEqual(t.db().ledger,{});});
 test('draft preserves lock without sending',async()=>{const t=setup();const e=await t.service.run(record.container,'draft');assert.equal(e.status,'draft');assert.equal(t.calls.send,0);await assert.rejects(t.service.run(record.container,'send'),/已有/);});
-test('explicit unknown carrier, empty MSC recipients and invalid inquiry type fail before reading sheet',async()=>{
-  for(const options of [{carrierId:'missing'},{carrierId:'msc'},{inquiryType:'invalid'}]){
+test('explicit unknown carrier, empty recipients and invalid inquiry type fail before reading sheet',async()=>{
+  for(const options of [{carrierId:'missing'},{carrierId:'carrier-a614893e'},{inquiryType:'invalid'}]){
     const t=setup();await assert.rejects(t.service.run(record.container,'draft',options));assert.equal(t.calls.read,0);assert.equal(t.calls.prepare,0);assert.deepEqual(t.db().ledger,{});
   }
 });
-test('automatic MSC recognition with unconfigured recipients stops before composing',async()=>{
+test('automatic recognition of a carrier with unconfigured recipients stops before composing',async()=>{
   const t=setup({readSheet:async()=>({records:[{...record,mbl:'MEDU123456789'}],readAt:Date.now()})});
+  t.db().settings.carriers=normalizeCarriers().map(p=>p.id==='msc'?withAllTypes(p,{to:[]}):p);
   await assert.rejects(t.service.run(record.container,'draft'),/收件邮箱/);assert.equal(t.calls.prepare,0);assert.deepEqual(t.db().ledger,{});
 });
 test('identify returns missing configuration for a recognized new carrier without composing or locking',async()=>{
@@ -202,11 +205,11 @@ test('identify returns missing configuration for a recognized new carrier withou
   const identified=await t.service.run(record.container,'identify');
   assert.equal(identified.carrierId,'ocean');assert.equal(identified.carrierSource,'sheet');assert.deepEqual(identified.configurationMissing,['to','bodyTemplate','subjectTemplate']);
   assert.equal(t.calls.prepare,0);assert.equal(t.calls.send,0);assert.deepEqual(t.db().ledger,{});
-  assert.throws(()=>messageTemplate(record,{carrier:t.db().settings.carriers.at(-1)}),/首次使用/);
+  assert.throws(()=>messageTemplate(record,{carrier:t.db().settings.carriers.at(-1)}),/收件邮箱/);
 });
 test('blank templates may be saved; identifying them reports missing fields but draft generation stops',async()=>{
-  const t=setup();t.db().settings.carriers=[{...DEFAULT_CARRIERS[0],bodyTemplate:' ',subjectTemplate:''}];
-  assert.equal(normalizeCarriers(t.db().settings.carriers)[0].bodyTemplate,'');
+  const t=setup();t.db().settings.carriers=[withType(DEFAULT_CARRIERS[0],'demurrage',{bodyTemplate:' ',subjectTemplate:''})];
+  assert.equal(findType(normalizeCarriers(t.db().settings.carriers)[0],'demurrage').bodyTemplate,'');
   const identified=await t.service.run(record.container,'identify');assert.deepEqual(identified.configurationMissing,['bodyTemplate','subjectTemplate']);
   await assert.rejects(t.service.run(record.container,'draft'),/首次使用/);assert.equal(t.calls.prepare,0);
 });
@@ -216,7 +219,7 @@ test('identify exposes unknown sheet carrier for first configuration while previ
   await assert.rejects(t.service.run(record.container,'preview'),/未识别/);assert.equal(t.calls.prepare,0);assert.deepEqual(t.db().ledger,{});
 });
 test('settings defaults and explicit carrier/type choice reach recipient payload and history',async()=>{
-  const t=setup();t.db().settings.carriers=normalizeCarriers().map(profile=>profile.id==='msc'?{...profile,to:['first@example.com','second@example.com']}:profile);
+  const t=setup();t.db().settings.carriers=normalizeCarriers().map(profile=>profile.id==='msc'?withType(profile,'detention',{to:['first@example.com','second@example.com']}):profile);
   t.db().settings.defaultCarrierId='msc';t.db().settings.defaultInquiryType='detention';
   const entry=await t.service.run(record.container,'draft');
   assert.equal(entry.carrierId,'msc');assert.equal(entry.carrierName,'MSC');assert.equal(entry.carrierSource,'manual');assert.equal(entry.inquiryType,'detention');
@@ -233,10 +236,10 @@ test('automatic preview records evidence source and fails unknown data rather th
   await assert.rejects(unknown.service.run(record.container,'draft'),/无法自动识别/);assert.equal(unknown.calls.prepare,0);
 });
 test('extra CC and profile addresses are deduplicated, including across To and CC',async()=>{
-  const t=setup();t.db().settings.carriers=[{...DEFAULT_CARRIERS[0],to:[TO,CC[0]],cc:[...CC,'AMERIHUA2606@gmail.com','amerihua2606@gmail.com']}];
+  const t=setup();t.db().settings.carriers=[withType(DEFAULT_CARRIERS[0],'demurrage',{to:[TO,CC[0]],cc:[...CC,'AMERIHUA2606@gmail.com','amerihua2606@gmail.com']})];
   const mail=await t.service.run(record.container,'preview');
   assert.deepEqual(mail.to,[TO,CC[0]]);assert.deepEqual(mail.cc,[CC[1],'amerihua2606@gmail.com']);
-  t.db().settings.carriers[0].to.push('amerihua2606@gmail.com');
+  t.db().settings.carriers[0].types[0].to.push('amerihua2606@gmail.com');
   assert.ok(!(await t.service.run(record.container,'preview')).cc.includes('amerihua2606@gmail.com'));
 });
 test('same container allows one draft per inquiry type but prevents repeating either type',async()=>{
@@ -250,12 +253,64 @@ test('old three-part locks still protect Maersk demurrage while allowing another
   const entry=await t.service.run(record.container,'draft',{inquiryType:'detention'});assert.equal(entry.inquiryType,'detention');assert.ok(t.db().ledger[oldKey]);
 });
 test('carrier identity participates in duplicate lock independently of the message wording',async()=>{
-  const t=setup();t.db().settings.carriers=normalizeCarriers().map(p=>p.id==='msc'?{...p,to:['msc@example.com']}:p);
-  await t.service.run(record.container,'draft',{carrierId:'maersk'});await t.service.run(record.container,'draft',{carrierId:'msc'});
+  const t=setup();  await t.service.run(record.container,'draft',{carrierId:'maersk'});await t.service.run(record.container,'draft',{carrierId:'msc'});
   assert.equal(t.calls.prepare,2);await assert.rejects(t.service.run(record.container,'draft',{carrierId:'msc'}),/已有/);
 });
-test('test mode converts send requests to drafts in the background',async()=>{const t=setup();t.db().settings.testMode=true;const e=await t.service.run(record.container,'send');assert.equal(e.status,'draft');assert.equal(t.calls.send,0);});
-test('absent test mode flag fails closed to draft',async()=>{const t=setup();delete t.db().settings.testMode;const e=await t.service.run(record.container,'send');assert.equal(e.status,'draft');assert.equal(t.calls.send,0);});
+test('old keeps of test mode no longer hold a send back; the draft button stays a draft',async()=>{
+  const t=setup();t.db().settings.testMode=true;const sent=await t.service.run(record.container,'send');assert.equal(sent.status,'sent');assert.equal(t.calls.send,1);
+  const d=setup();const draft=await d.service.run(record.container,'draft');assert.equal(draft.status,'draft');assert.equal(d.calls.send,0);
+});
+test('the sender account takes no part in sending or in the duplicate lock',async()=>{
+  const t=setup();delete t.db().settings.account;const entry=await t.service.run(record.container,'send');assert.equal(entry.status,'sent');assert.equal(Object.hasOwn(t.calls.payload,'account'),false);
+  await assert.rejects(t.service.run(record.container,'send'),/已有/);
+  const legacy=setup();const key=JSON.stringify(['other@example.com',record.container,record.mbl,'maersk','demurrage']);legacy.db().ledger[key]={...record,status:'sent',carrierId:'maersk',inquiryType:'demurrage'};
+  await assert.rejects(legacy.service.run(record.container,'send'),error=>error.duplicate?.[0].key===key,'a lock saved with an account in its key still blocks');
+});
+test('each type has its own recipients and templates; the old shared format converts to one entry per type',()=>{
+  const [old]=normalizeCarriers([{id:'old',name:'Old',greeting:'Old',to:['a@example.com'],cc:['b@example.com'],bodyTemplate:'{{type}}\n{{table}}',subjectTemplate:'{{Type}} {{container}} {{mbl}}',onHire:{to:['c@example.com'],cc:[],subjectTemplate:'',bodyTemplate:''}}]);
+  assert.deepEqual(old.types.map(type=>[type.id,type.label,type.channel,type.to]),[['demurrage','Demurrage','email',['a@example.com']],['detention','Detention','email',['a@example.com']],['on-hire','On-Hire','email',['c@example.com']]]);
+  assert.equal(findType(old,'on-hire').bodyTemplate,ON_HIRE_BODY_TEMPLATE);
+  assert.equal(messageTemplate(record,{carrier:old,inquiryType:'detention'}).subject,`Detention ${record.container} ${record.mbl}`);
+  const changed=withType(old,'detention',{to:['d@example.com'],subjectTemplate:'Free time {{container}} {{mbl}}'});
+  assert.deepEqual(messageTemplate(record,{carrier:changed,inquiryType:'detention'}).to,['d@example.com']);
+  assert.deepEqual(messageTemplate(record,{carrier:changed,inquiryType:'demurrage'}).to,['a@example.com'],'the other type is untouched');
+});
+test('custom types work like the built-in ones, keep their own name and take several containers',async()=>{
+  const custom={...newInquiryType('type-exam','Exam Hold'),to:['exam@example.com']};
+  const carrier={...normalizeCarriers()[0],types:[...normalizeCarriers()[0].types,custom]};
+  assert.deepEqual(custom.cc,CC,'new types start with the default Cc');
+  const mail=messageTemplate(record,{carrier,inquiryType:'type-exam',more:[{container:'MSCU1234567',mbl:'MAEU999999999'}]});
+  assert.equal(mail.typeLabel,'Exam Hold');assert.match(mail.subject,/^Exam Hold LFD Inquiry/);assert.match(mail.bodyText,/exam hold LFD/);
+  assert.throws(()=>inquiryType('type-exam'),/查询类型/);assert.equal(inquiryType('type-exam',[carrier]),'type-exam');
+  const t=setup();t.db().settings.carriers=[carrier];
+  const entry=await t.service.run(record.container,'draft',{inquiryType:'type-exam'});assert.equal(entry.typeLabel,'Exam Hold');assert.deepEqual(entry.to,['exam@example.com']);
+});
+test('a new carrier has the three types with the default Cc and no To; a new terminal starts empty',()=>{
+  const carrier=newProfile('carrier-x','New Line');
+  assert.deepEqual(carrier.types.map(type=>type.id),['demurrage','detention','on-hire']);
+  for(const type of carrier.types){assert.deepEqual(type.cc,CC);assert.deepEqual(type.to,[]);assert.ok(type.bodyTemplate);}
+  assert.deepEqual(missingConfiguration(normalizeCarriers([carrier])[0],'demurrage'),['to']);
+  const terminal=newProfile('terminal-x','PCT',{terminal:true});assert.deepEqual(terminal.types,[]);
+  assert.deepEqual(missingConfiguration(normalizeTerminals([terminal])[0],'demurrage'),['type']);
+});
+test('duplicate carriers saved by older versions collapse to the configured entry and keep every alias',()=>{
+  const blank={id:'carrier-1',name:'H M M',greeting:'HMM',to:[],cc:[],aliases:['HMM21'],mblPrefixes:['HDMU']};
+  const filled={id:'carrier-2',name:'HMM',greeting:'HMM',to:['hmm@example.com'],cc:[],aliases:['HMM'],mblPrefixes:[],bodyTemplate:DEFAULT_BODY_TEMPLATE,subjectTemplate:DEFAULT_SUBJECT_TEMPLATE};
+  const result=normalizeCarriers([blank,filled]);
+  assert.equal(result.length,1);assert.equal(result[0].id,'carrier-2');assert.deepEqual(result[0].aliases,['HMM','HMM21']);assert.deepEqual(result[0].mblPrefixes,['HDMU']);
+});
+test('terminal mode uses its own list, never recognizes from the sheet, and locks like a carrier',async()=>{
+  const terminal={...newProfile('terminal-pct','PCT',{terminal:true}),types:[{...newInquiryType('type-appt','Appointment'),to:['pct@example.com']}]};
+  const t=setup();t.db().settings.terminals=[terminal];t.db().settings.mode='terminal';
+  const unset=await t.service.run(record.container,'identify');assert.deepEqual(unset.configurationMissing,['carrier']);assert.match(unset.recognitionError,/码头/);
+  await assert.rejects(t.service.run(record.container,'draft'),/码头/);
+  await assert.rejects(t.service.run(record.container,'draft',{carrierId:'maersk'}),/码头不存在/);
+  const identified=await t.service.run(record.container,'identify',{carrierId:'terminal-pct'});assert.equal(identified.inquiryType,'type-appt','falls to the terminal\'s own type');assert.deepEqual(identified.configurationMissing,[]);
+  const entry=await t.service.run(record.container,'draft',{carrierId:'terminal-pct',inquiryType:'type-appt'});
+  assert.equal(entry.carrierName,'PCT');assert.deepEqual(entry.to,['pct@example.com']);
+  await assert.rejects(t.service.run(record.container,'draft',{carrierId:'terminal-pct',inquiryType:'type-appt'}),/已有/);
+  await assert.rejects(t.service.run(record.container,'draft',{carrierId:'terminal-pct',inquiryType:'detention'}),/没有配置/);
+});
 test('parallel duplicate requests produce only one transmission',async()=>{const t=setup();const results=await Promise.allSettled([t.service.run(record.container,'send'),t.service.run(record.container,'send')]);assert.equal(results.filter(r=>r.status==='fulfilled').length,1);assert.equal(t.calls.send,1);});
 test('uncertain send remains locked after worker recreation',async()=>{
   const t=setup({sendMail:async()=>{throw new Error('tab closed');}});

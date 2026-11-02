@@ -10,7 +10,7 @@ const source=original.replace(/^import .*;\r?$/gm,'');
 const appUrl='chrome-extension://test-extension/app.html';
 const sender={id:'test-extension',url:appUrl};
 const clone=value=>structuredClone(value);
-const defaults={sheetUrl:'https://www.kdocs.cn/l/example',account:'test@example.com',gmailIndex:0,testMode:true};
+const defaults={sheetUrl:'https://www.kdocs.cn/l/example',gmailIndex:0};
 function deferred(){let resolve,reject;const promise=new Promise((yes,no)=>{resolve=yes;reject=no;});return {promise,resolve,reject};}
 async function until(predicate){
   for(let i=0;i<30;i++){if(predicate())return;await new Promise(resolve=>setImmediate(resolve));}
@@ -218,15 +218,12 @@ test('openDraft activates only a recorded draft tab still on Gmail',async()=>{
   assert.equal(t.calls.updated.length,1);
 });
 
-test('settings cannot change during a job and are allowed after it finishes',async()=>{
+test('settings save while a job runs: the config page auto-saves during lookups',async()=>{
   const gate=deferred(),t=setup({run:()=>gate.promise});
   const job=t.send({type:'run',container:'MRSU4786640',mode:'draft'});
-  const rejected=await t.send({type:'settings',settings:{account:'changed@example.com'}}).response;
-  assert.equal(rejected.ok,false);assert.match(rejected.error,/查询完成/);
-  assert.equal(t.db().settings.account,'test@example.com');
+  const saved=await t.send({type:'settings',settings:{gmailIndex:3}}).response;
+  assert.equal(saved.ok,true);assert.equal(t.db().settings.gmailIndex,3);
   gate.resolve({status:'draft'});await job.response;
-  const saved=await t.send({type:'settings',settings:{account:'changed@example.com'}}).response;
-  assert.equal(saved.ok,true);assert.equal(t.db().settings.account,'changed@example.com');
 });
 
 test('messages from another extension or page are refused before any work or storage access',async()=>{

@@ -235,7 +235,7 @@ const service=createService({storage:store,
         progress('追加到当前 ONE 对话');
         if(!payload.send){
           const typed=await inFrame(reuse,'chat','type',{...payload,append:true});
-          notify(`lfd-one-typed-${reuse}`,reuse,`已追加到 ONE 客服 ${typed.agent} 的对话（测试模式）`,`${(payload.containers||[payload.container]).join('、')}：消息已填入聊天框，未发送。点击打开聊天小窗查看。`,true);
+          notify(`lfd-one-typed-${reuse}`,reuse,`已追加到 ONE 客服 ${typed.agent} 的对话（未发送）`,`${(payload.containers||[payload.container]).join('、')}：消息已填入聊天框，未发送。点击打开聊天小窗查看。`,true);
           return {tabId:reuse,agent:typed.agent};
         }
         return deliver(reuse,payload,progress,true);
@@ -262,15 +262,15 @@ const service=createService({storage:store,
       }
       await chatWindow.set(tab.id);
       if(!payload.send){
-        // Test mode goes all the way to the agent and types the message, but never sends it.
+        // 「转人工但不发送」 goes all the way to the agent and types the message, but never sends it.
         const typed=await toAgent(tab.id,payload,'type',progress);
-        notify(`lfd-one-typed-${tab.id}`,tab.id,`ONE 客服 ${typed.agent} 已接入（测试模式）`,`${(payload.containers||[payload.container]).join('、')}：消息已填入聊天框，未发送。点击打开聊天小窗查看。`,true);
+        notify(`lfd-one-typed-${tab.id}`,tab.id,`ONE 客服 ${typed.agent} 已接入（未发送）`,`${(payload.containers||[payload.container]).join('、')}：消息已填入聊天框，未发送。点击打开聊天小窗查看。`,true);
         return {tabId:tab.id,agent:typed.agent};
       }
       return deliver(tab.id,payload,progress,false);
     });
   },
-  // Live mode finishes in prepareChat; failures after a message went out surface here as "uncertain".
+  // A real send finishes in prepareChat; failures after a message went out surface here as "uncertain".
   sendChat:async prepared=>{if(prepared.sendError)throw prepared.sendError;return prepared.sent;},
   sendMail:async(prepared,payload)=>{
     const sent=await execute(prepared.tabId,gmailPage,['send',{...payload,bodyHash:prepared.bodyHash}]);
@@ -341,7 +341,7 @@ chrome.runtime.onMessage.addListener((message,sender,respond)=>{
       if(/^https:\/\/(www\.one-line\.com|support\.cosco-usa\.com|coscoshippingla\.freshdesk\.com)\//.test(tab.url||''))await showTab(message.tabId);else await focusTab(message.tabId);return true;
     }
     if(message.type==='settings'){
-      if(pendingOperations.size)throw new Error('请等当前查询完成后再修改配置。');
+      // Config auto-saves while lookups run; a running job keeps the settings it started with.
       const settings=validateSettings(message.settings);
       await chrome.storage.local.set({settings});return settings;
     }

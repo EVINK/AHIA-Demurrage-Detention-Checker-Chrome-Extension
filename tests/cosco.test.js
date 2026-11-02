@@ -8,8 +8,8 @@ const record={container:'MSMU7504817',mbl:'COSU6123456780',row:12,carrier:'COS'}
 const COSCO_DEFAULT=DEFAULT_CARRIERS.find(p=>p.id==='cosco');
 const cosco=()=>normalizeCarriers().find(profile=>profile.id==='cosco');
 
-function setup({testMode=false,...overrides}={}){
-  let db={settings:{account:'me@example.com',gmailIndex:0,testMode},ledger:{}};
+function setup(overrides={}){
+  let db={settings:{gmailIndex:0},ledger:{}};
   const calls={read:0,prepareTicket:[],submitTicket:[],prepareMail:0,sendMail:0};
   const dependencies={
     storage:{get:async()=>structuredClone(db),set:async x=>{db={...db,...structuredClone(x)};}},
@@ -26,23 +26,24 @@ function setup({testMode=false,...overrides}={}){
 
 test('COSCO is a built-in portal carrier recognized from the sheet SSL "COS"',()=>{
   const profile=cosco();
-  assert.equal(profile.channel,'cosco-portal');
+  assert.deepEqual(profile.types.map(type=>[type.id,type.channel]),[['detention','cosco-portal'],['on-hire','cosco-portal']]);
   assert.deepEqual(profile.portal,{...COSCO_PORTAL,onHire:{url:'https://coscoshippingla.freshdesk.com/support/tickets/new',type:'Equipment',service:'On / Off Hire',region:'Southern California'}});
   assert.equal(profile.portal.reference,'AHIA');assert.equal(profile.portal.requester,'service@darwinpacific.com');
   assert.equal(recognizeCarrier(record).carrier.id,'cosco');
   assert.equal(recognizeCarrier({...record,carrier:''}).carrier.id,'cosco','COSU MBL prefix');
-  for(const id of ['maersk','msc'])assert.equal(normalizeCarriers().find(p=>p.id===id).channel,'email');
+  for(const id of ['maersk','msc'])assert.ok(normalizeCarriers().find(p=>p.id===id).types.every(type=>type.channel==='email'));
 });
 
 test('portal config validates channel and a single requester, and round-trips through JSON',()=>{
-  assert.throws(()=>normalizeCarriers([{...COSCO_DEFAULT,channel:'fax'}]),/发送方式/);
+  assert.throws(()=>normalizeCarriers([{...COSCO_DEFAULT,types:[{...COSCO_DEFAULT.types[0],channel:'fax'}]}]),/发送方式/);
+  assert.throws(()=>normalizeCarriers([{id:'x',name:'X',greeting:'X',to:[],cc:[],channel:'fax'}]),/发送方式/);
   assert.throws(()=>normalizeCarriers([{...COSCO_DEFAULT,portal:{...COSCO_PORTAL,requester:'a@example.com, b@example.com'}}]),/Requester/);
   assert.throws(()=>normalizeCarriers([{...COSCO_DEFAULT,portal:{...COSCO_PORTAL,reference:''}}]),/SCAC/);
   const settings=validateSettings({carriers:[{...COSCO_DEFAULT,portal:{...COSCO_PORTAL,requester:'Ops@Example.com'}}],defaultCarrierId:'cosco'});
   assert.equal(settings.carriers[0].portal.requester,'ops@example.com');
   assert.deepEqual(parseConfig(JSON.stringify(createConfig(settings))).carriers,settings.carriers);
   const email=normalizeCarriers([{id:'x',name:'X',greeting:'X',to:[],cc:[]}])[0];
-  assert.equal(email.channel,'email');assert.equal('portal' in email,false);
+  assert.equal(email.types[0].channel,'email');assert.equal('portal' in email,false);
 });
 
 test('portal ticket uses the default mail body, always Detention, and is never rendered as an email',()=>{
@@ -62,9 +63,9 @@ test('identify reports the portal channel with Detention even when Demurrage is 
   assert.equal(identified.inquiryType,'detention');assert.deepEqual(identified.configurationMissing,[]);
 });
 
-test('test mode only fills the ticket in a background tab and never submits',async()=>{
-  const t=setup({testMode:true});
-  const entry=await t.service.run(record.container,'send',{inquiryType:'demurrage'});
+test('draft only fills the ticket in a background tab and never submits',async()=>{
+  const t=setup();
+  const entry=await t.service.run(record.container,'draft',{inquiryType:'demurrage'});
   assert.equal(entry.status,'draft');assert.equal(entry.channel,'cosco-portal');assert.equal(entry.tabId,9);
   assert.equal(t.calls.prepareTicket.length,1);assert.equal(t.calls.prepareTicket[0].submit,false);
   assert.equal(t.calls.submitTicket.length,0);assert.equal(t.calls.prepareMail,0);

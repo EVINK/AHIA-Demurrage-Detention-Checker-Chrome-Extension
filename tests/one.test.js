@@ -1,14 +1,14 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {DEFAULT_CARRIERS,ONE_CHAT,normalizeCarriers,chatTemplate,messageTemplate,recognizeCarrier} from '../core.js';
+import {DEFAULT_CARRIERS,ONE_CHAT,normalizeCarriers,chatTemplate,messageTemplate,recognizeCarrier,inquiryChannel} from '../core.js';
 import {validateSettings,createConfig,parseConfig} from '../config.js';
 import {createService} from '../service.js';
 
 const record={container:'TRHU6206940',mbl:'ONEYSZPGR9159802',row:20,carrier:'ONE'};
 const one=()=>normalizeCarriers().find(profile=>profile.id==='one');
 
-function setup({testMode=false,...overrides}={}){
-  let db={settings:{account:'me@example.com',gmailIndex:0,testMode},ledger:{}};
+function setup(overrides={}){
+  let db={settings:{gmailIndex:0},ledger:{}};
   const calls={prepareChat:[],sendChat:[],prepareMail:0};
   const dependencies={
     storage:{get:async()=>structuredClone(db),set:async x=>{db={...db,...structuredClone(x)};}},
@@ -25,7 +25,7 @@ function setup({testMode=false,...overrides}={}){
 
 test('ONE is a built-in live-chat carrier recognized from the sheet SSL or the ONEY prefix',()=>{
   const profile=one();
-  assert.equal(profile.channel,'one-chat');assert.deepEqual(profile.chat,{...ONE_CHAT});
+  assert.equal(inquiryChannel(profile,'demurrage'),'one-chat');assert.equal(inquiryChannel(profile,'on-hire'),'email');assert.deepEqual(profile.chat,{...ONE_CHAT});
   assert.equal(recognizeCarrier(record).carrier.id,'one');
   assert.equal(recognizeCarrier({...record,carrier:''}).carrier.id,'one');
   assert.throws(()=>messageTemplate(record,{carrier:profile}),/在线客服|工单网站/);
@@ -54,12 +54,12 @@ test('identify keeps the chosen type for ONE (unlike COSCO) and reports no missi
   }
 });
 
-test('test mode reaches the agent and types the message but never sends it',async()=>{
-  const t=setup({testMode:true});
-  const entry=await t.service.run(record.container,'send');
+test('draft reaches the agent and types the message but never sends it',async()=>{
+  const t=setup();
+  const entry=await t.service.run(record.container,'draft');
   assert.equal(entry.status,'draft');assert.equal(entry.channel,'one-chat');assert.equal(entry.tabId,11);
   assert.equal(t.calls.prepareChat[0].send,false);assert.equal(t.calls.sendChat.length,0);assert.equal(t.calls.prepareMail,0);
-  assert.equal(entry.agent,'Liza (ONE)','test mode reaches the agent');
+  assert.equal(entry.agent,'Liza (ONE)','draft reaches the agent');
   assert.equal(entry.chatMessage,'Please advise demurrage LFD for TRHU6206940 / ONEYSZPGR9159802');
 });
 

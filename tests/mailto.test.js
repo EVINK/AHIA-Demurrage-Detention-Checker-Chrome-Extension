@@ -17,7 +17,7 @@ test('Gmail stays the default; the mail program option is Foxmail and the former
 });
 
 test('with the mail program a send opens a Foxmail-formatted mailto draft and waits for 「我已发送」',async()=>{
-  let db={settings:{account:'me@example.com',gmailIndex:0,testMode:false,mailClient:'foxmail',carriers:normalizeCarriers()},ledger:{}};
+  let db={settings:{gmailIndex:0,mailClient:'foxmail',carriers:normalizeCarriers()},ledger:{}};
   let gmail=0;
   const service=createService({storage:{get:async()=>structuredClone(db),set:async x=>{db={...db,...structuredClone(x)};}},
     readSheet:async()=>({records:[record],readAt:1}),prepareMail:async()=>{gmail++;return {tabId:8};},sendMail:async()=>{gmail++;return {confirmed:true};},uuid:()=>'r'});
@@ -37,7 +37,7 @@ test('with the mail program a send opens a Foxmail-formatted mailto draft and wa
 });
 
 test('a duplicate lock reports the blocking record, and releasing it allows a forced resend',async()=>{
-  let db={settings:{account:'me@example.com',gmailIndex:0,testMode:false,mailClient:'system',carriers:normalizeCarriers()},ledger:{}};
+  let db={settings:{gmailIndex:0,mailClient:'system',carriers:normalizeCarriers()},ledger:{}};
   let id=0;
   const service=createService({storage:{get:async()=>structuredClone(db),set:async x=>{db={...db,...structuredClone(x)};}},
     readSheet:async()=>({records:[record],readAt:1}),prepareMail:async()=>({tabId:8}),sendMail:async()=>({confirmed:true}),uuid:()=>`r${++id}`});
