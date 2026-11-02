@@ -209,6 +209,8 @@ An unpacked extension's id comes from its folder, so the Vue build has a differe
 
 **v0.7.2 (same branch).** The Windows default apps link is plain text now. Its `ms-settings:` URL made Chrome ask to open the Settings app, and the link sat right above the Auto CC section.
 
+**v0.7.3 (same branch).** The Windows default apps link is back at the owner's request. Chrome's own prompt before opening the Settings app cannot be replaced by a plugin dialog; it stays, and "Always allow" stops it.
+
 ## Known limitations
 
 - Gmail, COSCO, ONE and KDocs are driven through their page structure, so a site redesign can stop any flow. Failures stop with a message rather than guess.

@@ -676,6 +676,8 @@ export function setMode(mode){
   if(query.container)scheduleIdentify();
 }
 export function setLanguage(value){flushSave();applyLanguage(value);persist(validateSettings({...settings.value,language:value}));}
+// Only on the user's click. Chrome always asks before opening another program; a page cannot replace that prompt.
+export function openDefaultApps(){openMailto('ms-settings:defaultapps');}
 function download(text,filename,type){const url=URL.createObjectURL(new Blob([text],{type})),a=document.createElement('a');a.href=url;a.download=filename;document.body.append(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),1500);}
 async function scriptText(){const response=await fetch('./airscript/LFD_ReadOnly.js');if(!response.ok)throw new Error('无法读取插件中的只读脚本。');return response.text();}
 export function exportConfig(){try{download(JSON.stringify(createConfig(settings.value),null,2)+'\n','trucker-helper-config.json','application/json');status('配置 JSON 已导出。','success');}catch(error){status(error.message,'error');}}

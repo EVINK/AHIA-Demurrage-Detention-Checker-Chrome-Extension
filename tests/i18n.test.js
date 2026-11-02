@@ -59,6 +59,3 @@ test('the popup uses in-app dialogs: native ones stop working when the user bloc
     assert.doesNotMatch(source,/\b(window\.)?(alert|confirm|prompt)\(/,file);
   }
 });
-test('the plugin never opens the Windows Settings app: Chrome would ask to open an external program',()=>{
-  for(const file of ['src/app/store.ts','src/app/pages/ConfigPage.vue'])assert.doesNotMatch(readFileSync(new URL('../'+file,import.meta.url),'utf8'),/ms-settings:/,file);
-});

@@ -574,5 +574,6 @@ export const STRINGS=[
 ['粘贴后立即替换配置，操作记录保留','replaces the settings at once when pasted; history is kept','reemplaza los ajustes al pegar; el historial se conserva'],
 ['粘贴 JSON 内容','Paste the JSON here','Pegue aquí el JSON'],
 ['清除后下次查询会重新读取提柜表，配置和操作记录保留。','After clearing, the next search reads the pickup sheet again. Settings and history stay.','Al borrarla, la próxima búsqueda lee de nuevo la hoja. Ajustes e historial se conservan.'],
-['在 Windows 设置的「默认应用」里搜索 MAILTO 并选择。','In Windows Settings, open Default apps, search for MAILTO and choose it.','En Configuración de Windows, abra Aplicaciones predeterminadas, busque MAILTO y elija.'],
+['打开 Windows 默认应用设置','Open Windows default apps','Abrir aplicaciones predeterminadas de Windows'],
+['（搜索「MAILTO」并选择）。',' (search for MAILTO and choose).',' (busque MAILTO y elija).'],
 ];
