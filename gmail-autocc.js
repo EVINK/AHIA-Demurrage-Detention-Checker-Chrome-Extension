@@ -5,7 +5,7 @@
   const EMAIL=/[a-z0-9.!#$%&'*+/=?^_`{|}~-]+@[a-z0-9-]+(?:\.[a-z0-9-]+)+/g;
   const addressesIn=text=>String(text||'').toLowerCase().match(EMAIL)||[];
   const visible=node=>Boolean(node&&node.getClientRects().length);
-  const BUTTON_ID='lfd-auto-cc';
+  const BUTTON_ID='lfd-auto-cc',SEARCH_GAP=14;
   // The extension's own LFD compose tab already has its Cc, and verifies recipients while filling. It opens with
   // view=cm&fs=1, which Gmail rewrites to fs=1 once loaded.
   const query=new URLSearchParams(location.search);
@@ -83,13 +83,17 @@
     if(!config.enabled){button?.remove();return;}
     if(!button){
       button=document.createElement('button');button.id=BUTTON_ID;button.type='button';button.textContent='Auto CC';button.title='LFD Inquiry：打开 Auto CC 设置';
-      button.style.cssText='position:fixed;z-index:2147483000;height:28px;padding:0 10px;border:1px solid #23674f;border-radius:14px;background:#e8f3ee;color:#23674f;font:600 12px/26px Arial,sans-serif;cursor:pointer';
-      button.addEventListener('click',()=>{ask({type:'autoCcOpen'}).catch(()=>{});});
+      button.style.cssText='position:fixed;z-index:2147483000;height:28px;padding:0 8px;border:1px solid #23674f;border-radius:14px;background:#e8f3ee;color:#23674f;font:600 12px/26px Arial,sans-serif;cursor:pointer';
+      let clicked=0;
+      button.addEventListener('click',()=>{if(Date.now()-clicked<1000)return;clicked=Date.now();ask({type:'autoCcOpen'}).catch(()=>{});});
       document.body.append(button);
     }
     const logo=[...document.querySelectorAll('a[aria-label="Gmail"],a[title="Gmail"],header a[href$="#inbox"]')].find(node=>visible(node)&&node.getBoundingClientRect().left>=0);
     const box=logo?.getBoundingClientRect();
-    button.style.left=`${box?Math.round(box.right+10):190}px`;button.style.top=`${box?Math.round(box.top+box.height/2-14):18}px`;
+    // Keeps clear of the search box, which starts close to the logo.
+    const search=document.querySelector('form input[name="q"]')?.closest('form')?.getBoundingClientRect();
+    const left=box?box.right+10:190,limit=search?.width?search.left-button.offsetWidth-SEARCH_GAP:left;
+    button.style.left=`${Math.round(Math.min(left,limit))}px`;button.style.top=`${box?Math.round(box.top+box.height/2-14):18}px`;
   }
   function scan(){
     timer=null;placeButton();

@@ -668,7 +668,10 @@ for(const id of ui.open)if($(id))$(id).open=true;
 document.addEventListener('toggle',event=>{if(!event.target.id)return;ui.open=[...document.querySelectorAll('#page-config details[open]')].map(node=>node.id);rememberUi();},true);
 document.querySelectorAll('.page').forEach(node=>node.addEventListener('scroll',()=>{if(!node.hidden){ui.scroll[node.id.replace('page-','')]=node.scrollTop;rememberUi();}},{passive:true}));
 showPage(ui.page);
+function showAutoCcSection(){showPage('config');$('autoCcSection').open=true;$('autoCcSection').scrollIntoView();}
 if(openedAutoCc)$('autoCcSection').scrollIntoView();
+// The Gmail button asks a page that is already open to show the section.
+if(!demo)chrome.runtime.onMessage.addListener(message=>{if(message?.type==='showAutoCc')showAutoCcSection();});
 // Another window of the plugin changed something (settings stay in step everywhere). The field being typed in is left alone.
 if(!demo)chrome.storage.onChanged.addListener((changes,area)=>{
   if(area!=='local'||!changes.settings?.newValue||saveTimer||pendingWrites)return;

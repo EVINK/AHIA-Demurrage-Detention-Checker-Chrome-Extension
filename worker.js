@@ -328,12 +328,25 @@ async function state(){
 // Auto CC in Gmail: content scripts cannot read storage (trusted contexts only), so they get just this part.
 const GMAIL_MESSAGES=['autoCcConfig','autoCcOpen'];
 async function autoCcConfig(){return (await store.get(['settings'])).settings.autoCc;}
-// The Gmail button opens the toolbar popup on the Auto CC section, or a small window where Chrome cannot.
-async function openAutoCc(){
+// The Gmail button shows the Auto CC section: in a plugin page that is already open, otherwise in the toolbar
+// popup, or a small window where Chrome cannot open it. Requests while one is under way share its result.
+async function showAutoCc(){
+  const contexts=await chrome.runtime.getContexts({contextTypes:['POPUP','TAB'],documentUrls:[chrome.runtime.getURL('app.html')]});
+  if(contexts.length){
+    const open=contexts.find(context=>context.tabId>=0);
+    if(open){await chrome.windows.update(open.windowId,{focused:true});await chrome.tabs.update(open.tabId,{active:true});}
+    await chrome.runtime.sendMessage({type:'showAutoCc'}).catch(()=>{});
+    return true;
+  }
   await chrome.storage.session.set({openTarget:'autoCc'});
   try{await chrome.action.openPopup();}
   catch{await chrome.windows.create({url:chrome.runtime.getURL('app.html'),type:'popup',width:800,height:660});}
   return true;
+}
+let showingAutoCc=null;
+function openAutoCc(){
+  if(!showingAutoCc)showingAutoCc=showAutoCc().finally(()=>{showingAutoCc=null;});
+  return showingAutoCc;
 }
 async function takeOpenTarget(){
   const {openTarget}=await chrome.storage.session.get('openTarget');
