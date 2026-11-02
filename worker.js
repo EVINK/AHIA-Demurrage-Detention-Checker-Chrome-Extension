@@ -6,8 +6,21 @@ import {onePage} from './one.js';
 import {validateSettings} from './config.js';
 chrome.storage.local.setAccessLevel({accessLevel:'TRUSTED_CONTEXTS'});
 
+// Chrome refuses scripts while a tab sits on a site outside the manifest's hosts: a passing redirect (wait it out),
+// a login page, or site access the user restricted on the extension's details page.
+async function withPageAccess(tabId,run){
+  for(let attempt=0;;attempt++){
+    try{return await run();}
+    catch(error){
+      if(!/Cannot access contents/.test(error.message))throw error;
+      if(attempt<20){await pause(500);continue;}
+      const granted=await chrome.permissions.contains({origins:chrome.runtime.getManifest().host_permissions}).catch(()=>true);
+      throw new Error(granted?'页面跳到了其他网址（通常是登录页）。请在这个浏览器登录金山文档和 Gmail 后重试。':'插件没有这个网站的访问权限：请到 chrome://extensions → LFD Inquiry → 详情，把「网站访问权限」改为「在所有网站上」后重试。');
+    }
+  }
+}
 async function execute(tabId,func,args=[],world='ISOLATED'){
-  const result=await chrome.scripting.executeScript({target:{tabId},func,args,world});
+  const result=await withPageAccess(tabId,()=>chrome.scripting.executeScript({target:{tabId},func,args,world}));
   if(!result?.[0]||result[0].result===undefined)throw new Error('页面操作没有返回结果。请检查对应页面。');
   const response=result[0].result;
   if(!response.ok)throw new Error(response.error||'页面操作失败。');
