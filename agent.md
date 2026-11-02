@@ -1,6 +1,6 @@
 # LFD Inquiry — Agent 交接文档
 
-更新时间：2026-10-09（America/Los_Angeles）。代码版本：**0.3.22**（默认邮件程序 Foxmail/Outlook；Foxmail 自动填写；导入改在标签页；重复锁可强制重发；Gmail 收件人兼容其他插件；ONE 白屏修复；COSCO On-Hire 工单；On-Hire 多柜号、ONE 气泡文字修复；可选本机邮件程序；On-Hire；ONE 对话复用、独立小窗、终止/删除；浮动小窗+通知；查询不阻塞/后台任务/ONE 多柜号；ONE 在线客服；英文界面兼容；2026-10-14：发送确认加严、COSCO 工单网站、取消DO 后分段读取、日志虚拟列表读取、脚本自动安装、找不到柜号提示框，见第 6 节）。
+更新时间：2026-11-02（America/Los_Angeles）。代码版本：**0.4.0**（配置改为 profile.types、自动保存、码头模式，见第 10 节；更早：默认邮件程序 Foxmail/Outlook；Foxmail 自动填写；导入改在标签页；重复锁可强制重发；Gmail 收件人兼容其他插件；ONE 白屏修复；COSCO On-Hire 工单；On-Hire 多柜号、ONE 气泡文字修复；可选本机邮件程序；On-Hire；ONE 对话复用、独立小窗、终止/删除；浮动小窗+通知；查询不阻塞/后台任务/ONE 多柜号；ONE 在线客服；英文界面兼容；2026-10-14：发送确认加严、COSCO 工单网站、取消DO 后分段读取、日志虚拟列表读取、脚本自动安装、找不到柜号提示框，见第 6 节）。
 Chrome 现直接从 WSL 目录 `/home/evink/demurrage-lfd-extension` 加载；git 分支 `fix/gmail-send-confirmation`。
 本文件依据本次对话及当前源码整理；它是工程交接，不代表安装在 Chrome 中的版本已自动更新。
 
@@ -243,3 +243,15 @@ System mail uses labelled Container#/MBL# plain text, normalized CRLF, and semic
 
 ## 2026-10-20 v0.3.20 Foxmail clipboard fallback
 User screenshot confirmed v0.3.19 recipient separation works but Foxmail flattens mailto body line breaks. app.js now offers 复制格式化正文 for system-client drafts in both task/history lists. system-mail.js builds safe rich text from saved bodyText or legacy mailto body, preserving line breaks. clipboardWrite is added; clipboard is only written on explicit click. User must replace only inquiry text in Foxmail, leaving signature untouched. Six targeted tests pass, app.js syntax and git diff checks pass; live clipboard/paste validation not performed, no email sent.
+
+
+## 10. 2026-11-02 v0.4.0（以本节为准，前文与之冲突处已过时）
+
+- 配置结构：`profile={id,name,greeting,aliases,mblPrefixes,portal?,chat?,types:[{id,label,channel,to,cc,subjectTemplate,bodyTemplate}]}`。没有 `types` 的即旧格式，`core.js legacyTypes` 转换；发送方式在类型上（ONE 的 On-Hire 是 email）。COSCO 没有 demurrage 类型，`resolveType` 把 Demurrage 请求解析为 Detention。
+- `settings.mode`（carrier/terminal）与 `settings.terminals`，码头无默认值，不做自动识别，`options.mode` 由界面传入。`defaults.js` 是用户提供配置经 `legacyTypes` 生成的纯数据。
+- 取消 testMode、account：旧字段被接受并丢弃（`RETIRED_KEYS`）。主按钮真实发送。防重复键为 `[container,mbl,profileId,type]`；阻挡判断按记录内容比对，所以旧键（含账号）与最早的三段键仍生效。sheetCache 键不再含账号，升级后第一次查询会重读一次表。
+- `mergeDuplicates`：id 或规范化名称相同的合并，保留配置更完整的一份并合并别名/前缀。app 在保存前拒绝改成同名，否则输入过程中会被合并。
+- 自动保存：`scheduleSave`（400ms）→`flushSave`→`persist`（串行）；校验不过的内容写入 localStorage `lfd-config-draft`，重开恢复。保存不重绘表单。worker 不再在任务运行时拒绝保存；`refreshState` 只在首次读取时覆盖 `settings`。界面位置在 localStorage `lfd-popup-ui`。
+- 导入只保留粘贴：弹窗内系统文件框会白屏（见 v0.3.17），`#import` 页已删除。
+- gmail.js 收件人校验：`fieldAddresses`（chip、同名 input）∪ `recipientArea`（整个 form 克隆后去掉正文/签名/from，逐文本节点取地址，不可用 textContent，否则相邻地址粘连）。缺失时点 `.aoD.hl` 展开。**展开选择器和合并行结构未在真实 Gmail 验证，只有 tests/browser.js 模拟**。签名检查保留，无签名账号会被拦下，这是待用户决定的点。
+- Chrome 浏览器测试：`tests/browser.html` 24 项模拟通过；配置页在无头 Chrome 的本地演示模式下验证，未在真实扩展弹窗中验证。
