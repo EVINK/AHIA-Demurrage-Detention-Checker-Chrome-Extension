@@ -169,7 +169,9 @@ async function inFrame(tabId,kind,action,payload={},timeout=45000){
   throw new Error(`ONE 页面没有加载出所需的${kind==='chat'?'聊天窗口':kind==='calc'?'计算器':'页面'}${lastError?'（'+lastError+'）':''}。`);
 }
 async function closedByGmail(tabId){const end=Date.now()+SEND_CLOSE_TIMEOUT;while(Date.now()<end){try{await chrome.tabs.get(tabId);}catch{return true;}await pause(500);}return false;}
-async function loaded(tabId){const end=Date.now()+25000;while(Date.now()<end){if((await chrome.tabs.get(tabId)).status==='complete')return;await new Promise(r=>setTimeout(r,200));}throw new Error('页面加载超时。');}
+// With `origin`, also waits out redirects through other sites: a tab can report 'complete' on such a stop, where
+// scripts may not run yet.
+async function loaded(tabId,origin=''){const end=Date.now()+25000;while(Date.now()<end){const tab=await chrome.tabs.get(tabId);if(tab.status==='complete'&&(!origin||tab.url?.startsWith(origin)))return;await new Promise(r=>setTimeout(r,200));}throw new Error(origin.includes('kdocs')?'金山文档页面没有打开，请确认这个浏览器已登录金山文档。':origin.includes('mail.google')?'Gmail 页面没有打开，请确认这个浏览器已登录 Gmail。':'页面加载超时。');}
 const store={get:async keys=>{const result=await chrome.storage.local.get(keys);result.settings=validateSettings(result.settings||{});return result;},set:data=>chrome.storage.local.set(data)};
 const service=createService({storage:store,
   readSheet:async settings=>{
@@ -181,7 +183,7 @@ const service=createService({storage:store,
     const tab=await chrome.tabs.create({url:new URL(settings.sheetUrl).href,active:false});
     try{
       // MAIN world: the AirScript log list's full data is only reachable from page scripts.
-      await loaded(tab.id);return await execute(tab.id,readKdocsPage,[{name:'LFD_ReadOnly_v1',code,build}],'MAIN');
+      await loaded(tab.id,'https://www.kdocs.cn/');return await execute(tab.id,readKdocsPage,[{name:'LFD_ReadOnly_v1',code,build}],'MAIN');
     }finally{
       await chrome.tabs.remove(tab.id).catch(()=>{});
     }
@@ -189,7 +191,7 @@ const service=createService({storage:store,
   prepareMail:async payload=>{
     const url=new URL(`https://mail.google.com/mail/u/${payload.gmailIndex}/`);
     url.search=new URLSearchParams({view:'cm',fs:'1',to:payload.to.join(','),cc:payload.cc.join(','),su:payload.subject});
-    const tab=await chrome.tabs.create({url:url.href,active:false});await loaded(tab.id);
+    const tab=await chrome.tabs.create({url:url.href,active:false});await loaded(tab.id,'https://mail.google.com/');
     const result=await execute(tab.id,gmailPage,['prepare',payload]);return {...result,tabId:tab.id};
   },
   prepareTicket:async(payload,progress=()=>{})=>{

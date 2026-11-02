@@ -63,7 +63,9 @@ function lookupError(message){
 }
 // Where the user was: reopening the popup returns to the same page, selection, open sections and scroll position.
 const ui=(()=>{try{return {page:'query',scroll:{},profile:{},type:{},open:[],...JSON.parse(localStorage.getItem('lfd-popup-ui')||'{}')};}catch{return {page:'query',scroll:{},profile:{},type:{},open:[]};}})();
-function rememberUi(){try{localStorage.setItem('lfd-popup-ui',JSON.stringify(ui));}catch{}}
+// Skipped while following another window's change: that window's position is the one to remember.
+let followingChange=false;
+function rememberUi(){if(followingChange)return;try{localStorage.setItem('lfd-popup-ui',JSON.stringify(ui));}catch{}}
 function showPage(page){
   ui.page=page;rememberUi();
   document.querySelectorAll('.page').forEach(node=>{const active=node.id==='page-'+page;node.hidden=!active;node.classList.toggle('active',active);if(active)node.scrollTop=ui.scroll[page]||0;});
@@ -672,6 +674,7 @@ if(!demo)chrome.storage.onChanged.addListener((changes,area)=>{
   if(area!=='local'||!changes.settings?.newValue||saveTimer||pendingWrites)return;
   let next;try{next=validateSettings(changes.settings.newValue);}catch{return;}
   if(JSON.stringify(next)===JSON.stringify(settings))return;
-  settings=next;
+  settings=next;followingChange=true;
   if(document.activeElement?.closest?.('#page-config form')){renderSelects();syncMode();}else{const carrier=$('carrier').value;renderAll();if(carrier)fillQueryCarrier(carrier);}
+  followingChange=false;
 });
