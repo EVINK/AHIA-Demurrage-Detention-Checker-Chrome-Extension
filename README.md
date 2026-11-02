@@ -1,8 +1,13 @@
-# LFD Inquiry v0.5.2 — Chrome 插件使用说明
+# Trucker Helper v0.6.0 — Chrome 插件使用说明
 
 输入柜号，插件从金山文档「提柜」查出 MBL 和船公司，再按所选 Demurrage / Detention 类型准备查询邮件，保留 Gmail 原签名。支持 Maersk、MSC 和自行添加的船公司，收件邮箱与邮件模板均可配置。
 
 主按钮会**真实发送**；要先检查请点「仅生成草稿」。查表用于取得 MBL 和船公司；LFD 日期仍需等待船公司邮件回复。
+
+## v0.6.0 更新
+
+- 插件改名 Trucker Helper（原 LFD Inquiry），去掉界面上的 AHIA 字样。配置文件 `format` 仍是 `lfd-inquiry-config`，旧文件照常导入。
+- 界面支持 中文 / English / Español，右上角切换，即时生效。没选过时跟随浏览器语言；邮件内容不翻译。
 
 ## v0.5.0 更新
 
@@ -35,8 +40,8 @@
 ## 已安装用户升级
 
 1. 确认原插件目录已经更新为 v0.3.18 文件。如果使用压缩包，将文件解压到原来加载的目录。
-2. 在 Chrome 手动打开 `chrome://extensions`，找到 **LFD Inquiry**，点击刷新图标。
-3. 点击工具栏上的 LFD Inquiry 图标，打开新版弹窗；确认底部显示 `v0.5.2`、右上角显示「航司模式 / 码头模式」。
+2. 在 Chrome 手动打开 `chrome://extensions`，找到 **Trucker Helper**，点击刷新图标。
+3. 点击工具栏上的 Trucker Helper 图标，打开新版弹窗；确认底部显示 `v0.6.0`、右上角显示「航司模式 / 码头模式」。
 
 新版使用真正的工具栏弹窗，尺寸为 780 × 600，包含「查询 / 配置 / 记录」三个页面，不再为主界面新开标签页。v0.2.6 新增 unlimitedStorage，解除 chrome.storage.local 默认容量配额；实际仍受磁盘空间和性能限制。缓存逻辑保持不变。原有连接设置、草稿和发送锁定记录保留。
 

@@ -9,3 +9,4 @@
 .inline-add{display:flex;gap:8px;margin-top:8px}.inline-add input{flex:1}.inline-add button{flex-shrink:0;font-size:11px}
 .type-bar{display:flex;align-items:flex-end;gap:10px;margin-top:4px;padding-top:4px}.type-select{flex:1}.type-bar>button{flex-shrink:0;font-size:11px;padding:7px 10px}.type-bar .danger-link{padding:7px 2px}
 .advanced{margin-top:12px;border-top:1px dashed #dae4dc;padding-top:10px}.advanced summary{font-size:12px;font-weight:600;cursor:pointer;color:#5b7468}
+.lang-select{flex-shrink:0;width:auto;padding:4px 6px;border:1px solid #72988a;border-radius:14px;background:#163f3c;color:#deefe3;font-size:11px}.lang-select option{color:#203b3b;background:#fff}

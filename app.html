@@ -1,7 +1,7 @@
 <!doctype html>
-<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>LFD Inquiry</title><link rel="stylesheet" href="app.css"></head>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Trucker Helper</title><link rel="stylesheet" href="app.css"></head>
 <body><main class="popup">
-<header><div class="brand-mark">L</div><div><h1>LFD Inquiry</h1><span class="brand-sub">AHIA · 船公司邮件查询</span></div><div id="appMode" class="mode-switch" role="group" aria-label="工作模式"><button type="button" class="mode-btn active" data-mode="carrier">航司模式</button><button type="button" class="mode-btn" data-mode="terminal">码头模式</button></div></header>
+<header><div class="brand-mark">T</div><div><h1>Trucker Helper</h1><span class="brand-sub">船公司邮件查询</span></div><div id="appMode" class="mode-switch" role="group" aria-label="工作模式"><button type="button" class="mode-btn active" data-mode="carrier">航司模式</button><button type="button" class="mode-btn" data-mode="terminal">码头模式</button></div><select id="language" class="lang-select" title="界面语言"><option value="zh">中文</option><option value="en">English</option><option value="es">Español</option></select></header>
 <nav class="tabs" aria-label="插件页面"><button class="tab active" data-page="query" aria-selected="true">查询</button><button class="tab" data-page="tasks" aria-selected="false">进行中 <span id="taskCount">0</span></button><button class="tab" data-page="config" aria-selected="false">配置</button><button class="tab" data-page="history" aria-selected="false">记录 <span id="historyCount">0</span></button></nav>
 <div class="pages">
 <section id="page-query" class="page active" aria-label="查询">
@@ -46,7 +46,7 @@
 <details id="toolsSection" class="settings-section"><summary>缓存、通知与脚本</summary><p class="hint">本地查表缓存只保存柜号、MBL 和 SSL 完整的记录。清除后，下次查询会重新读取提柜表；配置和操作记录保留。</p><div class="actions"><button id="clearCache" type="button">清除本地缓存</button><button id="testNotification" type="button">发送测试通知</button></div><p class="hint">COSCO 人机验证和 ONE 客服回复用系统通知提醒，可用上面的按钮测试点击是否有效。</p><div class="actions"><button id="copyScript" type="button">复制只读脚本</button><button id="downloadScript" type="button">下载只读脚本</button></div><textarea id="scriptFallback" data-nosave rows="5" readonly hidden aria-label="只读脚本代码"></textarea></details>
 </section>
 <section id="page-history" class="page" aria-label="操作记录" hidden><div class="section-top"><div><h2>操作记录</h2><p class="hint">按柜号、船公司和查询类型防止重复生成。</p></div><button id="refresh" type="button">刷新</button></div><div id="history"></div></section>
-</div><footer><span id="statusDot" class="status-dot"></span><div id="status" role="status" aria-live="polite">正在连接插件…</div><span id="version">v0.5.2</span></footer>
+</div><footer><span id="statusDot" class="status-dot"></span><div id="status" role="status" aria-live="polite">正在连接插件…</div><span id="version">v0.6.0</span></footer>
 </main>
 <dialog id="duplicate" class="dialog" aria-labelledby="duplicateTitle"><h2 id="duplicateTitle">已有记录，未发送</h2><p id="duplicateText"></p><div class="dialog-actions"><button id="duplicateCancel" type="button">取消</button><button id="duplicateView" type="button">查看记录</button><button id="duplicateForce" class="primary" type="button">强制重发</button></div></dialog>
 <dialog id="notFound" class="dialog" aria-labelledby="notFoundTitle"><h2 id="notFoundTitle">找不到该柜号</h2><p id="notFoundText"></p><div class="dialog-actions"><button id="notFoundRetry" type="button">再次查找</button><button id="notFoundOk" class="primary" type="button">确定</button></div></dialog>

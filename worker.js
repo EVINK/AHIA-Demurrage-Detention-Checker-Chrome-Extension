@@ -4,6 +4,7 @@ import {gmailPage} from './gmail.js';
 import {coscoPage} from './cosco.js';
 import {onePage} from './one.js';
 import {validateSettings} from './config.js';
+import {translate,resolveLanguage} from './i18n.js';
 chrome.storage.local.setAccessLevel({accessLevel:'TRUSTED_CONTEXTS'});
 
 // Chrome refuses scripts while a tab sits on a site outside the manifest's hosts: a passing redirect (wait it out),
@@ -15,7 +16,7 @@ async function withPageAccess(tabId,run){
       if(!/Cannot access contents/.test(error.message))throw error;
       if(attempt<20){await pause(500);continue;}
       const granted=await chrome.permissions.contains({origins:chrome.runtime.getManifest().host_permissions}).catch(()=>true);
-      throw new Error(granted?'页面跳到了其他网址（通常是登录页）。请在这个浏览器登录金山文档和 Gmail 后重试。':'插件没有这个网站的访问权限：请到 chrome://extensions → LFD Inquiry → 详情，把「网站访问权限」改为「在所有网站上」后重试。');
+      throw new Error(granted?'页面跳到了其他网址（通常是登录页）。请在这个浏览器登录金山文档和 Gmail 后重试。':'插件没有这个网站的访问权限：请到 chrome://extensions → Trucker Helper → 详情，把「网站访问权限」改为「在所有网站上」后重试。');
     }
   }
 }
@@ -68,7 +69,10 @@ async function floatTab(tabId,size={width:456,height:700}){
 }
 function notify(id,tabId,title,message,sticky=false){
   noticeTabs.set(id,tabId);
-  chrome.notifications.create(id,{type:'basic',iconUrl:chrome.runtime.getURL('icons/icon128.png'),title,message,priority:2,requireInteraction:sticky}).catch(()=>{});
+  chrome.storage.local.get(['settings']).catch(()=>({})).then(({settings})=>{
+    const language=resolveLanguage(settings?.language,chrome.i18n?.getUILanguage?.());
+    return chrome.notifications.create(id,{type:'basic',iconUrl:chrome.runtime.getURL('icons/icon128.png'),title:translate(title,language),message:translate(message,language),priority:2,requireInteraction:sticky});
+  }).catch(()=>{});
 }
 // ONE: a small window with only the chat box (the rest of the page is hidden); COSCO: the ticket page.
 async function showTab(tabId){
@@ -380,7 +384,7 @@ chrome.runtime.onMessage.addListener((message,sender,respond)=>{
     }
     if(message.type==='deleteTask')return service.releaseTask(message.requestId);
     if(message.type==='markSent')return service.markSent(message.requestId);
-    if(message.type==='testNotification'){notify('lfd-test',-1,'LFD Inquiry 测试通知','请点击这条通知。插件收到点击后会再弹出「插件已收到点击」。',true);return true;}
+    if(message.type==='testNotification'){notify('lfd-test',-1,'Trucker Helper 测试通知','请点击这条通知。插件收到点击后会再弹出「插件已收到点击」。',true);return true;}
     if(message.type==='state')return {...await state(),openTarget:await takeOpenTarget()};
     if(message.type==='clearCache'){
       if(pendingOperations.size)throw new Error('请等当前查询完成后再清除缓存。');

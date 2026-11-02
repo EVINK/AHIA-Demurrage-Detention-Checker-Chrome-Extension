@@ -1,8 +1,20 @@
 import {messageTemplate,portalTemplate,recognizeCarrier,containerNumber,COSCO_PORTAL,ONE_CHAT,DEFAULT_CARRIERS,chatTemplate,addressList,INQUIRY_TYPES,inquiryChannel,findType,resolveType,missingConfiguration,supportsManyContainers,standardBody,standardSubject,newInquiryType,newProfile,carrierLabel} from './core.js';
 import {DEFAULT_SETTINGS,validateSettings,createConfig,parseConfig} from './config.js';
+import {translate,resolveLanguage} from './i18n.js';
+import {createLocalizer} from './i18n-dom.js';
 const $=id=>document.getElementById(id);
 const demo=!globalThis.chrome?.runtime?.id;
 const copy=value=>JSON.parse(JSON.stringify(value));
+// The language follows the browser until the user picks one. The last one used shows at once, before settings arrive.
+const localizer=createLocalizer();
+const browserLanguage=()=>globalThis.chrome?.i18n?.getUILanguage?.()||navigator.language;
+function applyLanguage(choice){
+  const language=resolveLanguage(choice,browserLanguage());
+  localizer.set(language);$('language').value=language;
+  try{localStorage.setItem('lfd-language',language);}catch{}
+}
+try{applyLanguage(localStorage.getItem('lfd-language')||'');}catch{applyLanguage('');}
+const confirm=text=>window.confirm(translate(text,localizer.language));
 let openedAutoCc=false;
 const sources={sheet:'提柜表航司列','mbl-prefix':'MBL 前缀',manual:'手动选择'};
 let settings=copy(DEFAULT_SETTINGS),busy=false,initializing=true,debounce,pollTimer,polling=false,requestSequence=0,lastOperationId='',lastRenderedOperation='',lastResult=null,draftTabId=null,configMissing=false,editingId='',editingType='';
@@ -74,7 +86,7 @@ function showPage(page){
 function setBusy(value){
   busy=value;
   // The config page stays editable: it saves on its own, a running task keeps the settings it started with.
-  document.querySelectorAll('button:not(.tab):not(.mode-btn):not(#page-config *),input:not(#page-config *),select:not(#page-config *),textarea:not(#page-config *)').forEach(node=>node.disabled=value);
+  document.querySelectorAll('button:not(.tab):not(.mode-btn):not(#page-config *),input:not(#page-config *),select:not(#page-config *):not(#language),textarea:not(#page-config *)').forEach(node=>node.disabled=value);
   if(!value)syncSendButtons();
 }
 function syncSendButtons(){
@@ -426,7 +438,7 @@ function refill(containers,entry){
 async function refreshState({initial=false}={}){
   const state=await rpc({type:'state'});
   // Only the first read: afterwards this page holds the newest settings, possibly with a write still on its way.
-  if(initial){settings=validateSettings(state.settings);if(state.openTarget==='autoCc'){ui.page='config';ui.scroll.config=0;if(!ui.open.includes('autoCcSection'))ui.open.push('autoCcSection');openedAutoCc=true;}}
+  if(initial){settings=validateSettings(state.settings);applyLanguage(settings.language);if(state.openTarget==='autoCc'){ui.page='config';ui.scroll.config=0;if(!ui.open.includes('autoCcSection'))ui.open.push('autoCcSection');openedAutoCc=true;}}
   renderHistory(state.ledger);renderTasks(state.ledger);
   if(initial){
     const saved=storedInput();$('container').value=saved.container||'';
@@ -556,7 +568,7 @@ function syncMailClientNotice(){
 $('mailProgram').addEventListener('change',syncMailClientNotice);
 $('defaultAppsLink').addEventListener('click',event=>{event.preventDefault();openMailto('ms-settings:defaultapps');});
 $('mailClient').addEventListener('change',syncMailClientNotice);
-$('exportConfig').addEventListener('click',()=>{try{download(JSON.stringify(createConfig(settings),null,2)+'\n','lfd-inquiry-config.json','application/json');status('配置 JSON 已导出。','success');}catch(error){status(error.message,'error');}});
+$('exportConfig').addEventListener('click',()=>{try{download(JSON.stringify(createConfig(settings),null,2)+'\n','trucker-helper-config.json','application/json');status('配置 JSON 已导出。','success');}catch(error){status(error.message,'error');}});
 // Pasted, not picked: on Windows the system file picker makes the toolbar popup go blank and close.
 function applyImport(){
   const text=$('importText').value;if(!text.trim())return;
@@ -572,7 +584,7 @@ let importTimer;
 $('importText').addEventListener('input',()=>{clearTimeout(importTimer);importTimer=setTimeout(applyImport,250);});
 $('restoreDefaults').addEventListener('click',()=>{
   if(!confirm('恢复默认配置？船公司、模板和连接设置会换成插件内置内容，码头配置和操作记录保留。'))return;
-  discardPendingEdits();persist(validateSettings({mode:settings.mode,terminals:settings.terminals,autoCc:settings.autoCc}));
+  discardPendingEdits();persist(validateSettings({mode:settings.mode,terminals:settings.terminals,autoCc:settings.autoCc,language:settings.language}));
   lastResult=null;configMissing=false;$('needsConfig').hidden=true;clearPreview();
   fillQueryCarrier(terminalMode()?ui.profile.terminal:settings.defaultCarrierId);renderAll();status('已恢复默认配置。','success');
 });
@@ -668,6 +680,7 @@ for(const id of ui.open)if($(id))$(id).open=true;
 document.addEventListener('toggle',event=>{if(!event.target.id)return;ui.open=[...document.querySelectorAll('#page-config details[open]')].map(node=>node.id);rememberUi();},true);
 document.querySelectorAll('.page').forEach(node=>node.addEventListener('scroll',()=>{if(!node.hidden){ui.scroll[node.id.replace('page-','')]=node.scrollTop;rememberUi();}},{passive:true}));
 showPage(ui.page);
+$('language').addEventListener('change',()=>{const language=$('language').value;flushSave();applyLanguage(language);persist(validateSettings({...settings,language}));});
 function showAutoCcSection(){showPage('config');$('autoCcSection').open=true;$('autoCcSection').scrollIntoView();}
 if(openedAutoCc)$('autoCcSection').scrollIntoView();
 // The Gmail button asks a page that is already open to show the section.
@@ -677,7 +690,7 @@ if(!demo)chrome.storage.onChanged.addListener((changes,area)=>{
   if(area!=='local'||!changes.settings?.newValue||saveTimer||pendingWrites)return;
   let next;try{next=validateSettings(changes.settings.newValue);}catch{return;}
   if(JSON.stringify(next)===JSON.stringify(settings))return;
-  settings=next;followingChange=true;
+  settings=next;followingChange=true;applyLanguage(settings.language);
   if(document.activeElement?.closest?.('#page-config form')){renderSelects();syncMode();}else{const carrier=$('carrier').value;renderAll();if(carrier)fillQueryCarrier(carrier);}
   followingChange=false;
 });

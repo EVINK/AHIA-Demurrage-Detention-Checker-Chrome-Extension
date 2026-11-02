@@ -1,3 +1,4 @@
+import {LANGUAGES} from './i18n.js';
 import {DEFAULT_CARRIERS,normalizeCarriers,normalizeTerminals,inquiryType,addressList} from './core.js';
 
 export const CONFIG_FORMAT='lfd-inquiry-config';
@@ -19,7 +20,9 @@ export const DEFAULT_SETTINGS=Object.freeze({
   // The former 'system' option becomes 'foxmail'.
   mailClient:'gmail',
   // Experimental: adds `cc` to any Gmail compose or reply whose sender is one of `senders`. Off until switched on.
-  autoCc:Object.freeze({enabled:false,senders:[],cc:[]})
+  autoCc:Object.freeze({enabled:false,senders:[],cc:[]}),
+  // '' follows the browser language until the user picks one.
+  language:''
 });
 const SETTING_KEYS=Object.keys(DEFAULT_SETTINGS);
 const ENVELOPE_KEYS=['format','version','settings'];
@@ -47,6 +50,10 @@ function pickSettings(value,label){
 function mailClient(value){
   if(value==='system')return 'foxmail';
   if(!['gmail','foxmail','outlook'].includes(value))throw new Error('邮件发送方式须为 Gmail 网页或电脑默认邮件程序（Foxmail / Outlook）。');
+  return value;
+}
+function interfaceLanguage(value){
+  if(value!==''&&!Object.hasOwn(LANGUAGES,value))throw new Error('语言设置无效。');
   return value;
 }
 function autoCc(value){
@@ -84,7 +91,8 @@ export function validateSettings(input={}, {previous}={}){
     defaultCarrierId,
     defaultInquiryType:inquiryType(settings.defaultInquiryType,[...carriers,...terminals]),
     mailClient:mailClient(settings.mailClient),
-    autoCc:autoCc(settings.autoCc)
+    autoCc:autoCc(settings.autoCc),
+    language:interfaceLanguage(settings.language)
   };
 }
 
@@ -93,7 +101,7 @@ export function createConfig(settings){
   return {format:CONFIG_FORMAT,version:CONFIG_VERSION,settings:validateSettings(settings)};
 }
 
-/** Terminals, the mode and Auto CC the file does not mention (every version 1 file) stay as they are. */
+/** Terminals, the mode, Auto CC and the language the file does not mention (every version 1 file) stay as they are. */
 export function parseConfig(text,current){
   if(typeof text!=='string')throw new Error('配置文件必须是 JSON 文本。');
   if(text.length>MAX_CONFIG_BYTES||new TextEncoder().encode(text).byteLength>MAX_CONFIG_BYTES)
@@ -101,8 +109,8 @@ export function parseConfig(text,current){
   let parsed;
   try{parsed=JSON.parse(text.replace(/^\uFEFF/,''));}catch{throw new Error('JSON 格式无效，请检查逗号、引号和括号。');}
   object(parsed,'配置文件');allowKeys(parsed,ENVELOPE_KEYS,'配置文件');
-  if(parsed.format!==CONFIG_FORMAT)throw new Error('不是 LFD 插件配置文件：format 必须为 lfd-inquiry-config。');
+  if(parsed.format!==CONFIG_FORMAT)throw new Error('不是 Trucker Helper 配置文件：format 必须为 lfd-inquiry-config。');
   if(!IMPORTABLE_VERSIONS.includes(parsed.version))throw new Error('不支持此配置版本：version 必须为 1 或 2。');
   if(!Object.hasOwn(parsed,'settings'))throw new Error('配置文件缺少 settings 对象。');
-  return validateSettings(parsed.settings,current?{previous:{terminals:current.terminals,mode:current.mode,autoCc:current.autoCc}}:undefined);
+  return validateSettings(parsed.settings,current?{previous:{terminals:current.terminals,mode:current.mode,autoCc:current.autoCc,language:current.language}}:undefined);
 }

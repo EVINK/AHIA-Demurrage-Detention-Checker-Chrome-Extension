@@ -82,7 +82,7 @@
     let button=document.getElementById(BUTTON_ID);
     if(!config.enabled){button?.remove();return;}
     if(!button){
-      button=document.createElement('button');button.id=BUTTON_ID;button.type='button';button.textContent='Auto CC';button.title='LFD Inquiry：打开 Auto CC 设置';
+      button=document.createElement('button');button.id=BUTTON_ID;button.type='button';button.textContent='Auto CC';button.title='Trucker Helper: Auto CC';
       button.style.cssText='position:fixed;z-index:2147483000;height:28px;padding:0 8px;border:1px solid #23674f;border-radius:14px;background:#e8f3ee;color:#23674f;font:600 12px/26px Arial,sans-serif;cursor:pointer';
       let clicked=0;
       button.addEventListener('click',()=>{if(Date.now()-clicked<1000)return;clicked=Date.now();ask({type:'autoCcOpen'}).catch(()=>{});});

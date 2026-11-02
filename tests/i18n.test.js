@@ -1,0 +1,60 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import {readFileSync} from 'node:fs';
+import {translate,resolveLanguage,LANGUAGES} from '../i18n.js';
+import {STRINGS} from '../i18n-strings.js';
+import {validateSettings,createConfig,parseConfig} from '../config.js';
+
+const CJK=/[\u3400-\u9fff]/;
+test('without a choice the language follows the browser, and a choice wins',()=>{
+  for(const [browser,expected] of [['zh-CN','zh'],['zh-TW','zh'],['ZH','zh'],['es-419','es'],['es','es'],['en-US','en'],['fr','en'],['','en'],[undefined,'en']])
+    assert.equal(resolveLanguage('',browser),expected,String(browser));
+  assert.equal(resolveLanguage('es','zh-CN'),'es');assert.equal(resolveLanguage('zh','en-US'),'zh');
+  assert.deepEqual(Object.keys(LANGUAGES),['zh','en','es']);
+});
+test('every entry has both translations with matching placeholders',()=>{
+  const keys=new Set();
+  for(const [zh,en,es] of STRINGS){
+    assert.ok(!keys.has(zh),`duplicate: ${zh}`);keys.add(zh);
+    for(const text of [en,es]){
+      assert.ok(typeof text==='string'&&text.length,zh);assert.ok(!CJK.test(text),`Chinese left in: ${text}`);
+      const holes=(zh.match(/\{\}/g)||[]).length;
+      assert.deepEqual([...new Set((text.match(/\{(\d)l?\}/g)||[]).map(hole=>hole[1]))].sort(),[...Array(holes).keys()].map(String),`placeholders: ${zh}`);
+      assert.deepEqual((text.match(/\{\{\w+\}\}/g)||[]).sort(),(zh.match(/\{\{\w+\}\}/g)||[]).sort(),`template tokens: ${zh}`);
+    }
+  }
+});
+test('values are placed, translated when known and kept when not',()=>{
+  assert.equal(translate('提柜表中找不到柜号 MSCU1234567，请检查柜号是否输入正确。','en'),'Container MSCU1234567 is not in the pickup sheet. Please check the number.');
+  assert.equal(translate('请填写码头名称。','en'),'Please enter the terminal name.');
+  assert.equal(translate('船公司名称','es'),'Nombre de la naviera');
+  assert.equal(translate('未保存：邮箱地址格式无效：x@','en'),'Not saved: Invalid email address: x@');
+  assert.equal(translate('发送邮件 · 3 个柜号','en'),'Send email · 3 containers');
+  assert.equal(translate('Gmail 写信页中的收件人与配置不符（Cc 缺少 a@b.com）。','en'),'Recipients on the Gmail compose page do not match the settings (Cc is missing a@b.com).');
+  assert.equal(translate('发送邮件','zh'),'发送邮件');assert.equal(translate('Maersk','en'),'Maersk');assert.equal(translate('',  'es'),'');
+});
+// Label matchers for the KDocs page, in its own languages: never shown.
+const PAGE_LABELS=/高级开发|進階開發|高級開發|AirScript脚本编辑器|AirScript腳本編輯器|我的脚本|我的腳本/;
+const literal=/'((?:[^'\\\n]|\\.)*)'|`((?:[^`\\]|\\.)*)`/g;
+test('no message in the code stays in Chinese',()=>{
+  for(const file of ['app.js','service.js','core.js','config.js','worker.js','gmail.js','cosco.js','one.js','kdocs.js']){
+    const source=readFileSync(new URL('../'+file,import.meta.url),'utf8').replace(/^\s*\/\/.*$/gm,'');
+    for(const match of source.matchAll(literal)){
+      const text=(match[1]??match[2]).replace(/\$\{[^{}]*(\{[^{}]*\}[^{}]*)*\}/g,'X').replaceAll("\\'","'").replaceAll('\\n','\n');
+      if(!CJK.test(text)||PAGE_LABELS.test(text)||text.includes('`'))continue;
+      for(const language of ['en','es'])assert.ok(!CJK.test(translate(text,language)),`${file} (${language}): ${text}\n→ ${translate(text,language)}`);
+    }
+  }
+});
+test('every label on the page has a translation',()=>{
+  const html=readFileSync(new URL('../app.html',import.meta.url),'utf8').replace(/<script[\s\S]*?<\/script>/g,'').replace(/<select id="language"[\s\S]*?<\/select>/,'');
+  const pieces=[...html.matchAll(/>([^<]+)</g)].map(m=>m[1]),attrs=[...html.matchAll(/(?:title|placeholder|aria-label)="([^"]+)"/g)].map(m=>m[1]);
+  for(const text of [...pieces,...attrs])if(CJK.test(text))for(const language of ['en','es'])assert.ok(!CJK.test(translate(text,language)),`${language}: ${text}`);
+});
+test('the language setting validates, round-trips and survives an old file',()=>{
+  assert.equal(validateSettings().language,'');assert.equal(validateSettings({language:'es'}).language,'es');
+  assert.throws(()=>validateSettings({language:'fr'}),/语言/);
+  const current=validateSettings({language:'en'});
+  assert.equal(parseConfig(JSON.stringify(createConfig(current))).language,'en');
+  assert.equal(parseConfig(JSON.stringify({format:'lfd-inquiry-config',version:1,settings:{}}),current).language,'en');
+});

@@ -5,7 +5,7 @@ import {readFileSync} from 'node:fs';
 
 const original=readFileSync(new URL('../worker.js',import.meta.url),'utf8');
 const imports=original.match(/^import .*;\r?$/gm)||[];
-assert.equal(imports.length,6,'Update the isolated worker harness if its imports change.');
+assert.equal(imports.length,7,'Update the isolated worker harness if its imports change.');
 const source=original.replace(/^import .*;\r?$/gm,'');
 const appUrl='chrome-extension://test-extension/app.html';
 const sender={id:'test-extension',url:appUrl};
@@ -56,7 +56,7 @@ function setup({data={},run=async()=>({status:'draft',tabId:42}),read=async valu
   };
   vm.runInNewContext(source,{
     chrome,URL,URLSearchParams,Date,setTimeout,fetch:async url=>{calls.fetched.push(url);return {text:async()=>'// LFD build: 3\nmain();'};},
-    crypto:{randomUUID:()=>`operation-${++id}`},readKdocsPage,gmailPage,coscoPage,onePage,
+    crypto:{randomUUID:()=>`operation-${++id}`},translate:text=>text,resolveLanguage:()=>'zh',readKdocsPage,gmailPage,coscoPage,onePage,
     validateSettings:value=>({...defaults,...clone(value)}),
     createService:dependencies=>{deps=dependencies;return {active:()=>new Set(),
       run:async(...args)=>{calls.run.push(clone(args));return run(...args);},
