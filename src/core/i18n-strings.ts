@@ -90,8 +90,6 @@ export const STRINGS=[
 ['（无法直接指定其他程序，也无法检测是否已安装），这里选的程序必须与 Windows 默认邮件程序一致。没有安装：',' (it cannot choose another or detect what is installed), so this choice must match it. Not installed: ',' (no puede elegir otro ni detectar lo instalado), así que esta opción debe coincidir. Si no lo tiene: '],
 ['下载 Foxmail','Download Foxmail','Descargar Foxmail'],
 ['下载 Outlook（Microsoft Store）','Download Outlook (Microsoft Store)','Descargar Outlook (Microsoft Store)'],
-['打开 Windows 默认应用设置','Open Windows default apps','Abrir aplicaciones predeterminadas de Windows'],
-['（搜索「MAILTO」并选择）。',' (search for MAILTO and choose).',' (busque MAILTO y elija).'],
 ['实验性功能：Gmail 自动抄送（Auto CC）','Experimental: Gmail Auto CC','Experimental: Auto CC en Gmail'],
 ['开启 Auto CC','Turn on Auto CC','Activar Auto CC'],
 ['发件人','Senders','Remitentes'],
@@ -576,4 +574,5 @@ export const STRINGS=[
 ['粘贴后立即替换配置，操作记录保留','replaces the settings at once when pasted; history is kept','reemplaza los ajustes al pegar; el historial se conserva'],
 ['粘贴 JSON 内容','Paste the JSON here','Pegue aquí el JSON'],
 ['清除后下次查询会重新读取提柜表，配置和操作记录保留。','After clearing, the next search reads the pickup sheet again. Settings and history stay.','Al borrarla, la próxima búsqueda lee de nuevo la hoja. Ajustes e historial se conservan.'],
+['在 Windows 设置的「默认应用」里搜索 MAILTO 并选择。','In Windows Settings, open Default apps, search for MAILTO and choose it.','En Configuración de Windows, abra Aplicaciones predeterminadas, busque MAILTO y elija.'],
 ];

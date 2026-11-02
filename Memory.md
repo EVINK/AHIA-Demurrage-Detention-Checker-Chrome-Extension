@@ -207,6 +207,8 @@ An unpacked extension's id comes from its folder, so the Vue build has a differe
 
 **v0.7.1 (same branch).** UI pass: header controls share one height, delete actions and the search button are real Naive UI buttons, all inputs and selects are 30px. Repeated hints removed: the status bar is empty at rest and shows only what is happening, each piece of help appears once.
 
+**v0.7.2 (same branch).** The Windows default apps link is plain text now. Its `ms-settings:` URL made Chrome ask to open the Settings app, and the link sat right above the Auto CC section.
+
 ## Known limitations
 
 - Gmail, COSCO, ONE and KDocs are driven through their page structure, so a site redesign can stop any flow. Failures stop with a message rather than guess.

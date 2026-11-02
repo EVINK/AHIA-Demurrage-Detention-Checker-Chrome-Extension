@@ -715,7 +715,6 @@ export async function copyScript(){
   }catch(error){status(error.message,'error');}
 }
 export async function downloadScript(){try{download(await scriptText(),'LFD_ReadOnly_v1.js','text/javascript');status('只读脚本已下载。','success');}catch(error){status(error.message,'error');}}
-export function openDefaultApps(){openMailto('ms-settings:defaultapps');}
 
 function showAutoCcSection(){
   showPage('config');setOpen('autoCcSection',true);
