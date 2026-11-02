@@ -1,7 +1,7 @@
-import {gmailPage as gmailAdapter} from '../gmail.js';
-import {messageTemplate,portalTemplate,normalizeCarriers} from '../core.js';
-import {coscoPage as coscoAdapter} from '../cosco.js';
-import {readKdocsPage as kdocsAdapter} from '../kdocs.js';
+import {gmailPage as gmailAdapter} from '/src/injected/gmail.ts';
+import {messageTemplate,portalTemplate,normalizeCarriers} from '/src/core/core.ts';
+import {coscoPage as coscoAdapter} from '/src/injected/cosco.ts';
+import {readKdocsPage as kdocsAdapter} from '/src/injected/kdocs.ts';
 async function unwrap(result){const r=await result;if(!r.ok)throw new Error(r.error);return r.data;}
 const gmailPage=(...args)=>unwrap(gmailAdapter(...args));
 const readKdocsPage=(...args)=>unwrap(kdocsAdapter(...args));

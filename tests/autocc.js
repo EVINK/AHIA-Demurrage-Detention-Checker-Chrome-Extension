@@ -3,7 +3,7 @@ const results=document.querySelector('#results'),fixture=document.querySelector(
 const pause=ms=>new Promise(r=>setTimeout(r,ms));
 let push,opened=0,config={enabled:true,senders:['me@example.com'],cc:['a@example.com','b@example.com']};
 globalThis.chrome={runtime:{lastError:null,onMessage:{addListener:fn=>{push=fn;}},sendMessage:(message,callback)=>{if(message.type==='autoCcOpen')opened++;callback({ok:true,data:config});}}};
-await new Promise(resolve=>{const script=document.createElement('script');script.src='../gmail-autocc.js';script.onload=resolve;document.head.append(script);});
+await new Promise(resolve=>{const script=document.createElement('script');script.type='module';script.src='/src/content/gmail-autocc.ts';script.onload=resolve;document.head.append(script);});
 const send=next=>{config=next;push({type:'autoCc',config:next});};
 // Gmail: the Cc row appears after clicking its link; Enter turns the text into a chip.
 function compose({from='me@example.com',to='',cc=''}={}){

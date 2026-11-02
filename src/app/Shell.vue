@@ -10,6 +10,7 @@ import {LANGUAGES} from '../core/i18n.ts';
 
 declare const __APP_VERSION__:string;
 const version=`v${__APP_VERSION__}`;
+const modeTheme={buttonColor:'transparent',buttonColorActive:'#d7eee0',buttonTextColor:'#deefe3',buttonTextColorActive:'#204d42',buttonTextColorHover:'#ffffff',buttonBorderColor:'#72988a',buttonBorderColorActive:'#d7eee0',buttonBorderColorHover:'#72988a',buttonBoxShadow:'none',buttonBoxShadowFocus:'none',buttonBoxShadowHover:'none'};
 const dialog=useDialog();
 // Replaces window.confirm, which stops working once the user ticks "prevent this page from creating additional dialogs".
 useAsk(text=>new Promise(resolve=>{
@@ -29,7 +30,7 @@ onMounted(boot);
     <header>
       <div class="brand-mark">T</div>
       <div><h1>Trucker Helper</h1><span class="brand-sub">{{t('船公司邮件查询')}}</span></div>
-      <n-radio-group class="mode-switch" size="small" :value="settings.mode" :aria-label="t('工作模式')" @update:value="setMode">
+      <n-radio-group class="mode-switch" size="small" :theme-overrides="modeTheme" :value="settings.mode" :aria-label="t('工作模式')" @update:value="setMode">
         <n-radio-button value="carrier" data-mode="carrier">{{t('航司模式')}}</n-radio-button>
         <n-radio-button value="terminal" data-mode="terminal">{{t('码头模式')}}</n-radio-button>
       </n-radio-group>

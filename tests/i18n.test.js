@@ -37,7 +37,7 @@ test('values are placed, translated when known and kept when not',()=>{
 const PAGE_LABELS=/高级开发|進階開發|高級開發|AirScript脚本编辑器|AirScript腳本編輯器|我的脚本|我的腳本/;
 const literal=/'((?:[^'\\\n]|\\.)*)'|`((?:[^`\\]|\\.)*)`/g;
 test('no message in the code stays in Chinese',()=>{
-  for(const file of ['app.js','service.js','core.js','config.js','worker.js','gmail.js','cosco.js','one.js','kdocs.js']){
+  for(const file of ['src/app/store.ts','src/app/Shell.vue','src/app/pages/QueryPage.vue','src/app/pages/TasksPage.vue','src/app/pages/HistoryPage.vue','src/app/pages/ConfigPage.vue','src/core/service.ts','src/core/core.ts','src/core/config.ts','src/background/worker.ts','src/injected/gmail.ts','src/injected/cosco.ts','src/injected/one.ts','src/injected/kdocs.ts']){
     const source=readFileSync(new URL('../'+file,import.meta.url),'utf8').replace(/^\s*\/\/.*$/gm,'');
     for(const match of source.matchAll(literal)){
       const text=(match[1]??match[2]).replace(/\$\{[^{}]*(\{[^{}]*\}[^{}]*)*\}/g,'X').replaceAll("\\'","'").replaceAll('\\n','\n');
@@ -46,15 +46,16 @@ test('no message in the code stays in Chinese',()=>{
     }
   }
 });
-test('every label on the page has a translation',()=>{
-  const html=readFileSync(new URL('../app.html',import.meta.url),'utf8').replace(/<script[\s\S]*?<\/script>/g,'').replace(/<select id="language"[\s\S]*?<\/select>/,'');
-  const pieces=[...html.matchAll(/>([^<]+)</g)].map(m=>m[1]),attrs=[...html.matchAll(/(?:title|placeholder|aria-label)="([^"]+)"/g)].map(m=>m[1]);
-  for(const text of [...pieces,...attrs])if(CJK.test(text))for(const language of ['en','es'])assert.ok(!CJK.test(translate(text,language)),`${language}: ${text}`);
-});
 test('the language setting validates, round-trips and survives an old file',()=>{
   assert.equal(validateSettings().language,'');assert.equal(validateSettings({language:'es'}).language,'es');
   assert.throws(()=>validateSettings({language:'fr'}),/语言/);
   const current=validateSettings({language:'en'});
   assert.equal(parseConfig(JSON.stringify(createConfig(current))).language,'en');
   assert.equal(parseConfig(JSON.stringify({format:'lfd-inquiry-config',version:1,settings:{}}),current).language,'en');
+});
+test('the popup uses in-app dialogs: native ones stop working when the user blocks them',()=>{
+  for(const file of ['src/app/store.ts','src/app/Shell.vue','src/app/pages/QueryPage.vue','src/app/pages/TasksPage.vue','src/app/pages/HistoryPage.vue','src/app/pages/ConfigPage.vue']){
+    const source=readFileSync(new URL('../'+file,import.meta.url),'utf8');
+    assert.doesNotMatch(source,/\b(window\.)?(alert|confirm|prompt)\(/,file);
+  }
 });

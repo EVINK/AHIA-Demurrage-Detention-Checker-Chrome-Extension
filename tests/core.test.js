@@ -333,7 +333,7 @@ test('missing success evidence cannot be reported sent',async()=>{const t=setup(
 test('preparation failure prevents sending',async()=>{const t=setup({prepareMail:async()=>{throw new Error('签名缺失');}});await assert.rejects(t.service.run(record.container,'send'),/签名/);assert.equal(t.calls.send,0);});
 test('unlock archives original record',async()=>{const t=setup();await t.service.run(record.container,'draft');const key=Object.keys(t.db().ledger)[0];await t.service.release(key);assert.equal(t.db().archive.length,1);assert.deepEqual(t.db().ledger,{});});
 test('AirScript reads named sheet, skips cancelled section, emits complete chunks, never writes',()=>{
-  const source=readFileSync(new URL('../airscript/LFD_ReadOnly.js',import.meta.url),'utf8');
+  const source=readFileSync(new URL('../public/airscript/LFD_ReadOnly.js',import.meta.url),'utf8');
   const rows=[['MBL','柜号'],['MAEU123456','MRSU4786640'],['','ABCU1234567'],['取消DO',''],['MAEU999999','ZZZU9999999']];
   const copy=structuredClone(rows);const logs=[];
   const sheet={UsedRange:{Row:1,Column:1,Rows:{Count:rows.length},Columns:{Count:2}},Cells:(r,c)=>({r,c}),Range:(a,b)=>({get Value2(){return rows.slice(a.r-1,b.r).map(row=>row.slice(a.c-1,b.c));}})};

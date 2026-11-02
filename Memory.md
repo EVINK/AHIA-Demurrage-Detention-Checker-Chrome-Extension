@@ -1,6 +1,6 @@
 # Trucker Helper: handoff for agents
 
-Formerly "LFD Inquiry". Written at v0.6.2. `agent.md` holds the older detailed history in Chinese; where the two differ, this file wins.
+Formerly "LFD Inquiry". Written at v0.6.2, updated for the Vue rewrite at v0.7.0. `agent.md` holds the older detailed history in Chinese; where the two differ, this file wins.
 
 ## Purpose
 
@@ -16,29 +16,39 @@ Inquiries go out by Gmail, by the COSCO ticket website, or by ONE's live chat. A
 - The main button really sends. There is no test mode any more.
 - Email templates and content are never translated.
 - Injected page functions (`gmailPage`, `coscoPage`, `onePage`, `readKdocsPage`) must stay self-contained. They run through `chrome.scripting.executeScript({func})`, so they cannot use imports or closures.
-- `gmail-autocc.js` is a classic content script, not a module.
+- `gmail-autocc.ts` must stay free of imports: it is built as a classic content script.
 
 ## Architecture
 
+Vue 3, TypeScript, Less and Naive UI, built by Vite as a plain multi-entry build into `dist/extension`. `dist/` also holds old release zips, so the build must never empty `dist/` itself.
+
 ```
-app.html / app.js / app.css   Popup UI (780×600). Pages: 查询, 进行中, 配置, 记录
-worker.js                     Service worker. Chrome APIs, tabs, windows, notifications, message routing
-service.js                    Business flow: lookup, locks, drafts, sending. Chrome-free, so unit tested
-core.js                       Validation, template rendering, carrier recognition, schema migration
-config.js                     Settings defaults, validation, JSON export and import
-defaults.js                   Built-in 12 carriers (data only)
-gmail.js                      Injected: fills and verifies the LFD compose tab, clicks Send
-gmail-autocc.js               Content script on mail.google.com: Auto CC and its button
-cosco.js                      Injected: fills the COSCO Freshdesk ticket, submits after the captcha
-one.js                        Injected into ONE's frames: live chat flow
-kdocs.js                      Injected: runs the read-only AirScript and parses its log output
-airscript/LFD_ReadOnly.js     The AirScript. It keeps this name in the user's account
-i18n.js, i18n-strings.js      translate() and the [zh, en, es] table
-i18n-dom.js                   Translates the page live with a MutationObserver
-_locales/                     Manifest description only
+app.html                      Vite entry for the popup
+src/app/main.ts               Mounts App.vue
+src/app/App.vue               Naive UI providers and theme
+src/app/Shell.vue             Header, tabs, footer, dialogs; sets up the in-app confirm
+src/app/store.ts              All popup state and behavior
+src/app/pages/*.vue           查询, 进行中, 配置, 记录: render the store, call its actions
+src/app/app.less              Styles
+src/background/worker.ts      Service worker. Chrome APIs, tabs, windows, notifications, message routing
+src/core/service.ts           Business flow: lookup, locks, drafts, sending. Chrome-free, so unit tested
+src/core/core.ts              Validation, template rendering, carrier recognition, schema migration
+src/core/config.ts            Settings defaults, validation, JSON export and import
+src/core/defaults.ts          Built-in 12 carriers (data only)
+src/core/i18n.ts, i18n-strings.ts  translate() and the [zh, en, es] table
+src/injected/gmail.ts         Injected: fills and verifies the LFD compose tab, clicks Send
+src/injected/cosco.ts         Injected: fills the COSCO Freshdesk ticket, submits after the captcha
+src/injected/one.ts           Injected into ONE's frames: live chat flow
+src/injected/kdocs.ts         Injected: runs the read-only AirScript and parses its log output
+src/content/gmail-autocc.ts   Content script on mail.google.com: Auto CC and its button
+public/                       Copied as is: manifest.json, icons, _locales, airscript/LFD_ReadOnly.js
 ```
 
-Flow: `app.js perform()` → `chrome.runtime.sendMessage` → `worker.runOperation` → `service.run`. Draft and send are background jobs: `service.run` returns at once with `background:true`, and progress is written to ledger entries (`running`, `step`), which the 进行中 page polls.
+Native `confirm`, `alert` and `prompt` must not be used in the popup: they stop working when the user ticks Chrome's "prevent this page from creating additional dialogs". `ask()` in `store.ts` opens a Naive UI dialog, and a test fails on native calls.
+
+Modules under `src/core`, `src/injected`, `src/content` and `src/background` carry `// @ts-nocheck`: they were moved as they were, and TypeScript is non-strict. Injected functions are minified by the build and still serialized by Chrome, which was verified on real Gmail and KDocs.
+
+Flow: `store.ts perform()` → `chrome.runtime.sendMessage` → `worker.runOperation` → `service.run`. Draft and send are background jobs: `service.run` returns at once with `background:true`, and progress is written to ledger entries (`running`, `step`), which the 进行中 page polls.
 
 ## Storage
 
@@ -117,7 +127,7 @@ Duplicate lock: container + MBL + profile + type. The check compares entry conte
 
 ## Auto CC
 
-Off by default. `gmail-autocc.js` runs on every Gmail page but does nothing until enabled.
+Off by default. `gmail-autocc.ts` runs on every Gmail page but does nothing until enabled.
 
 - Applies to any compose or reply form whose sender is on `autoCc.senders`. Otherwise it stays silent. The sender is `input[name=from]`, then the address in `document.title`; if a From selector exists with no value, the sender counts as unknown.
 - Skips pages with `view=cm` or `fs=1`, the LFD compose tab, whose recipients `gmail.js` is verifying.
@@ -129,7 +139,7 @@ Off by default. `gmail-autocc.js` runs on every Gmail page but does nothing unti
 
 Chinese is the source text in the code. `i18n-strings.js` has `[zh, en, es]`, with `{}` for values in the key, `{0}` in translations, and `{0l}` for lower case.
 
-`translate()` tries an exact match, then a whole pattern, then replaces known pieces. So messages from any module need no change: `i18n-dom.js` translates each text node and `title`, `placeholder`, `aria-label` as it appears and remembers the source for language changes. It leaves `#mailBody`, `#subject` and textarea content alone. Native dialogs go through a `confirm` wrapper in `app.js`; notifications are translated in `worker.js notify()`.
+`translate()` tries an exact match, then a whole pattern, then replaces known pieces. So messages from any module need no change: components render `t(text)`, which is reactive on `language`, and the status line stores the Chinese source so it follows a language change. Notifications are translated in `worker.ts notify()`. Naive UI's own strings follow `NConfigProvider`.
 
 The browser decides when `settings.language` is empty: `zh*` → 中文, `es*` → Español, anything else → English.
 
@@ -137,12 +147,15 @@ The browser decides when `settings.language` is empty: `zh*` → 中文, `es*` �
 
 ## Testing
 
-No install is needed. Node is the Windows one, reached from WSL:
+Node is the Windows one, reached from WSL. npm must run through it too:
 
 ```bash
 NODE="/mnt/c/Program Files/nodejs/node.exe"
-"$NODE" --test tests/*.test.js          # 140 tests
-"$NODE" tools/serve.mjs                 # http://127.0.0.1:5179
+"$NODE" 'C:\Program Files\nodejs\node_modules\npm\bin\npm-cli.js' install
+"$NODE" --test tests/*.test.js                       # 140 tests; Node 24 runs the .ts modules directly
+"$NODE" node_modules/vue-tsc/bin/vue-tsc.js --noEmit # type check
+"$NODE" node_modules/vite/bin/vite.js build          # dist/extension
+"$NODE" node_modules/vite/bin/vite.js --host 127.0.0.1 --port 5179
 ```
 
 Then open `/app.html` (demo mode, sample data, no real services), `/tests/browser.html` (Gmail, COSCO and KDocs adapters against simulated pages, 25 tests) and `/tests/autocc.html` (10 tests). The last two take a minute and report PASS or FAIL lines on the page. Simulations do not prove real Gmail behavior: real runs found six bugs they had missed.
@@ -153,7 +166,7 @@ Then open `/app.html` (demo mode, sample data, no real services), `/tests/browse
 
 Use a separate profile, never the owner's main Chrome: `%LOCALAPPDATA%\Temp\lfd-debug-profile`. It is signed in to the owner's Gmail and KDocs, and the owner asked to keep it.
 
-- Branded Chrome ignores `--load-extension`. Start it with `--remote-debugging-pipe --remote-debugging-port=9333 --enable-unsafe-extension-debugging` and call CDP `Extensions.loadUnpacked` over the pipe. The id for this path is `mmkikpfgoippjafbblecbnoanojmlham`.
+- Branded Chrome ignores `--load-extension`. Start it with `--remote-debugging-pipe --remote-debugging-port=9333 --enable-unsafe-extension-debugging` and call CDP `Extensions.loadUnpacked` over the pipe. The id comes from the path: `ogahehoddpfcnnnhhcefjoccphbipphl` for `demurrage-lfd-extension-vue\dist\extension`, `mmkikpfgoippjafbblecbnoanojmlham` for the old unbuilt folder.
 - An extension loaded that way is blocked (`ERR_BLOCKED_BY_CLIENT`) after any reload. Use `Extensions.uninstall` and load again.
 - After reinstalling, the service worker can stay on the **old script**. Run `navigator.serviceWorker.getRegistrations()` on a plugin page and unregister before reinstalling, or results describe old code. Confirm with `Debugger.getScriptSource` when in doubt.
 - Google refuses sign-in while debugging is on ("此浏览器或应用可能不安全"). Sign in by starting the same profile without debug flags, then restart with them. The session survives.
@@ -162,12 +175,15 @@ Use a separate profile, never the owner's main Chrome: `%LOCALAPPDATA%\Temp\lfd-
 
 ## Reloading
 
-Unpacked from `C:\Users\AMERI\Documents\workspace\demurrage-lfd-extension` (`/home/evink/workspace` is a symlink to the same folder).
+This branch is checked out in its own worktree, `C:\Users\AMERI\Documents\workspace\demurrage-lfd-extension-vue`. Load unpacked from its `dist\extension`, after `vite build`. Never switch the branch of the original `demurrage-lfd-extension` folder: the owner's Chrome loads v0.6.x from that folder's root, and this branch has no root `manifest.json`.
 
-1. `chrome://extensions` → Trucker Helper → refresh.
-2. Refresh open Gmail tabs, or content scripts stay old.
+1. Build.
+2. `chrome://extensions` → Trucker Helper → refresh.
+3. Refresh open Gmail tabs, or content scripts stay old.
 
-Until step 1, pages load the new files from disk while the worker runs old code, which shows up as errors such as `配置包含不支持的字段：mode`. Bump the version on any fix so the footer shows which code is live.
+Until step 2, the page can load new files while the worker runs old code, which shows up as errors such as `配置包含不支持的字段：mode`. Bump the version on any fix so the footer shows which code is live.
+
+An unpacked extension's id comes from its folder, so the Vue build has a different id from v0.6.x and its own `chrome.storage`. Settings move by 导出 JSON in the old plugin and pasting into 导入 in the new one. History and duplicate locks do not move. Remove the old plugin afterwards, or Auto CC runs twice.
 
 ## Changelog
 
@@ -186,6 +202,8 @@ Until step 1, pages load the new files from disk while the worker runs old code,
 **v0.6.1.** COSCO reference is optional and empty by default, and the old `AHIA` value is cleared, by the owner's decision.
 
 **v0.6.2.** Only COSCO and ONE can pick their own channels, with saved mismatches returned to email. Trigger: the owner's EMC Demurrage type was set to ONE chat through a dropdown that offered it, so EMC's editor showed ONE chat alongside EMC's aliases, which looked like corrupted ONE data. ONE's data was intact. EMC inquiries would have gone to ONE's chat. Also fixed a draft surviving its own save when the user switched carrier straight after.
+
+**v0.7.0 (branch `refactor/vue3-naiveui`, not merged).** Rewritten with Vue 3, TypeScript, Less and Naive UI on a Vite build. Native dialogs replaced by in-app ones, because they break once the user blocks them. Behavior, schema and storage keys are unchanged.
 
 ## Known limitations
 
@@ -212,4 +230,5 @@ Until step 1, pages load the new files from disk while the worker runs old code,
 
 - The branch `fix/gmail-send-confirmation` has no pull request and is not merged to `main`.
 - The GitHub repository name still contains AHIA. Renaming it is done on GitHub.
-- Vue 3, TypeScript, Less and Naive UI rewrite on `refactor/vue3-naiveui`, to replace native dialogs, which stop working when the user ticks Chrome's "prevent this page from creating additional dialogs".
+- `refactor/vue3-naiveui` is pushed and not merged. Merging moves the load path to `dist/extension`, which changes the extension id.
+- Stricter TypeScript for the ported modules, which still carry `@ts-nocheck`.

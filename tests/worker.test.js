@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import vm from 'node:vm';
 import {readFileSync} from 'node:fs';
 
-const original=readFileSync(new URL('../worker.js',import.meta.url),'utf8');
+const original=readFileSync(new URL('../src/background/worker.ts',import.meta.url),'utf8');
 const imports=original.match(/^import .*;\r?$/gm)||[];
 assert.equal(imports.length,7,'Update the isolated worker harness if its imports change.');
 const source=original.replace(/^import .*;\r?$/gm,'');

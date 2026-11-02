@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import vm from 'node:vm';
 import {readFileSync} from 'node:fs';
 
-const source=readFileSync(new URL('../airscript/LFD_ReadOnly.js',import.meta.url),'utf8');
+const source=readFileSync(new URL('../public/airscript/LFD_ReadOnly.js',import.meta.url),'utf8');
 const timestamp=1700000000000;
 
 function runScript(input){

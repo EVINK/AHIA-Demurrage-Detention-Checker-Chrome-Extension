@@ -1,8 +1,15 @@
-# Trucker Helper v0.6.2 — Chrome 插件使用说明
+# Trucker Helper v0.7.0 — Chrome 插件使用说明
 
 输入柜号，插件从金山文档「提柜」查出 MBL 和船公司，再按所选 Demurrage / Detention 类型准备查询邮件，保留 Gmail 原签名。支持 Maersk、MSC 和自行添加的船公司，收件邮箱与邮件模板均可配置。
 
 主按钮会**真实发送**；要先检查请点「仅生成草稿」。查表用于取得 MBL 和船公司；LFD 日期仍需等待船公司邮件回复。
+
+## v0.7.0 更新（分支 refactor/vue3-naiveui）
+
+- 界面用 Vue 3 + TypeScript + Less + Naive UI 重写，功能和配置结构不变。确认框都改成插件内的对话框，勾选 Chrome 的「禁止此网页再显示对话框」后不再失效。
+- 需要先构建：`npm install`，`npm run build`。在 `chrome://extensions` 加载 `dist\extension` 文件夹。
+- 文件夹变了，插件 ID 也变了，所以配置要迁移：在旧版点「导出 JSON」，把内容粘贴到新版的导入框。操作记录和防重复锁不会带过来。迁移后请移除旧版，否则 Auto CC 会重复执行。
+- 开发说明见 `Memory.md`。
 
 ## v0.6.2 更新
 
@@ -49,7 +56,7 @@
 
 1. 确认原插件目录已经更新为 v0.3.18 文件。如果使用压缩包，将文件解压到原来加载的目录。
 2. 在 Chrome 手动打开 `chrome://extensions`，找到 **Trucker Helper**，点击刷新图标。
-3. 点击工具栏上的 Trucker Helper 图标，打开新版弹窗；确认底部显示 `v0.6.2`、右上角显示「航司模式 / 码头模式」。
+3. 点击工具栏上的 Trucker Helper 图标，打开新版弹窗；确认底部显示 `v0.7.0`、右上角显示「航司模式 / 码头模式」。
 
 新版使用真正的工具栏弹窗，尺寸为 780 × 600，包含「查询 / 配置 / 记录」三个页面，不再为主界面新开标签页。v0.2.6 新增 unlimitedStorage，解除 chrome.storage.local 默认容量配额；实际仍受磁盘空间和性能限制。缓存逻辑保持不变。原有连接设置、草稿和发送锁定记录保留。
 
