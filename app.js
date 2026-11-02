@@ -3,6 +3,7 @@ import {DEFAULT_SETTINGS,validateSettings,createConfig,parseConfig} from './conf
 const $=id=>document.getElementById(id);
 const demo=!globalThis.chrome?.runtime?.id;
 const copy=value=>JSON.parse(JSON.stringify(value));
+let openedAutoCc=false;
 const sources={sheet:'提柜表航司列','mbl-prefix':'MBL 前缀',manual:'手动选择'};
 let settings=copy(DEFAULT_SETTINGS),busy=false,initializing=true,debounce,pollTimer,polling=false,requestSequence=0,lastOperationId='',lastRenderedOperation='',lastResult=null,draftTabId=null,configMissing=false,editingId='',editingType='';
 let demoSettings=copy(DEFAULT_SETTINGS),demoOperation=null,lookingUp=false,tasksTimer=null;
@@ -132,7 +133,8 @@ function renderConnection(){
   $('sheetUrl').value=settings.sheetUrl;$('gmailIndex').value=settings.gmailIndex;
   $('mailClient').value=mailProgram(settings.mailClient)?'program':'gmail';$('mailProgram').value=settings.mailClient==='outlook'?'outlook':'foxmail';syncMailClientNotice();
 }
-function renderAll(){renderSelects();renderConnection();renderProfile(ui.profile[settings.mode]);syncMode();}
+function renderAutoCc(){$('autoCcEnabled').checked=settings.autoCc.enabled;$('autoCcSenders').value=settings.autoCc.senders.join(', ');$('autoCcCc').value=settings.autoCc.cc.join(', ');}
+function renderAll(){renderSelects();renderConnection();renderAutoCc();renderProfile(ui.profile[settings.mode]);syncMode();}
 const currentProfile=()=>profiles().find(p=>p.id===editingId);
 const currentType=()=>findType(currentProfile(),editingType);
 const isBuiltinType=id=>Object.hasOwn(INQUIRY_TYPES,id);
@@ -172,21 +174,21 @@ function syncChannel(){
 // Auto-save. Text that cannot be saved yet (half-typed address or placeholder) is kept in a local draft, so
 // closing the popup to copy something elsewhere never loses it; reopening restores it and retries.
 const DRAFT_KEY='lfd-config-draft';
-const autoFields=()=>[...document.querySelectorAll('#carrierForm [id]:not([data-nosave]),#connectionForm [id]:not([data-nosave])')].filter(node=>node.matches('input,select,textarea'));
-let saveTimer=null,saveQueue=Promise.resolve();
+const autoFields=()=>[...document.querySelectorAll('#carrierForm [id]:not([data-nosave]),#connectionForm [id]:not([data-nosave]),#autoCcForm [id]:not([data-nosave])')].filter(node=>node.matches('input,select,textarea'));
+let saveTimer=null,saveQueue=Promise.resolve(),pendingWrites=0;
 function saveState(text,type=''){$('saveState').textContent=text;$('saveState').className='save-state '+type;}
-function writeDraft(){try{localStorage.setItem(DRAFT_KEY,JSON.stringify({mode:settings.mode,profile:editingId,type:editingType,fields:Object.fromEntries(autoFields().map(node=>[node.id,node.value]))}));}catch{}}
+function writeDraft(){try{localStorage.setItem(DRAFT_KEY,JSON.stringify({mode:settings.mode,profile:editingId,type:editingType,fields:Object.fromEntries(autoFields().map(node=>[node.id,node.type==='checkbox'?node.checked:node.value]))}));}catch{}}
 function clearDraft(){try{localStorage.removeItem(DRAFT_KEY);}catch{}}
 // Only the draft of what is on screen: an unsaved edit of another carrier stays until the user returns to it.
 function clearSavedDraft(){try{const draft=JSON.parse(localStorage.getItem(DRAFT_KEY)||'null');if(draft?.mode===settings.mode&&draft.profile===editingId&&draft.type===editingType)clearDraft();}catch{}}
 function restoreDraft(){
   let draft;try{draft=JSON.parse(localStorage.getItem(DRAFT_KEY)||'null');}catch{}
   if(!draft||draft.mode!==settings.mode||draft.profile!==editingId||draft.type!==editingType)return;
-  for(const node of autoFields())if(Object.hasOwn(draft.fields,node.id))node.value=draft.fields[node.id];
+  for(const node of autoFields())if(Object.hasOwn(draft.fields,node.id))node[node.type==='checkbox'?'checked':'value']=draft.fields[node.id];
   syncChannel();syncMailClientNotice();scheduleSave();
 }
 function collectSettings(){
-  const next={...settings,sheetUrl:$('sheetUrl').value.trim(),gmailIndex:Number($('gmailIndex').value),defaultCarrierId:$('defaultCarrierId').value,defaultInquiryType:$('defaultInquiryType').value,mailClient:chosenMailClient()};
+  const next={...settings,sheetUrl:$('sheetUrl').value.trim(),gmailIndex:Number($('gmailIndex').value),defaultCarrierId:$('defaultCarrierId').value,defaultInquiryType:$('defaultInquiryType').value,mailClient:chosenMailClient(),autoCc:{enabled:$('autoCcEnabled').checked,senders:addressList($('autoCcSenders').value),cc:addressList($('autoCcCc').value)}};
   const profile=currentProfile();if(!profile)return next;
   const name=$('carrierName').value.trim(),type=currentType();
   if(profiles().some(p=>p.id!==profile.id&&carrierLabel(p.name)===carrierLabel(name)))throw new Error(`已有同名的${kind()}「${name}」。`);
@@ -203,8 +205,8 @@ function collectSettings(){
 }
 // Writes go out in order; the page's own copy is already current, so the form is never redrawn under the cursor.
 function persist(next){
-  settings=next;
-  const work=saveQueue.then(()=>rpc({type:'settings',settings:next}));
+  settings=next;pendingWrites++;
+  const work=saveQueue.then(()=>rpc({type:'settings',settings:next})).finally(()=>{pendingWrites--;});
   saveQueue=work.catch(()=>{});
   work.then(()=>{if(!saveTimer){clearSavedDraft();saveState('已自动保存','success');}},error=>{saveState('未保存：'+error.message,'error');status(error.message,'error');});
   return work;
@@ -422,7 +424,7 @@ function refill(containers,entry){
 async function refreshState({initial=false}={}){
   const state=await rpc({type:'state'});
   // Only the first read: afterwards this page holds the newest settings, possibly with a write still on its way.
-  if(initial)settings=validateSettings(state.settings);
+  if(initial){settings=validateSettings(state.settings);if(state.openTarget==='autoCc'){ui.page='config';ui.scroll.config=0;if(!ui.open.includes('autoCcSection'))ui.open.push('autoCcSection');openedAutoCc=true;}}
   renderHistory(state.ledger);renderTasks(state.ledger);
   if(initial){
     const saved=storedInput();$('container').value=saved.container||'';
@@ -515,7 +517,7 @@ $('channel').addEventListener('change',()=>{if($('channel').value==='cosco-porta
 $('standardTemplate').addEventListener('click',()=>{$('bodyTemplate').value=standardBody(editingType);$('subjectTemplate').value=standardSubject(editingType);scheduleSave();});
 // Every field of the config page saves itself.
 $('page-config').addEventListener('input',event=>{if(event.target.matches('input,select,textarea')&&!event.target.hasAttribute('data-nosave'))scheduleSave();});
-for(const id of ['carrierForm','connectionForm'])$(id).addEventListener('submit',event=>{event.preventDefault();flushSave();});
+for(const id of ['carrierForm','connectionForm','autoCcForm'])$(id).addEventListener('submit',event=>{event.preventDefault();flushSave();});
 // The popup closes as soon as it loses focus (e.g. to copy text from another window).
 addEventListener('pagehide',flushSave);document.addEventListener('visibilitychange',()=>{if(document.hidden)flushSave();});
 $('deleteCarrier').addEventListener('click',()=>{
@@ -568,7 +570,7 @@ let importTimer;
 $('importText').addEventListener('input',()=>{clearTimeout(importTimer);importTimer=setTimeout(applyImport,250);});
 $('restoreDefaults').addEventListener('click',()=>{
   if(!confirm('恢复默认配置？船公司、模板和连接设置会换成插件内置内容，码头配置和操作记录保留。'))return;
-  discardPendingEdits();persist(validateSettings({mode:settings.mode,terminals:settings.terminals}));
+  discardPendingEdits();persist(validateSettings({mode:settings.mode,terminals:settings.terminals,autoCc:settings.autoCc}));
   lastResult=null;configMissing=false;$('needsConfig').hidden=true;clearPreview();
   fillQueryCarrier(terminalMode()?ui.profile.terminal:settings.defaultCarrierId);renderAll();status('已恢复默认配置。','success');
 });
@@ -664,3 +666,12 @@ for(const id of ui.open)if($(id))$(id).open=true;
 document.addEventListener('toggle',event=>{if(!event.target.id)return;ui.open=[...document.querySelectorAll('#page-config details[open]')].map(node=>node.id);rememberUi();},true);
 document.querySelectorAll('.page').forEach(node=>node.addEventListener('scroll',()=>{if(!node.hidden){ui.scroll[node.id.replace('page-','')]=node.scrollTop;rememberUi();}},{passive:true}));
 showPage(ui.page);
+if(openedAutoCc)$('autoCcSection').scrollIntoView();
+// Another window of the plugin changed something (settings stay in step everywhere). The field being typed in is left alone.
+if(!demo)chrome.storage.onChanged.addListener((changes,area)=>{
+  if(area!=='local'||!changes.settings?.newValue||saveTimer||pendingWrites)return;
+  let next;try{next=validateSettings(changes.settings.newValue);}catch{return;}
+  if(JSON.stringify(next)===JSON.stringify(settings))return;
+  settings=next;
+  if(document.activeElement?.closest?.('#page-config form')){renderSelects();syncMode();}else{const carrier=$('carrier').value;renderAll();if(carrier)fillQueryCarrier(carrier);}
+});

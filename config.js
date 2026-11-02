@@ -1,4 +1,4 @@
-import {DEFAULT_CARRIERS,normalizeCarriers,normalizeTerminals,inquiryType} from './core.js';
+import {DEFAULT_CARRIERS,normalizeCarriers,normalizeTerminals,inquiryType,addressList} from './core.js';
 
 export const CONFIG_FORMAT='lfd-inquiry-config';
 // Version 2: per-type carrier settings and terminals. Version 1 files still import.
@@ -17,7 +17,9 @@ export const DEFAULT_SETTINGS=Object.freeze({
   // 'gmail': Gmail web compose (automatic). The computer's default mail program via mailto: 'foxmail' reads the
   // body as HTML (<br> + bordered table); 'outlook' reads it as plain text. Verified in both on 2026-10-20.
   // The former 'system' option becomes 'foxmail'.
-  mailClient:'gmail'
+  mailClient:'gmail',
+  // Experimental: adds `cc` to any Gmail compose or reply whose sender is one of `senders`. Off until switched on.
+  autoCc:Object.freeze({enabled:false,senders:[],cc:[]})
 });
 const SETTING_KEYS=Object.keys(DEFAULT_SETTINGS);
 const ENVELOPE_KEYS=['format','version','settings'];
@@ -46,6 +48,11 @@ function mailClient(value){
   if(value==='system')return 'foxmail';
   if(!['gmail','foxmail','outlook'].includes(value))throw new Error('邮件发送方式须为 Gmail 网页或电脑默认邮件程序（Foxmail / Outlook）。');
   return value;
+}
+function autoCc(value){
+  object(value,'Auto CC 配置');
+  if(typeof value.enabled!=='boolean')throw new Error('Auto CC 开关格式无效。');
+  return {enabled:value.enabled,senders:addressList(value.senders),cc:addressList(value.cc)};
 }
 /** Validate a partial update and return only the supported, normalized settings. */
 export function validateSettings(input={}, {previous}={}){
@@ -76,7 +83,8 @@ export function validateSettings(input={}, {previous}={}){
     terminals,
     defaultCarrierId,
     defaultInquiryType:inquiryType(settings.defaultInquiryType,[...carriers,...terminals]),
-    mailClient:mailClient(settings.mailClient)
+    mailClient:mailClient(settings.mailClient),
+    autoCc:autoCc(settings.autoCc)
   };
 }
 
@@ -85,7 +93,7 @@ export function createConfig(settings){
   return {format:CONFIG_FORMAT,version:CONFIG_VERSION,settings:validateSettings(settings)};
 }
 
-/** Terminals and the mode the file does not mention (every version 1 file) stay as they are. */
+/** Terminals, the mode and Auto CC the file does not mention (every version 1 file) stay as they are. */
 export function parseConfig(text,current){
   if(typeof text!=='string')throw new Error('配置文件必须是 JSON 文本。');
   if(text.length>MAX_CONFIG_BYTES||new TextEncoder().encode(text).byteLength>MAX_CONFIG_BYTES)
@@ -96,5 +104,5 @@ export function parseConfig(text,current){
   if(parsed.format!==CONFIG_FORMAT)throw new Error('不是 LFD 插件配置文件：format 必须为 lfd-inquiry-config。');
   if(!IMPORTABLE_VERSIONS.includes(parsed.version))throw new Error('不支持此配置版本：version 必须为 1 或 2。');
   if(!Object.hasOwn(parsed,'settings'))throw new Error('配置文件缺少 settings 对象。');
-  return validateSettings(parsed.settings,current?{previous:{terminals:current.terminals,mode:current.mode}}:undefined);
+  return validateSettings(parsed.settings,current?{previous:{terminals:current.terminals,mode:current.mode,autoCc:current.autoCc}}:undefined);
 }

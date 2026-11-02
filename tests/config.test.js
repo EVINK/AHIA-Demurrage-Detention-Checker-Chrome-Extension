@@ -129,3 +129,15 @@ test('a default carrier that pointed at a merged duplicate falls back to automat
   const result=validateSettings({carriers,defaultCarrierId:'custom-2'});
   assert.equal(result.carriers.length,1);assert.equal(result.defaultCarrierId,'auto');
 });
+
+test('Auto CC is off by default, validates its addresses and survives a version 1 import',()=>{
+  assert.deepEqual(validateSettings().autoCc,{enabled:false,senders:[],cc:[]});
+  const autoCc={enabled:true,senders:['Me@Example.com'],cc:['a@example.com, b@example.com']};
+  const current=validateSettings({autoCc});
+  assert.deepEqual(current.autoCc,{enabled:true,senders:['me@example.com'],cc:['a@example.com','b@example.com']});
+  assert.throws(()=>validateSettings({autoCc:{...autoCc,cc:['not-an-email']}}),/邮箱/);
+  assert.throws(()=>validateSettings({autoCc:{...autoCc,enabled:'yes'}}),/开关/);
+  const v1=JSON.stringify({format:'lfd-inquiry-config',version:1,settings:{carriers:[custom],defaultCarrierId:'custom'}});
+  assert.deepEqual(parseConfig(v1,current).autoCc,current.autoCc);
+  assert.deepEqual(parseConfig(JSON.stringify(createConfig(current))).autoCc,current.autoCc);
+});

@@ -310,7 +310,33 @@ async function state(){
   }
   return value;
 }
+// Auto CC in Gmail: content scripts cannot read storage (trusted contexts only), so they get just this part.
+const GMAIL_MESSAGES=['autoCcConfig','autoCcOpen'];
+async function autoCcConfig(){return (await store.get(['settings'])).settings.autoCc;}
+// The Gmail button opens the toolbar popup on the Auto CC section, or a small window where Chrome cannot.
+async function openAutoCc(){
+  await chrome.storage.session.set({openTarget:'autoCc'});
+  try{await chrome.action.openPopup();}
+  catch{await chrome.windows.create({url:chrome.runtime.getURL('app.html'),type:'popup',width:800,height:660});}
+  return true;
+}
+async function takeOpenTarget(){
+  const {openTarget}=await chrome.storage.session.get('openTarget');
+  if(openTarget)await chrome.storage.session.set({openTarget:null});
+  return openTarget||'';
+}
+// Open Gmail pages follow changes made anywhere, right away.
+chrome.storage.onChanged.addListener(async(changes,area)=>{
+  if(area!=='local'||!changes.settings)return;
+  const was=JSON.stringify(changes.settings.oldValue?.autoCc),now=changes.settings.newValue?.autoCc;
+  if(!now||was===JSON.stringify(now))return;
+  for(const tab of await chrome.tabs.query({url:'https://mail.google.com/*'}))chrome.tabs.sendMessage(tab.id,{type:'autoCc',config:now}).catch(()=>{});
+});
 chrome.runtime.onMessage.addListener((message,sender,respond)=>{
+  if(sender.id===chrome.runtime.id&&String(sender.tab?.url||'').startsWith('https://mail.google.com/')&&GMAIL_MESSAGES.includes(message?.type)){
+    (message.type==='autoCcOpen'?openAutoCc():autoCcConfig()).then(data=>respond({ok:true,data}),error=>respond({ok:false,error:error.message}));
+    return true;
+  }
   // Only this extension's own app.html (popup or tab, any #fragment such as #import).
   if(sender.id!==chrome.runtime.id||String(sender.url||'').split('#')[0]!==chrome.runtime.getURL('app.html'))return false;
   (async()=>{
@@ -327,7 +353,7 @@ chrome.runtime.onMessage.addListener((message,sender,respond)=>{
     if(message.type==='deleteTask')return service.releaseTask(message.requestId);
     if(message.type==='markSent')return service.markSent(message.requestId);
     if(message.type==='testNotification'){notify('lfd-test',-1,'LFD Inquiry 测试通知','请点击这条通知。插件收到点击后会再弹出「插件已收到点击」。',true);return true;}
-    if(message.type==='state')return state();
+    if(message.type==='state')return {...await state(),openTarget:await takeOpenTarget()};
     if(message.type==='clearCache'){
       if(pendingOperations.size)throw new Error('请等当前查询完成后再清除缓存。');
       await chrome.storage.local.set({sheetCache:null,operation:null});return true;

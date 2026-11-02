@@ -1,6 +1,6 @@
 # LFD Inquiry — Agent 交接文档
 
-更新时间：2026-11-02（America/Los_Angeles）。代码版本：**0.4.0**（配置改为 profile.types、自动保存、码头模式，见第 10 节；更早：默认邮件程序 Foxmail/Outlook；Foxmail 自动填写；导入改在标签页；重复锁可强制重发；Gmail 收件人兼容其他插件；ONE 白屏修复；COSCO On-Hire 工单；On-Hire 多柜号、ONE 气泡文字修复；可选本机邮件程序；On-Hire；ONE 对话复用、独立小窗、终止/删除；浮动小窗+通知；查询不阻塞/后台任务/ONE 多柜号；ONE 在线客服；英文界面兼容；2026-10-14：发送确认加严、COSCO 工单网站、取消DO 后分段读取、日志虚拟列表读取、脚本自动安装、找不到柜号提示框，见第 6 节）。
+更新时间：2026-11-02（America/Los_Angeles）。代码版本：**0.5.0**（Auto CC，见第 11 节；配置改为 profile.types、自动保存、码头模式，见第 10 节；更早：默认邮件程序 Foxmail/Outlook；Foxmail 自动填写；导入改在标签页；重复锁可强制重发；Gmail 收件人兼容其他插件；ONE 白屏修复；COSCO On-Hire 工单；On-Hire 多柜号、ONE 气泡文字修复；可选本机邮件程序；On-Hire；ONE 对话复用、独立小窗、终止/删除；浮动小窗+通知；查询不阻塞/后台任务/ONE 多柜号；ONE 在线客服；英文界面兼容；2026-10-14：发送确认加严、COSCO 工单网站、取消DO 后分段读取、日志虚拟列表读取、脚本自动安装、找不到柜号提示框，见第 6 节）。
 Chrome 现直接从 WSL 目录 `/home/evink/demurrage-lfd-extension` 加载；git 分支 `fix/gmail-send-confirmation`。
 本文件依据本次对话及当前源码整理；它是工程交接，不代表安装在 Chrome 中的版本已自动更新。
 
@@ -255,3 +255,12 @@ User screenshot confirmed v0.3.19 recipient separation works but Foxmail flatten
 - 导入只保留粘贴：弹窗内系统文件框会白屏（见 v0.3.17），`#import` 页已删除。
 - gmail.js 收件人校验：`fieldAddresses`（chip、同名 input）∪ `recipientArea`（整个 form 克隆后去掉正文/签名/from，逐文本节点取地址，不可用 textContent，否则相邻地址粘连）。缺失时点 `.aoD.hl` 展开。**展开选择器和合并行结构未在真实 Gmail 验证，只有 tests/browser.js 模拟**。用户确认没签名不重要：等待签名最多 4 秒，没有也继续；有签名时仍校验未被改动。
 - Chrome 浏览器测试：`tests/browser.html` 24 项模拟通过；配置页在无头 Chrome 的本地演示模式下验证；另在临时配置的无头 Edge 中以已加载扩展、标签页方式打开 app.html，验证了空存储内置配置、旧配置升级与重复合并、经 worker 的自动保存、重开恢复、码头、删除、粘贴导入。工具栏弹窗本身和真实 Gmail 未验证。
+
+
+## 11. 2026-11-02 v0.5.0 实验性 Auto CC
+
+- `gmail-autocc.js` 是常驻 mail.google.com 的 content script（经典脚本，非模块），未开启时只取一次配置。`settings.autoCc={enabled,senders,cc}`。
+- storage 是 TRUSTED_CONTEXTS，content script 读不到，所以由 worker 转发：`autoCcConfig`（只返回这一段）、`autoCcOpen`；worker 的 onMessage 对这两个类型单独放行，其余消息仍只接受 app.html。`storage.onChanged` 把变化推给 Gmail 标签页，app.js 也监听它实现多窗口同步（`pendingWrites`/`saveTimer` 期间跳过，避免自己写入的回声）。
+- `autoCcOpen`：`storage.session.openTarget` + `chrome.action.openPopup()`，失败开小窗口；app 通过 `state.openTarget` 定位。
+- 发件人：`input[name=from]`，否则 document.title；有 From 选择器但无值时视为未知，不添加。`view=cm` 页面跳过（插件自己的 LFD 写信页，否则会和 gmail.js 校验抢输入框）。`handled` 记录已处理地址，手动删除不再加回。
+- **选择器（`form input[name=composeid]`、`[name=cc] input`、Cc 链接、`.aoD.hl`、logo）全部未在真实 Gmail 验证**，只有 tests/autocc.html 模拟（9 项，走 tools/serve.mjs 打开）。

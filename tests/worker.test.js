@@ -17,13 +17,15 @@ async function until(predicate){
   assert.fail('Worker did not reach the expected observable state.');
 }
 
-function setup({data={},run=async()=>({status:'draft',tabId:42}),read=async value=>value,tabs=[],scriptError=null}={}){
+function setup({data={},run=async()=>({status:'draft',tabId:42}),read=async value=>value,tabs=[],scriptError=null,popupFails=false}={}){
+  let changed;const session={},pushed=[];
   let db={settings:{...defaults},ledger:{},...clone(data)},listener,deps,id=0;
   const calls={notifications:[],windows:[],windowUpdates:[],windowRemoved:[],fetched:[],run:[],release:[],writes:[],created:[],updated:[],queries:[],scripts:[],access:[],removed:[]};
   const tabMap=new Map(tabs.map(tab=>[tab.id,clone(tab)]));
   const readKdocsPage=()=>{},gmailPage=()=>{},coscoPage=()=>{},onePage=()=>{};
   const chrome={
-    storage:{session:{get:async()=>({}),set:async()=>{}},local:{
+    action:{openPopup:async()=>{calls.popup=(calls.popup||0)+1;if(popupFails)throw new Error('no window');}},
+    storage:{onChanged:{addListener:fn=>{changed=fn;}},session:{get:async key=>({[key]:session[key]}),set:async value=>{Object.assign(session,value);}},local:{
       setAccessLevel:async value=>{calls.access.push(clone(value));},
       get:async keys=>read(Object.fromEntries(keys.filter(key=>Object.hasOwn(db,key)).map(key=>[key,clone(db[key])])),keys),
       set:async value=>{const saved=clone(value);calls.writes.push(saved);db={...db,...saved};}
@@ -40,7 +42,8 @@ function setup({data={},run=async()=>({status:'draft',tabId:42}),read=async valu
     runtime:{id:'test-extension',getURL:path=>`chrome-extension://test-extension/${path}`,onMessage:{addListener:fn=>{listener=fn;}}},
     tabs:{
       remove:async tabId=>{calls.removed.push(tabId);tabMap.delete(tabId);},
-      query:async options=>{calls.queries.push(clone(options));return [...tabMap.values()].filter(tab=>tab.url?.startsWith('https://www.kdocs.cn/')).map(clone);},
+      query:async options=>{calls.queries.push(clone(options));return [...tabMap.values()].filter(tab=>tab.url?.startsWith((options.url||'https://www.kdocs.cn/').replace('*',''))).map(clone);},
+      sendMessage:async(tabId,message)=>{pushed.push([tabId,clone(message)]);},
       create:async options=>{calls.created.push(clone(options));const tab={id:100+calls.created.length,status:'complete',...options};tabMap.set(tab.id,tab);return clone(tab);},
       get:async tabId=>{if(!tabMap.has(tabId))throw new Error('Tab no longer exists');return clone(tabMap.get(tabId));},
       update:async(tabId,options)=>{calls.updated.push({tabId,...clone(options)});const tab={...tabMap.get(tabId),...options};tabMap.set(tabId,tab);return clone(tab);}
@@ -65,7 +68,7 @@ function setup({data={},run=async()=>({status:'draft',tabId:42}),read=async valu
     const accepted=listener(message,from,value=>{if(!ignoreResponse)resolve(clone(value));});
     return {accepted,response};
   }
-  return {send,calls,deps,db:()=>clone(db),removeTab:tabId=>chrome.tabs.remove(tabId),updateTab:(tabId,options)=>chrome.tabs.update(tabId,options)};
+  return {send,calls,deps,session,pushed,changed:(...args)=>changed(...args),db:()=>clone(db),removeTab:tabId=>chrome.tabs.remove(tabId),updateTab:(tabId,options)=>chrome.tabs.update(tabId,options)};
 }
 
 test('lookup persists running before work and completes after popup response is ignored',async()=>{
@@ -302,4 +305,34 @@ test('the extension page opened in a tab with a #fragment (e.g. #import) is acce
     const result=t.send({type:'state'},{from:{id:'test-extension',url},ignoreResponse:true});
     assert.equal(result.accepted,false,url);
   }
+});
+
+const gmailPage={id:'test-extension',url:'https://mail.google.com/mail/u/0/#inbox',tab:{id:7,url:'https://mail.google.com/mail/u/0/#inbox'}};
+const autoCc={enabled:true,senders:['me@example.com'],cc:['a@example.com']};
+test('a Gmail page gets only the Auto CC part of the settings and nothing else',async()=>{
+  const t=setup({data:{settings:{...defaults,autoCc}}});
+  const config=await t.send({type:'autoCcConfig'},{from:gmailPage}).response;
+  assert.equal(config.ok,true);assert.deepEqual(config.data,autoCc);
+  for(const type of ['state','settings','run','clearCache'])assert.equal(t.send({type},{from:gmailPage}).accepted,false,`${type} must stay refused`);
+  const other={...gmailPage,id:'other-extension'};assert.equal(t.send({type:'autoCcConfig'},{from:other}).accepted,false);
+  assert.equal(t.send({type:'autoCcConfig'},{from:{id:'test-extension',url:'https://evil.example/',tab:{id:8,url:'https://evil.example/'}}}).accepted,false);
+});
+
+test('the Gmail button opens the popup on the Auto CC section, or a small window when it cannot',async()=>{
+  const t=setup();
+  assert.equal((await t.send({type:'autoCcOpen'},{from:gmailPage}).response).ok,true);
+  assert.equal(t.calls.popup,1);assert.equal(t.calls.windows.length,0);
+  const opened=await t.send({type:'state'}).response;assert.equal(opened.data.openTarget,'autoCc');
+  assert.equal((await t.send({type:'state'}).response).data.openTarget,'','used once');
+  const fallback=setup({popupFails:true});
+  await fallback.send({type:'autoCcOpen'},{from:gmailPage}).response;
+  assert.equal(fallback.calls.windows[0].url,'chrome-extension://test-extension/app.html');
+});
+
+test('open Gmail tabs are told when Auto CC changes, and not for other settings',async()=>{
+  const t=setup({tabs:[{id:7,status:'complete',url:'https://mail.google.com/mail/u/0/'},{id:8,status:'complete',url:'https://www.kdocs.cn/l/x'}]});
+  await t.changed({settings:{oldValue:{autoCc},newValue:{gmailIndex:1,autoCc}}},'local');assert.equal(t.pushed.length,0);
+  const next={...autoCc,enabled:false};
+  await t.changed({settings:{oldValue:{autoCc},newValue:{autoCc:next}}},'local');
+  assert.deepEqual(t.pushed,[[7,{type:'autoCc',config:next}]]);
 });
