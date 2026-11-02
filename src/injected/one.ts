@@ -46,9 +46,50 @@ export async function onePage(kind,action,payload){
     return {ok:true,data:{chatOnly:!!document.getElementById('embeddedMessagingFrame')}};
   }
   if(kind==='top'){
-    if(action!=='open')throw new Error('未知 ONE 页面操作。');
+    if(action!=='open'&&action!=='retryOpen')throw new Error('未知 ONE 页面操作。');
     const wrapper=()=>document.querySelector('#one-chat-wrapper');
     const maintenance=()=>[...document.querySelectorAll('.mtn-combile-block,#one-chat-wrapper-mtn')].find(visible);
+    const chatFrame=()=>document.getElementById('embeddedMessagingFrame');
+    // The chat box normally appears within seconds. When it does not, nobody knows why yet, so a failure records
+    // what the page looked like. Kept in sessionStorage so it survives the page reloading itself.
+    const TRACE='lfd-one-trace',continueWait=payload.continueWait??45000;
+    const storedTrace=()=>{try{return JSON.parse(sessionStorage.getItem(TRACE)||'null');}catch{return null;}};
+    const keepTrace=trace=>{try{sessionStorage.setItem(TRACE,JSON.stringify(trace));}catch{}};
+    const forgetTrace=()=>{try{sessionStorage.removeItem(TRACE);}catch{}};
+    function watch(trace){
+      const note=(key,value)=>{trace[key]=[...(trace[key]||[]),value].slice(-6);keepTrace(trace);};
+      addEventListener('error',event=>{const target=event.target;if(target&&target!==window)note('loadErrors',target.src||target.href||target.tagName);else note('pageErrors',String(event.message).slice(0,160));},true);
+      addEventListener('unhandledrejection',event=>note('pageErrors',String(event.reason?.message||event.reason).slice(0,160)));
+      addEventListener('onEmbeddedMessagingReady',()=>{trace.embeddedReadyAt=new Date().toISOString();keepTrace(trace);});
+      addEventListener('pagehide',()=>{trace.pageLeftAt=new Date().toISOString();keepTrace(trace);});
+      return trace;
+    }
+    function snapshot(trace){
+      const box=wrapper(),start=box?.querySelector('.start-chat'),script=pattern=>[...document.scripts].some(item=>pattern.test(item.src));
+      const network=performance.getEntriesByType('resource').filter(entry=>/salesforce|my\.site\.com|force\.com|liveagent|livechat_department|one_chat/i.test(entry.name)).slice(-14)
+        .map(entry=>{const url=new URL(entry.name);return {url:url.host+url.pathname,status:entry.responseStatus,ms:Math.round(entry.duration)};});
+      return {...trace,failedAt:new Date().toISOString(),path:location.pathname,visibility:document.visibilityState,hasFocus:document.hasFocus(),navigation:performance.getEntriesByType('navigation')[0]?.type,
+        wrapperVisible:visible(box),loading:Boolean(box?.classList.contains('chat-loading')),continueDisabled:Boolean(start?.classList.contains('disabled')),maintenance:maintenance()?text(maintenance()).slice(0,200):'',
+        customizeScript:script(/PilotMessagingCustomize/),bootstrapScript:script(/bootstrap(\.min)?\.js/),embeddedBootstrap:typeof window.embeddedservice_bootstrap,messagingService:typeof window.messaging_service,chatFrame:Boolean(chatFrame()),network};
+    }
+    async function clickContinue(button,trace){
+      Object.assign(trace,{clicks:(trace.clicks||0)+1,clickedAt:new Date().toISOString(),visibilityAtClick:document.visibilityState,focusAtClick:document.hasFocus()});
+      keepTrace(trace);button.click();
+      const outcome=await waitFor(()=>chatFrame()?'chat':maintenance()?'maintenance':null,'',continueWait).catch(()=>null);
+      if(outcome==='maintenance'){forgetTrace();throw new Error(`ONE 在线客服暂不可用：${text(maintenance()).slice(0,200)}`);}
+      if(outcome==='chat'){forgetTrace();return {opened:true};}
+      return null;
+    }
+    if(action==='retryOpen'){
+      const trace=window.__lfdOneTrace||watch(storedTrace()||{});window.__lfdOneTrace=trace;trace.retried=true;keepTrace(trace);
+      if(chatFrame()){forgetTrace();return {ok:true,data:{opened:true}};}
+      const button=wrapper()?.querySelector('.start-chat');
+      // A disabled button means ONE is still working on the first click: a second one would do nothing.
+      const result=visible(button)&&!button.classList.contains('disabled')?await clickContinue(button,trace):await waitFor(()=>chatFrame(),'',continueWait).then(()=>({opened:true}),()=>null);
+      if(result){forgetTrace();return {ok:true,data:result};}
+      const diagnostics=snapshot(trace);forgetTrace();
+      throw Object.assign(new Error('点击 Continue 后 ONE 聊天窗口 90 秒内没有出现，请打开 ONE 小窗查看页面提示。'),{diagnostics});
+    }
     if(maintenance())throw new Error(`ONE 在线客服暂不可用：${text(maintenance()).slice(0,200)}`);
     // ONE reopened an earlier conversation by itself: the chat frame is already there (the form step decides).
     if(document.getElementById('embeddedMessagingFrame')&&!visible(wrapper()))return {ok:true,data:{opened:true,resumed:true}};
@@ -69,10 +110,11 @@ export async function onePage(kind,action,payload){
     const label=await waitFor(()=>[...wrapper().querySelectorAll('*')].find(e=>visible(e)&&e.childElementCount===0&&text(e)==='Continue'),'没有找到 Continue 按钮。');
     const button=label.closest('.start-chat')||label;
     if(button.classList.contains('disabled'))throw new Error(`ONE 在线客服（${payload.country}）的 Continue 不可用，可能不在服务时间。`);
-    button.click();
-    // Either the Salesforce chat frame loads, or ONE shows a maintenance notice instead.
-    const outcome=await waitFor(()=>document.getElementById('embeddedMessagingFrame')?'chat':maintenance()?'maintenance':null,'点击 Continue 后 ONE 聊天窗口 30 秒内没有出现，请打开 ONE 小窗查看页面提示。',30000);
-    if(outcome==='maintenance')throw new Error(`ONE 在线客服暂不可用：${text(maintenance()).slice(0,200)}`);
+    // A trace left by an earlier click on this page means ONE reloaded the page instead of opening the chat.
+    const earlier=storedTrace(),trace=watch({...earlier,...(earlier?{reloadedAfterContinue:true}:{})});window.__lfdOneTrace=trace;
+    const result=await clickContinue(button,trace);
+    // Not there yet: the worker brings the window forward and asks for one more attempt.
+    if(!result)return {ok:true,data:{opened:false}};
     return {ok:true,data:{opened:true}};
   }
 
@@ -187,5 +229,5 @@ export async function onePage(kind,action,payload){
   }
   throw new Error('未知 ONE 聊天操作。');
   // `sent` tells the extension a message already went out before the error (so the result is "uncertain").
-  }catch(error){return {ok:false,error:error.message||String(error),...(error.sent?{sent:error.sent}:{})};}
+  }catch(error){return {ok:false,error:error.message||String(error),...(error.sent?{sent:error.sent}:{}),...(error.diagnostics?{diagnostics:error.diagnostics}:{})};}
 }

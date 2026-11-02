@@ -105,3 +105,11 @@ test('a failed task the user verified as sent becomes sent and keeps its duplica
   const [verified]=Object.values(t.db().ledger);assert.equal(verified.status,'sent');assert.equal(verified.confirmation,'用户核实已发送');
   await assert.rejects(t.service.run(record.container,'send'),/已有/);
 });
+
+test('the page state of a failed chat start stays on the record',async()=>{
+  const failure=Object.assign(new Error('点击 Continue 后 ONE 聊天窗口 90 秒内没有出现，请打开 ONE 小窗查看页面提示。'),{diagnostics:{clicks:2,visibility:'visible',chatFrame:false}});
+  const t=setup({prepareChat:async()=>{throw failure;}});
+  await assert.rejects(t.service.run(record.container,'send'),/90 秒/);
+  const [entry]=Object.values(t.db().ledger);
+  assert.equal(entry.status,'needs_review');assert.deepEqual(entry.diagnostics,failure.diagnostics);
+});

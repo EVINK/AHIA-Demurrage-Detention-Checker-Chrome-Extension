@@ -181,7 +181,7 @@ async function inFrame(tabId,kind,action,payload={},timeout=45000){
     try{results=await chrome.scripting.executeScript({target:{tabId,allFrames:true},func:onePage,args:[kind,action,payload],world:'MAIN'});}
     catch(error){lastError=error.message;if(/No tab with id|tab was closed|No frame/i.test(error.message))throw Object.assign(new Error('ONE 页面已被关闭'),{closed:true});}
     const hit=results.map(r=>r?.result).find(r=>r&&!(r.ok&&r.data?.skip));
-    if(hit){if(!hit.ok)throw Object.assign(new Error(hit.error||'ONE 页面操作失败。'),hit.sent?{sent:hit.sent}:{});return hit.data;}
+    if(hit){if(!hit.ok)throw Object.assign(new Error(hit.error||'ONE 页面操作失败。'),hit.sent?{sent:hit.sent}:{},hit.diagnostics?{diagnostics:hit.diagnostics}:{});return hit.data;}
     await pause(1000);
   }
   throw new Error(`ONE 页面没有加载出所需的${kind==='chat'?'聊天窗口':kind==='calc'?'计算器':'页面'}${lastError?'（'+lastError+'）':''}。`);
@@ -268,7 +268,14 @@ const service=createService({storage:store,
         await inFrame(tab.id,'top','reset');
         await inFrame(tab.id,'chat','reset',{},15000).catch(()=>{});
         await chrome.tabs.reload(tab.id);await pause(500);await loaded(tab.id);
-        await inFrame(tab.id,'top','open',payload);
+        const started=await inFrame(tab.id,'top','open',payload,60000);
+        // The chat box is late. Say so, bring the window forward once and give it one more try before giving up.
+        if(started?.opened===false){
+          progress('ONE 聊天窗口较慢，正在重试');
+          notify(`lfd-one-slow-${tab.id}`,tab.id,'ONE 聊天窗口还没出现','已等待 45 秒，正在重试。点击此通知打开小窗查看。');
+          await floatTab(tab.id).catch(()=>{});
+          await inFrame(tab.id,'top','retryOpen',payload,60000);
+        }
         // From here on the small window shows only the chat box.
         await inFrame(tab.id,'top','chatOnly',{},5000).catch(()=>{});
       };
@@ -387,6 +394,7 @@ chrome.runtime.onMessage.addListener((message,sender,respond)=>{
     if(message.type==='markSent')return service.markSent(message.requestId);
     if(message.type==='testNotification'){notify('lfd-test',-1,'Trucker Helper 测试通知','请点击这条通知。插件收到点击后会再弹出「插件已收到点击」。',true);return true;}
     if(message.type==='state')return {...await state(),openTarget:await takeOpenTarget()};
+    if(message.type==='history'){const {ledger={},archive=[]}=await store.get(['ledger','archive']);return {ledger,archive};}
     if(message.type==='clearCache'){
       if(pendingOperations.size)throw new Error('请等当前查询完成后再清除缓存。');
       await chrome.storage.local.set({sheetCache:null,operation:null});return true;

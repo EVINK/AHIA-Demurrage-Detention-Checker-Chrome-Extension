@@ -1,10 +1,10 @@
 <script setup lang="ts">
 import {NButton} from 'naive-ui';
-import {busy,historyRows,markSent,openDraft,openMailto,refresh,releaseRecord,t} from '../store.ts';
+import {busy,exportHistory,historyRows,markSent,openDraft,openMailto,refresh,releaseRecord,t} from '../store.ts';
 </script>
 
 <template>
-  <div class="section-top"><h2>{{t('操作记录')}}</h2><n-button id="refresh" size="small" @click="refresh">{{t('刷新')}}</n-button></div>
+  <div class="section-top"><h2>{{t('操作记录')}}</h2><div class="history-buttons"><n-button id="exportHistory" size="small" @click="exportHistory">{{t('导出记录')}}</n-button><n-button id="refresh" size="small" @click="refresh">{{t('刷新')}}</n-button></div></div>
   <div id="history">
     <p v-if="!historyRows.length" class="empty">{{t('暂无操作记录')}}</p>
     <div v-for="row in historyRows" :key="row.key" class="history-row">
@@ -13,6 +13,7 @@ import {busy,historyRows,markSent,openDraft,openMailto,refresh,releaseRecord,t} 
         <p>{{row.detail}}</p>
         <div class="history-state">{{t(row.state)}}{{row.suffix}}</div>
         <p v-if="row.entry.detail">{{t(row.entry.detail)}}</p>
+        <details v-if="row.entry.diagnostics" class="diagnostics"><summary>{{t('诊断信息')}}</summary><pre>{{JSON.stringify(row.entry.diagnostics,null,2)}}</pre></details>
       </div>
       <div class="history-buttons">
         <n-button v-if="row.openable" size="tiny" :disabled="busy" @click="openDraft(row.entry.tabId)">{{t(row.openLabel)}}</n-button>

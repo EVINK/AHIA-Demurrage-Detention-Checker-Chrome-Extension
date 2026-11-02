@@ -159,7 +159,7 @@ export function createService({storage, readSheet, prepareMail, sendMail, prepar
       // An adapter marks errors raised before anything was submitted (e.g. captcha never completed).
       if(error?.notTransmitted===true)transmissionStarted=false;
       if(cancelled.has(requestId))error=Object.assign(new Error('任务已手动终止'),{read:error?.read});
-      const failed={status:transmissionStarted?'uncertain':'needs_review',detail:error.message,running:false,step:''};
+      const failed={status:transmissionStarted?'uncertain':'needs_review',detail:error.message,running:false,step:'',...(error?.diagnostics?{diagnostics:error.diagnostics}:{})};
       // A multi-container chat may have some messages read already: those containers count as queried.
       const read=Array.isArray(error?.read)?error.read:[];
       await write(key=>read[keys.indexOf(key)]?{status:'sent',confirmation:'客服已读',running:false,step:''}:failed).catch(()=>{});

@@ -2,6 +2,7 @@ import {gmailPage as gmailAdapter} from '/src/injected/gmail.ts';
 import {messageTemplate,portalTemplate,normalizeCarriers} from '/src/core/core.ts';
 import {coscoPage as coscoAdapter} from '/src/injected/cosco.ts';
 import {readKdocsPage as kdocsAdapter} from '/src/injected/kdocs.ts';
+import {onePage} from '/src/injected/one.ts';
 async function unwrap(result){const r=await result;if(!r.ok)throw new Error(r.error);return r.data;}
 const gmailPage=(...args)=>unwrap(gmailAdapter(...args));
 const readKdocsPage=(...args)=>unwrap(kdocsAdapter(...args));
@@ -204,3 +205,19 @@ await test('English KDocs UI: opens the editor via Tools / Advanced Development 
   assert(result.records[0].container==='CSNU5509665'&&result.records[0].carrier==='COS','English UI result missing');
 });
 fixture.replaceChildren();document.title='Browser adapter tests — complete';
+// ONE: the adapter only acts on ONE's own hosts, so it runs here with that location.
+const oneTop=new Function('location',`return (${onePage.toString()})`)({hostname:'www.one-line.com',pathname:'/one-ecom/manage-shipment/cargo-tracking'});
+const oneOptions={country:'United States',continueWait:400};
+function oneForm({frameAfter=-1,keepDisabled=false}={}){
+  sessionStorage.removeItem('lfd-one-trace');delete window.__lfdOneTrace;
+  fixture.innerHTML='<div class="chat-icon">chat</div><div id="one-chat-wrapper" style="display:none"><input class="selected" value="United States"><div class="start-chat"><span>Continue</span></div></div>';
+  const form={clicks:0},start=fixture.querySelector('.start-chat');
+  fixture.querySelector('.chat-icon').onclick=()=>{fixture.querySelector('#one-chat-wrapper').style.display='block';};
+  start.onclick=()=>{form.clicks++;if(keepDisabled)start.classList.add('disabled');if(form.clicks===frameAfter){const frame=document.createElement('iframe');frame.id='embeddedMessagingFrame';fixture.append(frame);}};
+  return form;
+}
+await test('ONE: the chat box arriving on the first click is simply opened',async()=>{const form=oneForm({frameAfter:1});const r=await unwrap(oneTop('top','open',oneOptions));assert(r.opened===true&&form.clicks===1,'not opened');assert(!sessionStorage.getItem('lfd-one-trace'),'trace left behind');});
+await test('ONE: a late chat box asks for one more attempt, which clicks Continue again',async()=>{const form=oneForm({frameAfter:2});const first=await unwrap(oneTop('top','open',oneOptions));assert(first.opened===false,'gave up early');const second=await unwrap(oneTop('top','retryOpen',oneOptions));assert(second.opened===true&&form.clicks===2,'second click missing');});
+await test('ONE: Continue still busy is not clicked twice',async()=>{const form=oneForm({keepDisabled:true});await unwrap(oneTop('top','open',oneOptions));const r=await oneTop('top','retryOpen',oneOptions);assert(!r.ok&&form.clicks===1,'clicked a busy button');assert(r.diagnostics.continueDisabled===true,'busy state not recorded');});
+await test('ONE: giving up reports the page state for the record',async()=>{const form=oneForm();await unwrap(oneTop('top','open',oneOptions));const r=await oneTop('top','retryOpen',oneOptions);assert(!r.ok&&/90 秒/.test(r.error),'wrong error: '+r.error);const d=r.diagnostics;assert(form.clicks===2&&d.clicks===2&&d.retried===true,'attempts not recorded');for(const key of ['clickedAt','failedAt','visibilityAtClick','visibility','navigation','embeddedBootstrap','messagingService'])assert(d[key]!==undefined,'missing '+key);assert(d.chatFrame===false&&d.wrapperVisible===true&&Array.isArray(d.network),'state wrong');assert(!sessionStorage.getItem('lfd-one-trace'),'trace left behind');});
+await test('ONE: a page that reloaded itself after Continue is noted',async()=>{oneForm({frameAfter:-1});sessionStorage.setItem('lfd-one-trace',JSON.stringify({clicks:1,clickedAt:'earlier'}));await unwrap(oneTop('top','open',oneOptions));assert(JSON.parse(sessionStorage.getItem('lfd-one-trace')).reloadedAfterContinue===true,'reload not noted');});

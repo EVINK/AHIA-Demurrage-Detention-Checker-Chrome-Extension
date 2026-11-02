@@ -353,3 +353,10 @@ test('clicks arriving together open one window',async()=>{
   await Promise.all([1,2,3].map(()=>t.send({type:'autoCcOpen'},{from:gmailPage}).response));
   assert.equal(t.calls.windows.length,1);
 });
+
+test('history export reads the records and the archive, from plugin pages only',async()=>{
+  const t=setup({data:{ledger:{a:{container:'X'}},archive:[{container:'Y'}]}});
+  const reply=await t.send({type:'history'}).response;
+  assert.equal(reply.ok,true);assert.deepEqual(reply.data,{ledger:{a:{container:'X'}},archive:[{container:'Y'}]});
+  assert.equal(t.send({type:'history'},{from:gmailPage}).accepted,false);
+});

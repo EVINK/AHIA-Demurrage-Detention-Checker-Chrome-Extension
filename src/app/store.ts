@@ -55,6 +55,7 @@ async function rpc(request){
   if(demo){
     if(request.type==='clearCache'){demoOperation=null;return true;}
     if(request.type==='state')return {settings:copy(demoSettings),ledger:{},operation:demoOperation};
+    if(request.type==='history')return {ledger:{},archive:[]};
     if(request.type==='settings'){demoSettings=validateSettings(request.settings);localStorage.setItem('lfd-demo-settings',JSON.stringify(demoSettings));return copy(demoSettings);}
     if(request.type==='run'){
       if(!['identify','preview'].includes(request.mode))throw new Error('这是本地界面演示。安装后的插件才能生成 Gmail 草稿。');
@@ -680,6 +681,10 @@ export function setLanguage(value){flushSave();applyLanguage(value);persist(vali
 export function openDefaultApps(){openMailto('ms-settings:defaultapps');}
 function download(text,filename,type){const url=URL.createObjectURL(new Blob([text],{type})),a=document.createElement('a');a.href=url;a.download=filename;document.body.append(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),1500);}
 async function scriptText(){const response=await fetch('./airscript/LFD_ReadOnly.js');if(!response.ok)throw new Error('无法读取插件中的只读脚本。');return response.text();}
+export async function exportHistory(){
+  try{const {ledger:current,archive}=await rpc({type:'history'});download(JSON.stringify({exportedAt:new Date().toISOString(),ledger:current,archive},null,2)+'\n','trucker-helper-history.json','application/json');status('记录已导出。','success');}
+  catch(error){status(error.message,'error');}
+}
 export function exportConfig(){try{download(JSON.stringify(createConfig(settings.value),null,2)+'\n','trucker-helper-config.json','application/json');status('配置 JSON 已导出。','success');}catch(error){status(error.message,'error');}}
 function afterReplace(){resetResult();fillQueryCarrier(terminalMode.value?ui.profile.terminal:settings.value.defaultCarrierId);fillTypes();renderAll();}
 // Pasted, not picked: on Windows the system file picker makes the toolbar popup go blank and close.

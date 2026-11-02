@@ -211,6 +211,8 @@ An unpacked extension's id comes from its folder, so the Vue build has a differe
 
 **v0.7.3 (same branch).** The Windows default apps link is back at the owner's request. Chrome's own prompt before opening the Settings app cannot be replaced by a plugin dialog; it stays, and "Always allow" stops it.
 
+**v0.7.4 (same branch).** ONE chat start: 45 seconds, then the window comes forward with a notification and Continue is tried once more for 45 seconds. A failure stores `diagnostics` on the ledger entry (visibility, focus, clicks, Salesforce script state, page and load errors, reloads, network), shown under 记录 and included in 导出记录. Reason: "ONE chat did not appear" happened on the owner's machine with Chrome in the foreground, while ten measured runs took 1 to 4 seconds in every window state, so the cause is unknown and needs data. Page visibility is not it: ONE's `isAgentAvailabilityCheckEnabled` is false, and the launcher has no visibility logic.
+
 ## Known limitations
 
 - Gmail, COSCO, ONE and KDocs are driven through their page structure, so a site redesign can stop any flow. Failures stop with a message rather than guess.
