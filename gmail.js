@@ -24,43 +24,55 @@ export async function gmailPage(action,payload){
   const subject=await waitFor(()=>document.querySelector('input[name="subjectbox"]'),'Gmail 写信页未加载，或需要登录。');
   const body=await waitFor(()=>[...document.querySelectorAll('[contenteditable="true"][role="textbox"]')].find(visible),'未找到邮件正文。');
   const signature=await waitFor(()=>body.querySelector('.gmail_signature'),'未检测到 Gmail 原签名，已停止。');
-  function account(){
-    const from=document.querySelector('input[name="from"]');
-    if(!from)throw new Error('无法识别 Gmail 发件人控件，已停止。');
-    const explicit=from.value?.trim();
-    const title=document.title.match(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i)?.[0];
-    if(!explicit){
-      const fromControl=[...document.querySelectorAll('select[name="from"],[aria-label],[data-tooltip]')].filter(visible).some(e=>e.matches('select[name="from"]')||/^(From\b|发件人)/i.test(e.getAttribute('aria-label')||e.getAttribute('data-tooltip')||''));
-      const fromLabel=[...document.querySelectorAll('label,td,span')].filter(visible).some(e=>/^(From|发件人)\s*[:：]?$/i.test(e.textContent.trim()));
-      if(fromControl||fromLabel)throw new Error('检测到发件地址选择器，但无法核实所选别名，已停止。');
-    }
-    return (explicit||title||'').toLowerCase();
+  const addressesIn=text=>String(text||'').toLowerCase().match(/[a-z0-9.!#$%&'*+/=?^_`{|}~-]+@[a-z0-9-]+(?:\.[a-z0-9-]+)+/g)||[];
+  const pendingInputs=name=>[...document.querySelectorAll(`[name="${name}"] input,[name="${name}"] textarea`)];
+  // One field: its chips, plus any plain or hidden input carrying the same name.
+  function fieldAddresses(name){
+    const chips=[...document.querySelectorAll(`[name="${name}"] [data-hovercard-id],[name="${name}"] [email]`)].flatMap(e=>addressesIn(e.getAttribute('data-hovercard-id')||e.getAttribute('email')));
+    const inputs=[...pendingInputs(name),...document.querySelectorAll(`input[name="${name}"],textarea[name="${name}"]`)].flatMap(e=>addressesIn(e.value));
+    return [...chips,...inputs];
   }
-  const chips=name=>[...document.querySelectorAll(`[name="${name}"] [role="option"][data-hovercard-id]`)];
-  const addresses=name=>chips(name).map(e=>e.getAttribute('data-hovercard-id').toLowerCase()).sort();
-  const equal=(a,b)=>JSON.stringify([...a].sort())===JSON.stringify([...b].sort());
+  // Until the recipient area is opened, Gmail shows To and Cc merged in one collapsed line and the Cc field has
+  // no chips, so also read the whole recipient area. The message body stays out: a signature often contains
+  // one of these very addresses and must not pass for a recipient.
+  function recipientArea(){
+    let root=subject.closest('form');
+    if(!root){root=subject.parentElement;while(root.parentElement&&root.parentElement!==document.body&&!root.querySelector('[name="to"]'))root=root.parentElement;}
+    const copy=root.cloneNode(true);
+    copy.querySelectorAll('script,style,[contenteditable],.gmail_signature,[name="from"],[name="subjectbox"]').forEach(e=>e.remove());
+    const attributes=[...copy.querySelectorAll('[data-hovercard-id],[email]')].flatMap(e=>addressesIn(e.getAttribute('data-hovercard-id')||e.getAttribute('email')));
+    // Node by node: joined text runs one address into the next one and garbles both.
+    const texts=[],walker=document.createTreeWalker(copy,NodeFilter.SHOW_TEXT);
+    while(walker.nextNode())texts.push(...addressesIn(walker.currentNode.nodeValue));
+    return [...attributes,...texts];
+  }
   // Every configured To / Cc must be on the page. Extra recipients (e.g. added by another auto-Cc/Bcc
   // extension the user also runs) are accepted. Returns '' when complete, else what is missing.
   function recipientMismatch(){
-    const parts=[];
+    const parts=[],merged=recipientArea();
     for(const [name,label,expected] of [['to','To',payload.to],['cc','Cc',payload.cc]]){
-      const actual=addresses(name),missing=expected.map(v=>v.toLowerCase()).filter(v=>!actual.includes(v));
+      const actual=new Set([...fieldAddresses(name),...merged]),missing=expected.map(v=>v.toLowerCase()).filter(v=>!actual.has(v));
       if(missing.length)parts.push(`${label} 缺少 ${missing.join(', ')}`);
     }
     return parts.join('；');
   }
+  // Opening the collapsed line makes Gmail render the real To and Cc fields.
+  function expandRecipients(){const row=document.querySelector('.aoD.hl');if(row&&visible(row))row.click();}
   function verify(){
-    if(account()!==payload.account.toLowerCase())throw new Error('当前 Gmail 发件账号与设置不符。');
     if(subject.value!==payload.subject)throw new Error('邮件主题发生变化。');
     const mismatch=recipientMismatch();
     if(mismatch)throw new Error(`Gmail 写信页中的收件人与配置不符（${mismatch}）。`);
-    for(const name of ['to','cc','bcc'])if([...document.querySelectorAll(`[name="${name}"] input`)].some(e=>e.value.trim()))throw new Error('存在尚未确认的收件地址。');
+    // Text still in a recipient box is fine when it is one of the configured addresses Gmail has yet to turn into a chip.
+    const configured=[...payload.to,...payload.cc].map(v=>v.toLowerCase());
+    for(const name of ['to','cc','bcc'])if(pendingInputs(name).some(e=>{const text=e.value.trim(),found=addressesIn(text);return text&&(!found.length||found.some(v=>!configured.includes(v)));}))throw new Error('存在尚未确认的收件地址。');
     if(!signature.textContent.trim()&&!signature.querySelector('img'))throw new Error('签名为空。');
   }
   if(action==='prepare'){
     if(body.dataset.lfdRequest)throw new Error('此写信页已处理，不能重复插入。');
     // Gmail renders the recipient chips lazily (slower in a background tab): wait until they settle.
-    await pause(1000);await waitFor(()=>!recipientMismatch(),'',10000).catch(()=>{});verify();
+    await pause(1000);await waitFor(()=>!recipientMismatch(),'',4000).catch(()=>{});
+    if(recipientMismatch()){expandRecipients();await waitFor(()=>!recipientMismatch(),'',6000).catch(()=>{});}
+    verify();
     const originalSignature=signature.outerHTML;
     const clone=body.cloneNode(true);clone.querySelectorAll('.gmail_signature').forEach(e=>e.remove());
     if(clone.textContent.trim())throw new Error('写信页已有正文，已停止以避免覆盖。');
