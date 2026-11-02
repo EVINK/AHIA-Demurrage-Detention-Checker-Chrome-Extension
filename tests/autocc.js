@@ -8,7 +8,7 @@ const send=next=>{config=next;push({type:'autoCc',config:next});};
 // Gmail: the Cc row appears after clicking its link; Enter turns the text into a chip.
 function compose({from='me@example.com',to='',cc=''}={}){
   const form=document.createElement('form');
-  form.innerHTML=`<input type="hidden" name="composeid" value="1"><input type="hidden" name="from" value="${from}"><div name="to">${to?`<span role="option" data-hovercard-id="${to}">${to}</span>`:''}</div><span role="link" aria-label="添加抄送收件人 (Ctrl-Shift-C)">抄送</span><div name="cc" hidden>${cc?`<span role="option" data-hovercard-id="${cc}">${cc}</span>`:''}<input></div>`;
+  form.innerHTML=`<input type="hidden" name="composeid" value="1"><input type="hidden" name="from" value="${from}"><div name="to">${to?`<span role="option" data-hovercard-id="${to}">${to}</span>`:''}</div><span class="aB gQ pE" role="link" aria-label="添加抄送收件人 (Ctrl-Shift-C)">抄送</span><div name="cc" hidden>${cc?`<span role="option" data-hovercard-id="${cc}">${cc}</span>`:''}<input></div>`;
   const row=form.querySelector('[name=cc]'),input=row.querySelector('input');
   form.querySelector('[role=link]').onclick=()=>{row.hidden=false;};
   input.addEventListener('keydown',event=>{if(event.keyCode!==13||!input.value)return;const chip=document.createElement('span');chip.setAttribute('role','option');chip.dataset.hovercardId=input.value;chip.textContent=input.value;row.prepend(chip);input.value='';});
