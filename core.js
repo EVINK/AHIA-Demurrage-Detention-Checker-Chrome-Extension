@@ -11,6 +11,9 @@ export const COSCO_ON_HIRE=Object.freeze({url:'https://coscoshippingla.freshdesk
 export const COSCO_ON_HIRE_BODY='Dear {{steam shipping line}},\n\nPlease onhire below containers to LBCT,PCT,ETS,FMS,APM\n\n{{table}}';
 const TICKET_HOSTS=['support.cosco-usa.com','coscoshippingla.freshdesk.com'];
 export const CHANNELS=['email','cosco-portal','one-chat'];
+// These two are one company's own website: nobody else's inquiry may go there.
+export const CHANNEL_OWNERS=Object.freeze({'cosco-portal':'cosco','one-chat':'one'});
+export const channelsFor=profileId=>CHANNELS.filter(channel=>!CHANNEL_OWNERS[channel]||CHANNEL_OWNERS[channel]===profileId);
 // ONE takes LFD inquiries through the live chat on one-line.com (Salesforce messaging, transferred to an agent).
 export const ONE_CHAT=Object.freeze({firstName:'LET',lastName:'TANG',email:'service@darwinpacific.com',country:'United States',message:'Please advise {{type}} LFD for {{container}} / {{mbl}}'});
 export const PORTAL_INQUIRY_TYPE='detention';
@@ -127,14 +130,15 @@ function chatFields(value){
   return {firstName:profileText(value.firstName,'First Name'),lastName:profileText(value.lastName,'Last Name'),email:email[0],
     country:profileText(value.country??ONE_CHAT.country,'Country'),message};
 }
-function typeFields(value){
+function typeFields(value,profileId){
   if(!value||typeof value!=='object'||Array.isArray(value)||typeof value.id!=='string')throw new Error('查询类型配置格式无效。');
   const id=value.id.trim().toLowerCase();
   if(!/^[a-z][a-z0-9_-]{0,63}$/.test(id))throw new Error('查询类型 ID 无效。');
   const channel=value.channel===undefined?'email':value.channel;
   if(!CHANNELS.includes(channel))throw new Error('发送方式无效。');
   const to=addressList(value.to),cc=addressList(value.cc).filter(address=>!to.includes(address));
-  return {id,label:profileText(value.label??INQUIRY_TYPES[id]??'','查询类型名称'),channel,to,cc,
+  // Saved by an earlier version that offered every channel to every carrier: back to email.
+  return {id,label:profileText(value.label??INQUIRY_TYPES[id]??'','查询类型名称'),channel:channelsFor(profileId).includes(channel)?channel:'email',to,cc,
     subjectTemplate:templateText(value.subjectTemplate??'','subject'),bodyTemplate:templateText(value.bodyTemplate??'','body')};
 }
 /** Old format: top-level To/Cc/templates shared by Demurrage and Detention, plus an onHire sub-object. */
@@ -157,11 +161,11 @@ function normalizeProfile(profile,label){
   const id=profile.id.trim().toLowerCase();
   if(id==='auto'||!/^[a-z][a-z0-9_-]{0,63}$/.test(id))throw new Error(`${label} ID 无效（auto 为保留名称）。`);
   const builtin=DEFAULT_CARRIERS.find(item=>item.id===id);
-  const types=(Array.isArray(profile.types)?profile.types:legacyTypes(profile,id)).map(typeFields);
+  const types=(Array.isArray(profile.types)?profile.types:legacyTypes(profile,id)).map(type=>typeFields(type,id));
   if(new Set(types.map(type=>type.id)).size!==types.length)throw new Error(`${label}的查询类型重复。`);
   const uses=channel=>types.some(type=>type.channel===channel);
-  const portal=uses('cosco-portal')||profile.portal?portalFields(profile.portal??builtin?.portal??COSCO_PORTAL):undefined;
-  const chat=uses('one-chat')||profile.chat?chatFields(profile.chat??builtin?.chat??ONE_CHAT):undefined;
+  const portal=uses('cosco-portal')?portalFields(profile.portal??builtin?.portal??COSCO_PORTAL):undefined;
+  const chat=uses('one-chat')?chatFields(profile.chat??builtin?.chat??ONE_CHAT):undefined;
   return {id,name:profileText(profile.name,`${label}名称`),greeting:profileText(profile.greeting,'邮件称呼'),
     aliases:profileList(profile.aliases??builtin?.aliases??[],`${label}别名`),
     mblPrefixes:profileList(profile.mblPrefixes??builtin?.mblPrefixes??[],'MBL 前缀',true),

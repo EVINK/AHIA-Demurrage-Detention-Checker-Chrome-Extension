@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import vm from 'node:vm';
 import {readFileSync} from 'node:fs';
-import {containerNumber,lookup,messageTemplate,QUESTION,TO,CC,DEFAULT_CARRIERS,DEFAULT_BODY_TEMPLATE,DEFAULT_SUBJECT_TEMPLATE,addressList,inquiryType,normalizeCarriers,normalizeTerminals,recognizeCarrier,findType,newProfile,newInquiryType,missingConfiguration,ON_HIRE_BODY_TEMPLATE} from '../core.js';
+import {containerNumber,lookup,messageTemplate,QUESTION,TO,CC,DEFAULT_CARRIERS,DEFAULT_BODY_TEMPLATE,DEFAULT_SUBJECT_TEMPLATE,addressList,inquiryType,normalizeCarriers,normalizeTerminals,recognizeCarrier,findType,newProfile,newInquiryType,missingConfiguration,ON_HIRE_BODY_TEMPLATE,channelsFor} from '../core.js';
 import {createService} from '../service.js';
 const withType=(profile,id,patch)=>({...profile,types:profile.types.map(type=>type.id===id?{...type,...patch}:type)});
 const withAllTypes=(profile,patch)=>({...profile,types:profile.types.map(type=>({...type,...patch}))});
@@ -292,6 +292,17 @@ test('a new carrier has the three types with the default Cc and no To; a new ter
   assert.deepEqual(missingConfiguration(normalizeCarriers([carrier])[0],'demurrage'),['to']);
   const terminal=newProfile('terminal-x','PCT',{terminal:true});assert.deepEqual(terminal.types,[]);
   assert.deepEqual(missingConfiguration(normalizeTerminals([terminal])[0],'demurrage'),['type']);
+});
+test('another carrier\'s website channel falls back to email; COSCO and ONE keep theirs and their recognition data',()=>{
+  const defaults=normalizeCarriers(),emc=defaults.find(p=>p.name==='EMC');
+  const saved=withType({...emc,chat:{firstName:'LET',lastName:'TANG',email:'service@darwinpacific.com',country:'United States',message:'{{type}} {{container}} {{mbl}}'}},'demurrage',{channel:'one-chat'});
+  const [repaired]=normalizeCarriers([saved]);
+  assert.equal(findType(repaired,'demurrage').channel,'email');assert.deepEqual(findType(repaired,'demurrage').to,['laxecs@evergreen-shipping.us']);
+  assert.equal('chat' in repaired,false,'leftover chat settings go too');assert.deepEqual(repaired.aliases,['EMC','EGL']);
+  assert.equal(findType(normalizeCarriers([withType(emc,'detention',{channel:'cosco-portal'})])[0],'detention').channel,'email');
+  const one=defaults.find(p=>p.id==='one');assert.deepEqual(one.aliases,['ONE','OCEAN NETWORK EXPRESS']);assert.deepEqual(one.mblPrefixes,['ONEY']);
+  assert.equal(findType(one,'demurrage').channel,'one-chat');assert.equal(findType(defaults.find(p=>p.id==='cosco'),'detention').channel,'cosco-portal');
+  assert.deepEqual(channelsFor('one'),['email','one-chat']);assert.deepEqual(channelsFor('cosco'),['email','cosco-portal']);assert.deepEqual(channelsFor('carrier-x'),['email']);
 });
 test('duplicate carriers saved by older versions collapse to the configured entry and keep every alias',()=>{
   const blank={id:'carrier-1',name:'H M M',greeting:'HMM',to:[],cc:[],aliases:['HMM21'],mblPrefixes:['HDMU']};

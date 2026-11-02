@@ -1,4 +1,4 @@
-import {messageTemplate,portalTemplate,recognizeCarrier,containerNumber,COSCO_PORTAL,ONE_CHAT,DEFAULT_CARRIERS,chatTemplate,addressList,INQUIRY_TYPES,inquiryChannel,findType,resolveType,missingConfiguration,supportsManyContainers,standardBody,standardSubject,newInquiryType,newProfile,carrierLabel} from './core.js';
+import {messageTemplate,portalTemplate,recognizeCarrier,containerNumber,COSCO_PORTAL,ONE_CHAT,DEFAULT_CARRIERS,chatTemplate,addressList,INQUIRY_TYPES,inquiryChannel,findType,resolveType,missingConfiguration,supportsManyContainers,standardBody,standardSubject,newInquiryType,newProfile,carrierLabel,channelsFor} from './core.js';
 import {DEFAULT_SETTINGS,validateSettings,createConfig,parseConfig} from './config.js';
 import {translate,resolveLanguage} from './i18n.js';
 import {createLocalizer} from './i18n-dom.js';
@@ -169,7 +169,10 @@ function renderType(id){
   const profile=currentProfile(),type=findType(profile,id)||profile.types[0];
   editingType=type?.id||'';ui.type[editingId]=editingType;rememberUi();
   $('editType').replaceChildren(...profile.types.map(item=>new Option(item.label,item.id)));$('editType').value=editingType;
-  $('editType').disabled=!type;$('deleteType').hidden=!type;$('noTypes').hidden=Boolean(type);$('typeFields').hidden=!type;$('channelRow').hidden=!type;
+  $('editType').disabled=!type;$('deleteType').hidden=!type;$('noTypes').hidden=Boolean(type);$('typeFields').hidden=!type;
+  // COSCO's ticket site and ONE's chat belong to those two; everyone else only sends email.
+  const channels=channelsFor(profile.id);$('channelRow').hidden=!type||channels.length<2;
+  for(const option of $('channel').options){const offered=channels.includes(option.value);option.hidden=!offered;option.disabled=!offered;}
   if(type){
     $('typeLabelRow').hidden=isBuiltinType(type.id);$('typeLabel').value=type.label;
     $('carrierTo').value=type.to.join(', ');$('carrierCc').value=type.cc.join(', ');
@@ -194,7 +197,7 @@ function saveState(text,type=''){$('saveState').textContent=text;$('saveState').
 function writeDraft(){try{localStorage.setItem(DRAFT_KEY,JSON.stringify({mode:settings.mode,profile:editingId,type:editingType,fields:Object.fromEntries(autoFields().map(node=>[node.id,node.type==='checkbox'?node.checked:node.value]))}));}catch{}}
 function clearDraft(){try{localStorage.removeItem(DRAFT_KEY);}catch{}}
 // Only the draft of what is on screen: an unsaved edit of another carrier stays until the user returns to it.
-function clearSavedDraft(){try{const draft=JSON.parse(localStorage.getItem(DRAFT_KEY)||'null');if(draft?.mode===settings.mode&&draft.profile===editingId&&draft.type===editingType)clearDraft();}catch{}}
+function clearSavedDraft({mode,profile,type}){try{const draft=JSON.parse(localStorage.getItem(DRAFT_KEY)||'null');if(draft?.mode===mode&&draft.profile===profile&&draft.type===type)clearDraft();}catch{}}
 function restoreDraft(){
   let draft;try{draft=JSON.parse(localStorage.getItem(DRAFT_KEY)||'null');}catch{}
   if(!draft||draft.mode!==settings.mode||draft.profile!==editingId||draft.type!==editingType)return;
@@ -219,10 +222,12 @@ function collectSettings(){
 }
 // Writes go out in order; the page's own copy is already current, so the form is never redrawn under the cursor.
 function persist(next){
+  // What this save covers, taken now: by the time it lands the user may be on another carrier.
+  const saved={mode:settings.mode,profile:editingId,type:editingType};
   settings=next;pendingWrites++;
   const work=saveQueue.then(()=>rpc({type:'settings',settings:next})).finally(()=>{pendingWrites--;});
   saveQueue=work.catch(()=>{});
-  work.then(()=>{if(!saveTimer){clearSavedDraft();saveState('已自动保存','success');}},error=>{saveState('未保存：'+error.message,'error');status(error.message,'error');});
+  work.then(()=>{clearSavedDraft(saved);if(!saveTimer){saveState('已自动保存','success');}},error=>{saveState('未保存：'+error.message,'error');status(error.message,'error');});
   return work;
 }
 function afterConfigChange(){
