@@ -165,10 +165,10 @@ await test('COSCO ticket: captcha never completed means nothing is submitted',as
   assert(/人机验证超时/.test(error)&&ticketSubmits===0,'timed out submit');
 });
 await test('COSCO ticket: edited field after fill blocks submit',async()=>{
-  coscoForm();await coscoPage('fill',ticket);fixture.querySelector('#cf_ref').value='OTHER';
+  coscoForm();await coscoPage('fill',ticket);fixture.querySelector('#cf_service').value='OTHER';
   fixture.querySelector('textarea[name="g-recaptcha-response"]').value='token';let error='';
   try{await coscoPage('submit',ticket);}catch(e){error=e.message;}
-  assert(/SCAC/.test(error)&&ticketSubmits===0,'edited form submitted');
+  assert(/Per Diem Services/.test(error)&&ticketSubmits===0,'edited form submitted');
 });
 await test('COSCO ticket: a different prefilled requester is not overwritten',async()=>{
   coscoForm({requester:'someone@else.com'});let error='';
