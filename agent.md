@@ -254,4 +254,4 @@ User screenshot confirmed v0.3.19 recipient separation works but Foxmail flatten
 - 自动保存：`scheduleSave`（400ms）→`flushSave`→`persist`（串行）；校验不过的内容写入 localStorage `lfd-config-draft`，重开恢复。保存不重绘表单。worker 不再在任务运行时拒绝保存；`refreshState` 只在首次读取时覆盖 `settings`。界面位置在 localStorage `lfd-popup-ui`。
 - 导入只保留粘贴：弹窗内系统文件框会白屏（见 v0.3.17），`#import` 页已删除。
 - gmail.js 收件人校验：`fieldAddresses`（chip、同名 input）∪ `recipientArea`（整个 form 克隆后去掉正文/签名/from，逐文本节点取地址，不可用 textContent，否则相邻地址粘连）。缺失时点 `.aoD.hl` 展开。**展开选择器和合并行结构未在真实 Gmail 验证，只有 tests/browser.js 模拟**。签名检查保留，无签名账号会被拦下，这是待用户决定的点。
-- Chrome 浏览器测试：`tests/browser.html` 24 项模拟通过；配置页在无头 Chrome 的本地演示模式下验证，未在真实扩展弹窗中验证。
+- Chrome 浏览器测试：`tests/browser.html` 24 项模拟通过；配置页在无头 Chrome 的本地演示模式下验证；另在临时配置的无头 Edge 中以已加载扩展、标签页方式打开 app.html，验证了空存储内置配置、旧配置升级与重复合并、经 worker 的自动保存、重开恢复、码头、删除、粘贴导入。工具栏弹窗本身和真实 Gmail 未验证。
