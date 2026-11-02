@@ -147,7 +147,7 @@ await test('COSCO ticket: fills every field, waits for the user captcha, then su
   assert(fixture.querySelector('#helpdesk_ticket_email').value==='service@darwinpacific.com','requester');
   assert(fixture.querySelector('#helpdesk_ticket_ticket_type').value==='Per Diem','type');
   assert(fixture.querySelector('#cf_service').value==='Last Free Day','service');
-  assert(fixture.querySelector('#cf_ref').value==='AHIA','reference');
+  assert(fixture.querySelector('#cf_ref').value==='','an empty reference is left alone');
   const editor=fixture.querySelector('.redactor_editor');
   assert(!fixture.querySelector('[contenteditable]:not(.redactor_editor)').innerText.trim(),'wrote into Redactor\'s hidden helper');
   assert(editor.querySelector('table')&&editor.innerText.includes('MSMU7504817')&&editor.innerText.includes('MEDUAFS11232'),'table');

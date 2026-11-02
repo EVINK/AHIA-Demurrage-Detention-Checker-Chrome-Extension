@@ -88,7 +88,7 @@ test('COSCO On-Hire ticket: Equipment fields, container count and list, a Contai
   const cosco=normalizeCarriers().find(p=>p.id==='cosco');
   const ticket=portalTemplate({container:'TRHU6630515',mbl:'COSU6466276490'},{carrier:cosco,inquiryType:'on-hire',more:[{container:'OOCU8526498',mbl:'COSU6466276590'}]});
   assert.equal(ticket.url,'https://coscoshippingla.freshdesk.com/support/tickets/new');
-  assert.deepEqual(ticket.fields.map(f=>[f.label,f.value,f.kind]),[['Type','Equipment','select'],['Services','On / Off Hire','select'],['Region','Southern California','select'],['Number of Containers','2','input'],['Container #','TRHU6630515 OOCU8526498','input'],['SCAC Code','AHIA','input']]);
+  assert.deepEqual(ticket.fields.map(f=>[f.label,f.value,f.kind]),[['Type','Equipment','select'],['Services','On / Off Hire','select'],['Region','Southern California','select'],['Number of Containers','2','input'],['Container #','TRHU6630515 OOCU8526498','input']]);
   assert.equal(ticket.bodyText,'Dear Cosco,\n\nPlease onhire below containers to LBCT,PCT,ETS,FMS,APM\n\nContainer#\tMBL#\nTRHU6630515\tCOSU6466276490\nOOCU8526498\tCOSU6466276590');
   assert.match(ticket.html,/<table[^>]*><tr><th[^>]*>Container#<\/th><th[^>]*>MBL#<\/th><\/tr><tr><td[^>]*>TRHU6630515<\/td><td[^>]*>COSU6466276490<\/td><\/tr><tr><td[^>]*>OOCU8526498<\/td><td[^>]*>COSU6466276590<\/td><\/tr><\/table>$/);
   assert.throws(()=>portalTemplate({container:'TRHU6630515',mbl:'COSU6466276490'},{carrier:cosco,more:[{container:'OOCU8526498',mbl:'COSU6466276590'}]}),/On-Hire/);

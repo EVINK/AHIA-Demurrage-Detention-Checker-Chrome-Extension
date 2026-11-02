@@ -5,7 +5,7 @@ export const QUESTION='Could you please advise the demurrage LFD for the contain
 export const DEFAULT_BODY_TEMPLATE='Dear {{steam shipping line}},\n\nCould you please advise the {{type}} LFD for the container below?\n\n{{table}}';
 export const DEFAULT_SUBJECT_TEMPLATE='{{Type}} LFD Inquiry - Container#{{container}} MBL#{{mbl}}';
 // COSCO USA takes LFD inquiries through its Freshdesk ticket portal; Per Diem is always Detention.
-export const COSCO_PORTAL=Object.freeze({requester:'service@darwinpacific.com',shipmentType:'Per Diem',service:'Last Free Day',reference:'AHIA'});
+export const COSCO_PORTAL=Object.freeze({requester:'service@darwinpacific.com',shipmentType:'Per Diem',service:'Last Free Day',reference:''});
 // COSCO On-Hire goes through COSCO Shipping LA's Freshdesk portal (Type Equipment → On / Off Hire).
 export const COSCO_ON_HIRE=Object.freeze({url:'https://coscoshippingla.freshdesk.com/support/tickets/new',type:'Equipment',service:'On / Off Hire',region:'Southern California'});
 export const COSCO_ON_HIRE_BODY='Dear {{steam shipping line}},\n\nPlease onhire below containers to LBCT,PCT,ETS,FMS,APM\n\n{{table}}';
@@ -99,6 +99,11 @@ function templateText(value,kind){
 }
 export const ON_HIRE_BODY_TEMPLATE='Dear {{steam shipping line}},\n\nPlease on-hire below containers to Terminal A, B,C,D,...,etc.\n\n{{table}}';
 export const ON_HIRE_SUBJECT_TEMPLATE='On-Hire Request - Container#{{container}} MBL#{{mbl}}';
+// Optional. 'AHIA' is the old built-in value, removed from saved settings and imported files as they are read.
+function portalReference(value){
+  const reference=String(value??'').trim();
+  return reference&&reference!=='AHIA'?profileText(reference,'PD INV /BL /BKG /HOU # /SCAC Code'):'';
+}
 function portalFields(value){
   if(!value||typeof value!=='object'||Array.isArray(value))throw new Error('COSCO 工单配置格式无效。');
   const requester=addressList(value.requester);
@@ -107,7 +112,7 @@ function portalFields(value){
   let url;try{url=new URL(onHire.url);}catch{}
   if(!url||url.protocol!=='https:'||!TICKET_HOSTS.includes(url.hostname))throw new Error('COSCO On-Hire 工单网址无效。');
   return {requester:requester[0]||'',shipmentType:profileText(value.shipmentType,'Shipment Type'),
-    service:profileText(value.service,'Per Diem Services'),reference:profileText(value.reference,'PD INV /BL /BKG /HOU # /SCAC Code'),
+    service:profileText(value.service,'Per Diem Services'),reference:portalReference(value.reference),
     onHire:{url:url.href,type:profileText(onHire.type,'On-Hire Type'),service:profileText(onHire.service,'On-Hire Services'),region:profileText(onHire.region,'On-Hire Region')}};
 }
 function chatFields(value){
@@ -268,11 +273,11 @@ export function portalTemplate(record,options={}){
     // from the carrier's On-Hire template with {{table}} as the Container# / MBL# table (one row per container).
     const {bodyText,html,items}=renderTemplates(record,profile,type,options.more||[]);
     const fields=[{label:'Type',value:portal.onHire.type,kind:'select'},{label:'Services',value:portal.onHire.service,kind:'select'},{label:'Region',value:portal.onHire.region,kind:'select'},
-      {label:'Number of Containers',value:String(items.length),kind:'input'},{label:'Container #',value:items.map(item=>item.container).join(' '),kind:'input'},{label:'SCAC Code',value:portal.reference,kind:'input'}];
+      {label:'Number of Containers',value:String(items.length),kind:'input'},{label:'Container #',value:items.map(item=>item.container).join(' '),kind:'input'},{label:'SCAC Code',value:portal.reference,kind:'input'}].filter(field=>field.value);
     return {channel:'cosco-portal',url:portal.onHire.url,requester:portal.requester,fields,containers:items.map(item=>item.container),carrierId:profile.id,carrierName:profile.name,inquiryType:id,typeLabel:type.label,bodyText,html};
   }
   const {bodyText,html}=renderTemplates(record,profile,type);
-  const fields=[{label:'Shipment Type',value:portal.shipmentType,kind:'select'},{label:'Per Diem Services',value:portal.service,kind:'select'},{label:'PD INV /BL /BKG /HOU # /SCAC Code',value:portal.reference,kind:'input'}];
+  const fields=[{label:'Shipment Type',value:portal.shipmentType,kind:'select'},{label:'Per Diem Services',value:portal.service,kind:'select'},{label:'PD INV /BL /BKG /HOU # /SCAC Code',value:portal.reference,kind:'input'}].filter(field=>field.value);
   return {channel:'cosco-portal',url:'https://support.cosco-usa.com/support/tickets/new',...portal,fields,carrierId:profile.id,carrierName:profile.name,inquiryType:id,typeLabel:type.label,bodyText,html};
 }
 /** Chat message for a carrier whose channel is the ONE live chat. */

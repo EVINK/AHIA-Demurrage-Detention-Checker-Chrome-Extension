@@ -28,7 +28,7 @@ test('COSCO is a built-in portal carrier recognized from the sheet SSL "COS"',()
   const profile=cosco();
   assert.deepEqual(profile.types.map(type=>[type.id,type.channel]),[['detention','cosco-portal'],['on-hire','cosco-portal']]);
   assert.deepEqual(profile.portal,{...COSCO_PORTAL,onHire:{url:'https://coscoshippingla.freshdesk.com/support/tickets/new',type:'Equipment',service:'On / Off Hire',region:'Southern California'}});
-  assert.equal(profile.portal.reference,'AHIA');assert.equal(profile.portal.requester,'service@darwinpacific.com');
+  assert.equal(profile.portal.reference,'');assert.equal(profile.portal.requester,'service@darwinpacific.com');
   assert.equal(recognizeCarrier(record).carrier.id,'cosco');
   assert.equal(recognizeCarrier({...record,carrier:''}).carrier.id,'cosco','COSU MBL prefix');
   for(const id of ['maersk','msc'])assert.ok(normalizeCarriers().find(p=>p.id===id).types.every(type=>type.channel==='email'));
@@ -38,7 +38,7 @@ test('portal config validates channel and a single requester, and round-trips th
   assert.throws(()=>normalizeCarriers([{...COSCO_DEFAULT,types:[{...COSCO_DEFAULT.types[0],channel:'fax'}]}]),/发送方式/);
   assert.throws(()=>normalizeCarriers([{id:'x',name:'X',greeting:'X',to:[],cc:[],channel:'fax'}]),/发送方式/);
   assert.throws(()=>normalizeCarriers([{...COSCO_DEFAULT,portal:{...COSCO_PORTAL,requester:'a@example.com, b@example.com'}}]),/Requester/);
-  assert.throws(()=>normalizeCarriers([{...COSCO_DEFAULT,portal:{...COSCO_PORTAL,reference:''}}]),/SCAC/);
+  assert.throws(()=>normalizeCarriers([{...COSCO_DEFAULT,portal:{...COSCO_PORTAL,reference:'a\nb'}}]),/SCAC/);
   const settings=validateSettings({carriers:[{...COSCO_DEFAULT,portal:{...COSCO_PORTAL,requester:'Ops@Example.com'}}],defaultCarrierId:'cosco'});
   assert.equal(settings.carriers[0].portal.requester,'ops@example.com');
   assert.deepEqual(parseConfig(JSON.stringify(createConfig(settings))).carriers,settings.carriers);
@@ -51,7 +51,7 @@ test('portal ticket uses the default mail body, always Detention, and is never r
   assert.equal(ticket.inquiryType,'detention');
   assert.equal(ticket.bodyText,'Dear Cosco,\n\nCould you please advise the detention LFD for the container below?\n\nContainer#\tMBL#\nMSMU7504817\tCOSU6123456780');
   assert.match(ticket.html,/<table[^>]*>.*Container#.*MBL#.*MSMU7504817.*COSU6123456780/);
-  assert.deepEqual(ticket.fields.map(f=>[f.label,f.value]),[['Shipment Type','Per Diem'],['Per Diem Services','Last Free Day'],['PD INV /BL /BKG /HOU # /SCAC Code','AHIA']]);assert.equal(ticket.url,'https://support.cosco-usa.com/support/tickets/new');
+  assert.deepEqual(ticket.fields.map(f=>[f.label,f.value]),[['Shipment Type','Per Diem'],['Per Diem Services','Last Free Day'],]);assert.equal(ticket.url,'https://support.cosco-usa.com/support/tickets/new');
   assert.throws(()=>messageTemplate(record,{carrier:cosco()}),/工单网站/);
   assert.throws(()=>portalTemplate(record,{carrier:{...cosco(),portal:{...COSCO_PORTAL,requester:''}}}),/Requester/);
 });
@@ -69,7 +69,7 @@ test('draft only fills the ticket in a background tab and never submits',async()
   assert.equal(entry.status,'draft');assert.equal(entry.channel,'cosco-portal');assert.equal(entry.tabId,9);
   assert.equal(t.calls.prepareTicket.length,1);assert.equal(t.calls.prepareTicket[0].submit,false);
   assert.equal(t.calls.submitTicket.length,0);assert.equal(t.calls.prepareMail,0);
-  assert.equal(entry.requester,'service@darwinpacific.com');assert.equal(entry.reference,'AHIA');assert.equal('to' in entry,false);
+  assert.equal(entry.requester,'service@darwinpacific.com');assert.equal(entry.reference,'');assert.equal('to' in entry,false);
 });
 
 test('live send fills, waits for submit and records the ticket; duplicates stay locked',async()=>{
@@ -78,7 +78,7 @@ test('live send fills, waits for submit and records the ticket; duplicates stay 
   assert.equal(entry.status,'sent');assert.equal(entry.ticketId,'123456');assert.equal(entry.inquiryType,'detention');
   assert.equal(t.calls.prepareTicket[0].submit,true);
   const payload=t.calls.submitTicket[0].payload;
-  assert.equal(payload.requestId,'test-request');assert.equal(payload.container,record.container);assert.equal(payload.mbl,record.mbl);assert.equal(payload.reference,'AHIA');
+  assert.equal(payload.requestId,'test-request');assert.equal(payload.container,record.container);assert.equal(payload.mbl,record.mbl);assert.equal(payload.reference,'');
   assert.equal(t.calls.sendMail,0);
   await assert.rejects(t.service.run(record.container,'send'),/已有/);
   assert.equal(t.calls.submitTicket.length,1);
@@ -95,4 +95,15 @@ test('failure after Submit was clicked stays uncertain and locked',async()=>{
   await assert.rejects(t.service.run(record.container,'send'),/待核实/);
   assert.equal(Object.values(t.db().ledger)[0].status,'uncertain');
   await assert.rejects(t.service.run(record.container,'send'),/已有/);
+});
+
+test('the reference is optional: empty is skipped, the old AHIA value is cleared, any other value stays',async()=>{
+  const old={id:'cosco',name:'COSCO',greeting:'Cosco',channel:'cosco-portal',to:[],cc:[],bodyTemplate:'{{type}}\n{{table}}',portal:{...COSCO_PORTAL,reference:'AHIA'}};
+  const [migrated]=normalizeCarriers([old]);assert.equal(migrated.portal.reference,'');
+  assert.equal(portalTemplate(record,{carrier:migrated}).fields.some(field=>/SCAC/.test(field.label)),false);
+  const hire=portalTemplate(record,{carrier:migrated,inquiryType:'on-hire'});
+  assert.deepEqual(hire.fields.map(field=>field.label),['Type','Services','Region','Number of Containers','Container #']);
+  const [kept]=normalizeCarriers([{...old,portal:{...COSCO_PORTAL,reference:'ABCD'}}]);assert.equal(kept.portal.reference,'ABCD');
+  assert.deepEqual(portalTemplate(record,{carrier:kept}).fields.at(-1),{label:'PD INV /BL /BKG /HOU # /SCAC Code',value:'ABCD',kind:'input'});
+  assert.equal(normalizeCarriers([{...old,portal:{...COSCO_PORTAL,reference:'ahia'}}])[0].portal.reference,'ahia','only the exact value');
 });

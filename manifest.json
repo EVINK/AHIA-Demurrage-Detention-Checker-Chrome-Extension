@@ -4,7 +4,7 @@
   "short_name": "Trucker Helper",
   "default_locale": "en",
   "description": "__MSG_description__",
-  "version": "0.6.0",
+  "version": "0.6.1",
   "minimum_chrome_version": "116",
   "permissions": ["storage", "scripting", "unlimitedStorage", "notifications"],
   "host_permissions": ["https://mail.google.com/*", "https://www.kdocs.cn/*", "https://support.cosco-usa.com/*", "https://coscoshippingla.freshdesk.com/*", "https://www.one-line.com/*", "https://one-line.my.site.com/*", "https://*.one-line.com/*"],

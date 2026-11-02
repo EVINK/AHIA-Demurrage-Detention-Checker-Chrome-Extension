@@ -1,6 +1,6 @@
 # Trucker Helper（原 LFD Inquiry）— Agent 交接文档
 
-更新时间：2026-11-02（America/Los_Angeles）。代码版本：**0.6.0**（改名与多语言，见第 12 节；Auto CC，见第 11 节；配置改为 profile.types、自动保存、码头模式，见第 10 节；更早：默认邮件程序 Foxmail/Outlook；Foxmail 自动填写；导入改在标签页；重复锁可强制重发；Gmail 收件人兼容其他插件；ONE 白屏修复；COSCO On-Hire 工单；On-Hire 多柜号、ONE 气泡文字修复；可选本机邮件程序；On-Hire；ONE 对话复用、独立小窗、终止/删除；浮动小窗+通知；查询不阻塞/后台任务/ONE 多柜号；ONE 在线客服；英文界面兼容；2026-10-14：发送确认加严、COSCO 工单网站、取消DO 后分段读取、日志虚拟列表读取、脚本自动安装、找不到柜号提示框，见第 6 节）。
+更新时间：2026-11-02（America/Los_Angeles）。代码版本：**0.6.1**（改名与多语言，见第 12 节；Auto CC，见第 11 节；配置改为 profile.types、自动保存、码头模式，见第 10 节；更早：默认邮件程序 Foxmail/Outlook；Foxmail 自动填写；导入改在标签页；重复锁可强制重发；Gmail 收件人兼容其他插件；ONE 白屏修复；COSCO On-Hire 工单；On-Hire 多柜号、ONE 气泡文字修复；可选本机邮件程序；On-Hire；ONE 对话复用、独立小窗、终止/删除；浮动小窗+通知；查询不阻塞/后台任务/ONE 多柜号；ONE 在线客服；英文界面兼容；2026-10-14：发送确认加严、COSCO 工单网站、取消DO 后分段读取、日志虚拟列表读取、脚本自动安装、找不到柜号提示框，见第 6 节）。
 Chrome 现直接从 WSL 目录 `/home/evink/demurrage-lfd-extension` 加载；git 分支 `fix/gmail-send-confirmation`。
 本文件依据本次对话及当前源码整理；它是工程交接，不代表安装在 Chrome 中的版本已自动更新。
 
@@ -269,7 +269,7 @@ User screenshot confirmed v0.3.19 recipient separation works but Foxmail flatten
 
 ## 12. 2026-11-02 v0.6.0 改名与多语言
 
-- 改名 Trucker Helper。保留：配置 `format: lfd-inquiry-config`、localStorage 键 `lfd-*`、脚本名 `LFD_ReadOnly_v1`，它们是数据或内部名。功能数据里的 `reference: "AHIA"`（COSCO 工单 SCAC）未动。
+- 改名 Trucker Helper。保留：配置 `format: lfd-inquiry-config`、localStorage 键 `lfd-*`、脚本名 `LFD_ReadOnly_v1`，它们是数据或内部名。COSCO 的 reference 默认改为空（v0.6.1，用户决定），为空时工单不填该字段；已保存或导入的精确值 AHIA 在读取时清除。真实 COSCO 表单上该字段带 * 号，未实测空值能否提交。
 - 多语言不改各模块的中文文案：`i18n-strings.js` 是 [中文, en, es] 表，`i18n.js translate()` 整句/占位符匹配，拼接句退回片段替换。`i18n-dom.js` 用 MutationObserver 翻译页面上所有文本和 title/placeholder/aria-label，记住中文原文以便切换；跳过 `#mailBody`、`#subject`、textarea。worker 通知在 `notify()` 翻译；`confirm` 在 app.js 包了一层。
 - 新增或修改任何中文提示都要同步 `i18n-strings.js`，`tests/i18n.test.js` 会扫描源码，缺翻译就失败。
 - `settings.language` 为 '' 时跟随浏览器（zh*→中文，es*→Español，其余 English）。

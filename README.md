@@ -1,8 +1,12 @@
-# Trucker Helper v0.6.0 — Chrome 插件使用说明
+# Trucker Helper v0.6.1 — Chrome 插件使用说明
 
 输入柜号，插件从金山文档「提柜」查出 MBL 和船公司，再按所选 Demurrage / Detention 类型准备查询邮件，保留 Gmail 原签名。支持 Maersk、MSC 和自行添加的船公司，收件邮箱与邮件模板均可配置。
 
 主按钮会**真实发送**；要先检查请点「仅生成草稿」。查表用于取得 MBL 和船公司；LFD 日期仍需等待船公司邮件回复。
+
+## v0.6.1 更新
+
+- COSCO 工单的 reference / SCAC 改为可选，默认留空不填；已保存的旧值 AHIA 自动清除。
 
 ## v0.6.0 更新
 
@@ -41,7 +45,7 @@
 
 1. 确认原插件目录已经更新为 v0.3.18 文件。如果使用压缩包，将文件解压到原来加载的目录。
 2. 在 Chrome 手动打开 `chrome://extensions`，找到 **Trucker Helper**，点击刷新图标。
-3. 点击工具栏上的 Trucker Helper 图标，打开新版弹窗；确认底部显示 `v0.6.0`、右上角显示「航司模式 / 码头模式」。
+3. 点击工具栏上的 Trucker Helper 图标，打开新版弹窗；确认底部显示 `v0.6.1`、右上角显示「航司模式 / 码头模式」。
 
 新版使用真正的工具栏弹窗，尺寸为 780 × 600，包含「查询 / 配置 / 记录」三个页面，不再为主界面新开标签页。v0.2.6 新增 unlimitedStorage，解除 chrome.storage.local 默认容量配额；实际仍受磁盘空间和性能限制。缓存逻辑保持不变。原有连接设置、草稿和发送锁定记录保留。
 
@@ -237,7 +241,7 @@ node --test tests/worker.test.js
 
 COSCO 不发邮件，改为在 https://support.cosco-usa.com/support/tickets/new 提交工单。查表识别到 SSL「COS / COSCO / 中远」或 MBL 前缀 COSU，或手动选择 COSCO 后：
 
-1. 插件打开工单页，自动填写 Requester `service@darwinpacific.com`、Shipment Type `Per Diem`、Per Diem Services `Last Free Day`、PD INV /BL /BKG /HOU # /SCAC Code `AHIA`，Description 使用默认邮件模板（Dear Cosco… detention LFD… Container# / MBL# 表格）。查询类型固定为 Detention。
+1. 插件打开工单页，自动填写 Requester `service@darwinpacific.com`、Shipment Type `Per Diem`、Per Diem Services `Last Free Day`（PD INV /BL /BKG /HOU # /SCAC Code 可选，默认不填），Description 使用默认邮件模板（Dear Cosco… detention LFD… Container# / MBL# 表格）。查询类型固定为 Detention。
 2. **人机验证由用户手动完成**（插件不会也不应自动通过 reCAPTCHA）。正式模式下工单页在前台打开，验证完成后插件自动点击 Submit；3 分钟内未完成验证则不提交，记录为“工单未提交”，页面保留，可手动提交。
 3. 提交后跳转到工单页（/support/tickets/编号）或出现提交成功提示才记为“COSCO 工单已提交”，并记录工单号；否则为“待核实”，并保持防重复锁定。
 4. 测试模式只在后台填写工单，不提交。
@@ -371,7 +375,7 @@ COSCO 不发邮件，改为在 https://support.cosco-usa.com/support/tickets/new
 
 COSCO 的 On-Hire 提交到 **https://coscoshippingla.freshdesk.com/support/tickets/new**（Detention 仍是 support.cosco-usa.com）：
 
-- Requester：`service@darwinpacific.com`；Type：`Equipment`；Services：`On / Off Hire`；Region：`Southern California`；Number of Containers：柜号数量；Container #：所有柜号以空格分隔；SCAC Code：`AHIA`（与 Detention 的 PD INV/SCAC 值相同）；Booking # / Terminal / Reference 留空。
+- Requester：`service@darwinpacific.com`；Type：`Equipment`；Services：`On / Off Hire`；Region：`Southern California`；Number of Containers：柜号数量；Container #：所有柜号以空格分隔；SCAC Code 可选，默认不填（与 Detention 的 PD INV/SCAC 值相同）；Booking # / Terminal / Reference 留空。
 - Description 使用 COSCO 的 On-Hire 正文模板，默认 `Dear {{steam shipping line}}, / Please onhire below containers to LBCT,PCT,ETS,FMS,APM / {{table}}`，`{{table}}` 为 Container# / MBL# 表格（每个柜号一行，与邮件相同；v0.3.13 起）。可在 COSCO 配置页的 On-Hire 正文模板中修改。
 - 多个柜号（「＋」或粘贴一段柜号）合成一张工单，每个柜号各自记录、各自防重复。
 - 人机验证、小窗、自动 Submit、测试模式只填不交，与 Detention 工单相同。
