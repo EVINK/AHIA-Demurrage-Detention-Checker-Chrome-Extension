@@ -263,4 +263,5 @@ User screenshot confirmed v0.3.19 recipient separation works but Foxmail flatten
 - storage 是 TRUSTED_CONTEXTS，content script 读不到，所以由 worker 转发：`autoCcConfig`（只返回这一段）、`autoCcOpen`；worker 的 onMessage 对这两个类型单独放行，其余消息仍只接受 app.html。`storage.onChanged` 把变化推给 Gmail 标签页，app.js 也监听它实现多窗口同步（`pendingWrites`/`saveTimer` 期间跳过，避免自己写入的回声）。
 - `autoCcOpen`：`storage.session.openTarget` + `chrome.action.openPopup()`，失败开小窗口；app 通过 `state.openTarget` 定位。
 - 发件人：`input[name=from]`，否则 document.title；有 From 选择器但无值时视为未知，不添加。`view=cm` 页面跳过（插件自己的 LFD 写信页，否则会和 gmail.js 校验抢输入框）。`handled` 记录已处理地址，手动删除不再加回。
-- **选择器（`form input[name=composeid]`、`[name=cc] input`、Cc 链接、`.aoD.hl`、logo）全部未在真实 Gmail 验证**，只有 tests/autocc.html 模拟（9 项，走 tools/serve.mjs 打开）。
+- 2026-11-02 已在真实 Gmail（调试 Chrome，amerihua.op001）验证：新邮件、回复、发件人不符静默、按钮位置与开关同步、LFD 草稿不受影响，均未发送，测试草稿已舍弃。实测结论：`.aoD.hl` 点击打不开，要用 Ctrl-Shift-C 快捷键（对正文派发 keydown）；地址要 insertText + Enter 才成 chip，逗号不行；有两个 aria-label=Gmail 的 logo，一个在屏幕外；LFD 写信页 URL 被 Gmail 改写成 `?fs=1&to=…`，没有 view=cm。
+- 调试方法：`--remote-debugging-pipe --enable-unsafe-extension-debugging` + CDP `Extensions.loadUnpacked`；这样装的插件一旦 reload 就被屏蔽，要 uninstall 再 load。Google 不允许在调试模式下登录，需先用普通模式在同一 profile 登录。

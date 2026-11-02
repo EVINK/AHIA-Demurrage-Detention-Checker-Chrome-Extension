@@ -57,8 +57,8 @@ export async function gmailPage(action,payload){
     }
     return parts.join('；');
   }
-  // Opening the collapsed line makes Gmail render the real To and Cc fields.
-  function expandRecipients(){const row=document.querySelector('.aoD.hl');if(row&&visible(row))row.click();}
+  // Gmail's Cc shortcut opens the collapsed line and renders the real To and Cc fields; clicking it does not.
+  function expandRecipients(){for(const type of ['keydown','keyup'])body.dispatchEvent(new KeyboardEvent(type,{key:'C',code:'KeyC',keyCode:67,which:67,ctrlKey:true,shiftKey:true,bubbles:true,cancelable:true}));}
   function verify(){
     if(subject.value!==payload.subject)throw new Error('邮件主题发生变化。');
     const mismatch=recipientMismatch();

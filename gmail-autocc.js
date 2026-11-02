@@ -6,11 +6,15 @@
   const addressesIn=text=>String(text||'').toLowerCase().match(EMAIL)||[];
   const visible=node=>Boolean(node&&node.getClientRects().length);
   const BUTTON_ID='lfd-auto-cc';
-  // The extension's own LFD compose tab already has its Cc, and verifies recipients while filling.
-  if(new URLSearchParams(location.search).get('view')==='cm')return;
+  // The extension's own LFD compose tab already has its Cc, and verifies recipients while filling. It opens with
+  // view=cm&fs=1, which Gmail rewrites to fs=1 once loaded.
+  const query=new URLSearchParams(location.search);
+  if(query.get('view')==='cm'||query.get('fs')==='1')return;
   let config={enabled:false,senders:[],cc:[]},observer=null,timer=null;
   // Per compose window: addresses already handled, so one the user removes by hand is not added back.
   const handled=new WeakMap();
+  // Compose windows whose Cc row is being opened, with where the user's caret was before Gmail moved it there.
+  const opening=new WeakMap();
   const ask=message=>new Promise((resolve,reject)=>{
     try{chrome.runtime.sendMessage(message,response=>{if(chrome.runtime.lastError||!response?.ok)reject(new Error('unavailable'));else resolve(response.data);});}
     catch(error){reject(error);}
@@ -28,19 +32,33 @@
     const inputs=[...form.querySelectorAll('input[name="to"],input[name="cc"],input[name="bcc"],[name="to"] input,[name="cc"] input,[name="bcc"] input')].flatMap(node=>addressesIn(node.value));
     return new Set([...attributes,...inputs]);
   }
-  function revealCc(form){
-    const collapsed=form.querySelector('.aoD.hl');if(visible(collapsed))collapsed.click();
-    const link=[...form.querySelectorAll('[role="link"],.aB.gQ.pE')].find(node=>visible(node)&&/(^|\s)(cc|抄送)(\s|$)/i.test(node.getAttribute('aria-label')||node.textContent||''));
-    link?.click();
+  function messageBody(form){
+    let root=form;while(root&&!root.querySelector('[contenteditable="true"][role="textbox"]'))root=root.parentElement;
+    return root?.querySelector('[contenteditable="true"][role="textbox"]');
   }
-  // Gmail turns text ending in a comma into recipient chips. The caret goes back where the user had it.
+  // Gmail's own shortcut opens the Cc row. It also works in a reply, where the row is collapsed and has no Cc link.
+  function shortcut(target){for(const type of ['keydown','keyup'])target.dispatchEvent(new KeyboardEvent(type,{key:'C',code:'KeyC',keyCode:67,which:67,ctrlKey:true,shiftKey:true,bubbles:true,cancelable:true}));}
+  function revealCc(form){
+    const link=form.querySelector('.aB.gQ.pE');
+    if(visible(link)){link.click();return;}
+    const body=messageBody(form);
+    if(body)shortcut(body);
+  }
+  const enter=input=>{for(const type of ['keydown','keypress','keyup'])input.dispatchEvent(new KeyboardEvent(type,{key:'Enter',code:'Enter',keyCode:13,which:13,bubbles:true,cancelable:true}));};
+  function caret(){const selection=getSelection();return {active:document.activeElement,range:selection.rangeCount?selection.getRangeAt(0).cloneRange():null};}
+  // A reply can open before Gmail has placed the caret anywhere: then it belongs in the message.
+  function restore({active,range},form){
+    if(!active?.isConnected||active===document.body){messageBody(form)?.focus();return;}
+    active.focus();
+    if(range){const selection=getSelection();selection.removeAllRanges();selection.addRange(range);}
+  }
+  // Each address goes in like a typed one: Enter turns it into a recipient chip.
   function typeInto(input,list){
-    const active=document.activeElement,selection=getSelection(),range=selection.rangeCount?selection.getRangeAt(0).cloneRange():null;
-    const text=list.join(', ')+', ';
     input.focus();
-    if(!document.execCommand('insertText',false,text)){input.value+=text;input.dispatchEvent(new Event('input',{bubbles:true}));}
-    input.blur();
-    if(active&&active!==document.body){active.focus();if(range){selection.removeAllRanges();selection.addRange(range);}}
+    for(const address of list){
+      if(!document.execCommand('insertText',false,address)){input.value=address;input.dispatchEvent(new Event('input',{bubbles:true}));}
+      enter(input);
+    }
   }
   function fillForm(form){
     const sender=senderOf(form);
@@ -51,8 +69,13 @@
     handled.set(form,done);
     if(!missing.length)return false;
     const input=form.querySelector('[name="cc"] input');
-    if(!visible(input)){revealCc(form);return true;}
+    const state=opening.get(form)||{tries:0,from:caret()};opening.set(form,state);
+    if(!visible(input)){
+      if(state.tries++>=5)return false;
+      revealCc(form);return true;
+    }
     typeInto(input,missing);for(const address of missing)done.add(address);
+    restore(state.from,form);opening.delete(form);
     return false;
   }
   function placeButton(){
@@ -64,14 +87,14 @@
       button.addEventListener('click',()=>{ask({type:'autoCcOpen'}).catch(()=>{});});
       document.body.append(button);
     }
-    const logo=[...document.querySelectorAll('a[aria-label="Gmail"],a[title="Gmail"],header a[href$="#inbox"]')].find(visible);
+    const logo=[...document.querySelectorAll('a[aria-label="Gmail"],a[title="Gmail"],header a[href$="#inbox"]')].find(node=>visible(node)&&node.getBoundingClientRect().left>=0);
     const box=logo?.getBoundingClientRect();
     button.style.left=`${box?Math.round(box.right+10):190}px`;button.style.top=`${box?Math.round(box.top+box.height/2-14):18}px`;
   }
   function scan(){
     timer=null;placeButton();
     if(!config.enabled||!config.cc.length||!config.senders.length)return;
-    if(composeForms().map(fillForm).some(Boolean))schedule(400);
+    if(composeForms().map(fillForm).some(Boolean))schedule(100);
   }
   function schedule(delay=250){if(!timer)timer=setTimeout(scan,delay);}
   function apply(next){
