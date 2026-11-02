@@ -1,5 +1,6 @@
-import {LANGUAGES} from './i18n.js';
-import {DEFAULT_CARRIERS,normalizeCarriers,normalizeTerminals,inquiryType,addressList} from './core.js';
+// @ts-nocheck
+import {LANGUAGES} from './i18n.ts';
+import {DEFAULT_CARRIERS,normalizeCarriers,normalizeTerminals,inquiryType,addressList} from './core.ts';
 
 export const CONFIG_FORMAT='lfd-inquiry-config';
 // Version 2: per-type carrier settings and terminals. Version 1 files still import.

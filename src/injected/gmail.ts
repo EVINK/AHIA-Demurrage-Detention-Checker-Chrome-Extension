@@ -1,3 +1,4 @@
+// @ts-nocheck
 // Self-contained DOM adapter; only run in a NEW compose tab created by this extension.
 export async function gmailPage(action,payload){
   try {

@@ -1,3 +1,4 @@
+// @ts-nocheck
 // Self-contained DOM adapter; only run in a NEW COSCO USA ticket tab created by this extension.
 // The reCAPTCHA is always completed by the user; this adapter only waits for it.
 export async function coscoPage(action,payload){

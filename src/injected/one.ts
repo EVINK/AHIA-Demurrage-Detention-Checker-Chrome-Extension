@@ -1,3 +1,4 @@
+// @ts-nocheck
 // Self-contained adapter for the ONE live chat. Injected into every frame of a tab the extension
 // opened on one-line.com; each call targets one frame kind and the other frames return {skip:true}.
 //   top   www.one-line.com             chat launcher and country picker

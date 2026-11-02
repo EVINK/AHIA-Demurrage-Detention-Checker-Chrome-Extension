@@ -1,4 +1,5 @@
-import {DEFAULT_CARRIERS} from './defaults.js';
+// @ts-nocheck
+import {DEFAULT_CARRIERS} from './defaults.ts';
 export const TO='us.customerexperience@maersk.com';
 export const CC=['truck@darwinpacific.com','service@darwinpacific.com'];
 export const QUESTION='Could you please advise the demurrage LFD for the container below?';

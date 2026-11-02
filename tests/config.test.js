@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {DEFAULT_SETTINGS,MAX_CONFIG_BYTES,validateSettings,createConfig,parseConfig} from '../config.js';
+import {DEFAULT_SETTINGS,MAX_CONFIG_BYTES,validateSettings,createConfig,parseConfig} from '../src/core/config.ts';
 
 const custom={
   id:'custom',name:'自定义航司',greeting:'Dear Operations,',

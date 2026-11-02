@@ -1,10 +1,11 @@
-import {createService} from './service.js';
-import {readKdocsPage} from './kdocs.js';
-import {gmailPage} from './gmail.js';
-import {coscoPage} from './cosco.js';
-import {onePage} from './one.js';
-import {validateSettings} from './config.js';
-import {translate,resolveLanguage} from './i18n.js';
+// @ts-nocheck
+import {createService} from '../core/service.ts';
+import {readKdocsPage} from '../injected/kdocs.ts';
+import {gmailPage} from '../injected/gmail.ts';
+import {coscoPage} from '../injected/cosco.ts';
+import {onePage} from '../injected/one.ts';
+import {validateSettings} from '../core/config.ts';
+import {translate,resolveLanguage} from '../core/i18n.ts';
 chrome.storage.local.setAccessLevel({accessLevel:'TRUSTED_CONTEXTS'});
 
 // Chrome refuses scripts while a tab sits on a site outside the manifest's hosts: a passing redirect (wait it out),

@@ -1,3 +1,4 @@
+// @ts-nocheck
 // Experimental Auto CC: runs on every Gmail page, does nothing until switched on in the config page.
 // When the sender of a compose or reply window is one of the configured senders, the configured Cc addresses
 // are added. Anything else (other sender, sender unknown, unexpected page) is silently left alone.

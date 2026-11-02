@@ -1,4 +1,5 @@
-import {containerNumber, mblNumber, lookup, cacheRecords, messageTemplate, portalTemplate, chatTemplate, normalizeCarriers, normalizeTerminals, inquiryType, recognizeCarrier, inquiryChannel, resolveType, findType, missingConfiguration, supportsManyContainers} from './core.js';
+// @ts-nocheck
+import {containerNumber, mblNumber, lookup, cacheRecords, messageTemplate, portalTemplate, chatTemplate, normalizeCarriers, normalizeTerminals, inquiryType, recognizeCarrier, inquiryChannel, resolveType, findType, missingConfiguration, supportsManyContainers} from './core.ts';
 export function createService({storage, readSheet, prepareMail, sendMail, prepareTicket, submitTicket, prepareChat, sendChat, now = Date.now, uuid = () => crypto.randomUUID()}) {
   let queue = Promise.resolve();
   const active=new Set(),jobs=new Map(),cancelled=new Set();

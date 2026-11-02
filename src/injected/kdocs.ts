@@ -1,3 +1,4 @@
+// @ts-nocheck
 // Self-contained function injected into the workbook's top frame (MAIN world, see logLines).
 export async function readKdocsPage(script) {
   try {

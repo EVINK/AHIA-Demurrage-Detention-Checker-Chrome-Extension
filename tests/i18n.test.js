@@ -1,9 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
-import {translate,resolveLanguage,LANGUAGES} from '../i18n.js';
-import {STRINGS} from '../i18n-strings.js';
-import {validateSettings,createConfig,parseConfig} from '../config.js';
+import {translate,resolveLanguage,LANGUAGES} from '../src/core/i18n.ts';
+import {STRINGS} from '../src/core/i18n-strings.ts';
+import {validateSettings,createConfig,parseConfig} from '../src/core/config.ts';
 
 const CJK=/[\u3400-\u9fff]/;
 test('without a choice the language follows the browser, and a choice wins',()=>{

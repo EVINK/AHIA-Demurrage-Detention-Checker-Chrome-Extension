@@ -1,8 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {normalizeCarriers,messageTemplate,INQUIRY_TYPES,inquiryType,findType,inquiryChannel,COSCO_ON_HIRE_BODY,ON_HIRE_BODY_TEMPLATE} from '../core.js';
-import {validateSettings,createConfig,parseConfig} from '../config.js';
-import {createService} from '../service.js';
+import {normalizeCarriers,messageTemplate,INQUIRY_TYPES,inquiryType,findType,inquiryChannel,COSCO_ON_HIRE_BODY,ON_HIRE_BODY_TEMPLATE} from '../src/core/core.ts';
+import {validateSettings,createConfig,parseConfig} from '../src/core/config.ts';
+import {createService} from '../src/core/service.ts';
 
 const setOnHire=(profile,patch)=>({...profile,types:profile.types.map(type=>type.id==='on-hire'?{...type,...patch}:type)});
 const withOnHire=(id,to=['onhire@example.com'])=>normalizeCarriers().map(p=>p.id===id?setOnHire(p,{to,cc:[],subjectTemplate:'On-Hire LFD Inquiry - {{container}} / {{mbl}}',bodyTemplate:'Dear {{steam shipping line}},\n\nPlease advise on-hire.\n\n{{table}}'}):p);
@@ -84,7 +84,7 @@ test('On-Hire sends several containers of the same carrier in one email table; a
 });
 
 test('COSCO On-Hire ticket: Equipment fields, container count and list, a Container#/MBL# table row each',async()=>{
-  const {portalTemplate}=await import('../core.js');
+  const {portalTemplate}=await import('../src/core/core.ts');
   const cosco=normalizeCarriers().find(p=>p.id==='cosco');
   const ticket=portalTemplate({container:'TRHU6630515',mbl:'COSU6466276490'},{carrier:cosco,inquiryType:'on-hire',more:[{container:'OOCU8526498',mbl:'COSU6466276590'}]});
   assert.equal(ticket.url,'https://coscoshippingla.freshdesk.com/support/tickets/new');

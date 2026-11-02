@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {DEFAULT_BODY_TEMPLATE,DEFAULT_SUBJECT_TEMPLATE} from '../core.js';
-import {createService} from '../service.js';
+import {DEFAULT_BODY_TEMPLATE,DEFAULT_SUBJECT_TEMPLATE} from '../src/core/core.ts';
+import {createService} from '../src/core/service.ts';
 
 const record={container:'WHSU8284830',mbl:'WHLC031G594231',row:1,carrier:'WHL'};
 const whl={id:'whl',name:'WHL',greeting:'WHL',to:['useqc@wanhai.com'],cc:['truck@darwinpacific.com','service@darwinpacific.com'],aliases:['WHL'],mblPrefixes:['WHLC'],bodyTemplate:DEFAULT_BODY_TEMPLATE,subjectTemplate:DEFAULT_SUBJECT_TEMPLATE,

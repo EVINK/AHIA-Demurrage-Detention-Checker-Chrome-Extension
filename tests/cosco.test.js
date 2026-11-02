@@ -1,8 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {DEFAULT_CARRIERS,COSCO_PORTAL,normalizeCarriers,messageTemplate,portalTemplate,recognizeCarrier} from '../core.js';
-import {validateSettings,createConfig,parseConfig} from '../config.js';
-import {createService} from '../service.js';
+import {DEFAULT_CARRIERS,COSCO_PORTAL,normalizeCarriers,messageTemplate,portalTemplate,recognizeCarrier} from '../src/core/core.ts';
+import {validateSettings,createConfig,parseConfig} from '../src/core/config.ts';
+import {createService} from '../src/core/service.ts';
 
 const record={container:'MSMU7504817',mbl:'COSU6123456780',row:12,carrier:'COS'};
 const COSCO_DEFAULT=DEFAULT_CARRIERS.find(p=>p.id==='cosco');

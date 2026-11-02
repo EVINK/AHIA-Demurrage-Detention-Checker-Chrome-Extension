@@ -1,8 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {DEFAULT_CARRIERS,ONE_CHAT,normalizeCarriers,chatTemplate,messageTemplate,recognizeCarrier,inquiryChannel} from '../core.js';
-import {validateSettings,createConfig,parseConfig} from '../config.js';
-import {createService} from '../service.js';
+import {DEFAULT_CARRIERS,ONE_CHAT,normalizeCarriers,chatTemplate,messageTemplate,recognizeCarrier,inquiryChannel} from '../src/core/core.ts';
+import {validateSettings,createConfig,parseConfig} from '../src/core/config.ts';
+import {createService} from '../src/core/service.ts';
 
 const record={container:'TRHU6206940',mbl:'ONEYSZPGR9159802',row:20,carrier:'ONE'};
 const one=()=>normalizeCarriers().find(profile=>profile.id==='one');

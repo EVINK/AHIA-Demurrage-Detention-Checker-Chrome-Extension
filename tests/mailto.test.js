@@ -1,8 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {normalizeCarriers,messageTemplate} from '../core.js';
-import {validateSettings,createConfig,parseConfig,DEFAULT_SETTINGS} from '../config.js';
-import {createService} from '../service.js';
+import {normalizeCarriers,messageTemplate} from '../src/core/core.ts';
+import {validateSettings,createConfig,parseConfig,DEFAULT_SETTINGS} from '../src/core/config.ts';
+import {createService} from '../src/core/service.ts';
 
 const record={container:'MRSU4786640',mbl:'MAEU276301677',row:1,carrier:'MSK'};
 

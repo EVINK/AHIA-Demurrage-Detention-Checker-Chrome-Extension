@@ -1,6 +1,7 @@
+// @ts-nocheck
 // Interface languages. The source text is Chinese: strings pass through translate() at the point they reach the
 // user, so messages raised anywhere (worker, Gmail, COSCO, ONE, KDocs pages) need no change. Mail is never translated.
-import {STRINGS} from './i18n-strings.js';
+import {STRINGS} from './i18n-strings.ts';
 
 export const LANGUAGES=Object.freeze({zh:'中文',en:'English',es:'Español'});
 const COLUMN={en:1,es:2};
