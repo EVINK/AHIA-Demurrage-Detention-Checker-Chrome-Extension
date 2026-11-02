@@ -1,11 +1,10 @@
-import {messageTemplate,portalTemplate,recognizeCarrier,containerNumber,DEFAULT_BODY_TEMPLATE,DEFAULT_SUBJECT_TEMPLATE,COSCO_PORTAL,ONE_CHAT,PORTAL_INQUIRY_TYPE,DEFAULT_CARRIERS,chatTemplate,addressList,INQUIRY_TYPES,ON_HIRE,inquiryChannel} from './core.js';
-import {DEFAULT_SETTINGS,validateSettings,createConfig,parseConfig,MAX_CONFIG_BYTES} from './config.js';
+import {messageTemplate,portalTemplate,recognizeCarrier,containerNumber,COSCO_PORTAL,ONE_CHAT,DEFAULT_CARRIERS,chatTemplate,addressList,INQUIRY_TYPES,inquiryChannel,findType,resolveType,missingConfiguration,supportsManyContainers,standardBody,standardSubject,newInquiryType,newProfile,carrierLabel} from './core.js';
+import {DEFAULT_SETTINGS,validateSettings,createConfig,parseConfig} from './config.js';
 const $=id=>document.getElementById(id);
 const demo=!globalThis.chrome?.runtime?.id;
 const copy=value=>JSON.parse(JSON.stringify(value));
-const types=INQUIRY_TYPES;
 const sources={sheet:'提柜表航司列','mbl-prefix':'MBL 前缀',manual:'手动选择'};
-let settings=copy(DEFAULT_SETTINGS),busy=false,initializing=true,debounce,pollTimer,polling=false,requestSequence=0,lastOperationId='',lastRenderedOperation='',lastResult=null,draftTabId=null,missingConfiguration=false,editingId='',newProfile=null,pendingImport=null;
+let settings=copy(DEFAULT_SETTINGS),busy=false,initializing=true,debounce,pollTimer,polling=false,requestSequence=0,lastOperationId='',lastRenderedOperation='',lastResult=null,draftTabId=null,configMissing=false,editingId='',editingType='';
 let demoSettings=copy(DEFAULT_SETTINGS),demoOperation=null,lookingUp=false,tasksTimer=null;
 try{demoSettings=validateSettings(JSON.parse(localStorage.getItem('lfd-demo-settings')||'null')||DEFAULT_SETTINGS);}catch{}
 function storedInput(){try{return JSON.parse(localStorage.getItem('lfd-popup-input')||'{}');}catch{return {};}}
@@ -23,10 +22,11 @@ async function rpc(message){
       const record={container,mbl:container.startsWith('MSCU')?'MEDU1234567':'MAEU276301677',row:326,sourceTime:Date.now(),demo:true};
       let result;
       try{
-        const recognized=message.options.carrierId==='auto'?recognizeCarrier(record,demoSettings.carriers):{carrier:demoSettings.carriers.find(p=>p.id===message.options.carrierId),carrierSource:'manual'};
-        if(!recognized.carrier)throw new Error('请选择已配置的船公司。');
-        const profile=recognized.carrier;
-        result={...record,carrierId:profile.id,carrierName:profile.name,carrierSource:recognized.carrierSource,inquiryType:message.options.inquiryType,configurationMissing:profile.channel==='one-chat'?[]:[...(profile.channel!=='cosco-portal'&&!profile.to.length?['to']:[]),...(!profile.bodyTemplate.trim()?['bodyTemplate']:[])]};
+        const list=message.options.mode==='terminal'?demoSettings.terminals:demoSettings.carriers;
+        const recognized=message.options.carrierId==='auto'?recognizeCarrier(record,list):{carrier:list.find(p=>p.id===message.options.carrierId),carrierSource:'manual'};
+        if(!recognized.carrier)throw new Error('请选择已配置的项目。');
+        const profile=recognized.carrier,type=resolveType(profile,message.options.inquiryType)||profile.types[0]?.id||'';
+        result={...record,carrierId:profile.id,carrierName:profile.name,carrierSource:recognized.carrierSource,inquiryType:type,channel:inquiryChannel(profile,type),configurationMissing:missingConfiguration(profile,type)};
       }catch(error){result={...record,inquiryType:message.options.inquiryType,unrecognizedCarrier:true,recognitionError:error.message,configurationMissing:['carrier']};}
       demoOperation={...demoOperation,status:'complete',result};return result;
     }
@@ -60,76 +60,204 @@ function lookupError(message){
   $('matchCarrier').textContent='查表未完成';$('matchMbl').textContent='尚未取得 MBL';
   $('matchSource').textContent=message;clearPreview();
 }
+// Where the user was: reopening the popup returns to the same page, selection, open sections and scroll position.
+const ui=(()=>{try{return {page:'query',scroll:{},profile:{},type:{},open:[],...JSON.parse(localStorage.getItem('lfd-popup-ui')||'{}')};}catch{return {page:'query',scroll:{},profile:{},type:{},open:[]};}})();
+function rememberUi(){try{localStorage.setItem('lfd-popup-ui',JSON.stringify(ui));}catch{}}
 function showPage(page){
-  document.querySelectorAll('.page').forEach(node=>{const active=node.id==='page-'+page;node.hidden=!active;node.classList.toggle('active',active);});
+  ui.page=page;rememberUi();
+  document.querySelectorAll('.page').forEach(node=>{const active=node.id==='page-'+page;node.hidden=!active;node.classList.toggle('active',active);if(active)node.scrollTop=ui.scroll[page]||0;});
   document.querySelectorAll('.tab').forEach(node=>{const active=node.dataset.page===page;node.classList.toggle('active',active);node.setAttribute('aria-selected',String(active));});
 }
 function setBusy(value){
   busy=value;
-  document.querySelectorAll('button:not(.tab),input,select,textarea').forEach(node=>node.disabled=value);
-  if(!value){syncSendButtons();$('deleteCarrier').disabled=!newProfile&&settings.carriers.length<2;}
+  // The config page stays editable: it saves on its own, a running task keeps the settings it started with.
+  document.querySelectorAll('button:not(.tab):not(.mode-btn):not(#page-config *),input:not(#page-config *),select:not(#page-config *),textarea:not(#page-config *)').forEach(node=>node.disabled=value);
+  if(!value)syncSendButtons();
 }
 function syncSendButtons(){
   const pendingExtra=$('extraContainers').hidden?0:blockedRows();
-  $('send').disabled=busy||lookingUp||pendingExtra>0||missingConfiguration||!$('manualMbl').value.trim();$('draft').disabled=$('send').disabled;
+  $('send').disabled=busy||lookingUp||pendingExtra>0||configMissing||!$('manualMbl').value.trim();$('draft').disabled=$('send').disabled;
 }
+const terminalMode=()=>settings.mode==='terminal';
+const kind=()=>terminalMode()?'码头':'船公司';
+const listKey=()=>terminalMode()?'terminals':'carriers';
+const profiles=()=>settings[listKey()];
+const typeTitle=entry=>entry.typeLabel||INQUIRY_TYPES[entry.inquiryType]||entry.inquiryType||'';
 function syncMode(){
-  const test=settings.testMode!==false;
-  $('modeBadge').textContent=demo?'界面演示 · 示例数据':test?'测试模式 · 不发送':'正式模式';
-  $('modeBadge').classList.toggle('live',!test&&!demo);
   const channel=matchedChannel(),portal=channel==='cosco-portal',chat=channel==='one-chat';
-  // 「＋」 (more containers in the same chat) only exists for ONE; other carriers hide it and any extra boxes.
-  // Several containers: ONE chats and On-Hire emails.
-  const multi=chat||(Boolean(matchedProfile())&&$('inquiryType').value===ON_HIRE);
-  $('addContainer').hidden=!multi;$('extraContainers').hidden=!multi&&Boolean(matchedProfile());$('removeMain').hidden=!rows().length;
+  // 「＋」 (several containers in one message) only exists where the channel can carry them.
+  const profile=matchedProfile(),multi=supportsManyContainers(profile,$('inquiryType').value);
+  $('addContainer').hidden=!multi;$('extraContainers').hidden=!multi&&Boolean(profile);$('removeMain').hidden=!rows().length;
   const count=multi?1+extraContainers().length:1,suffix=count>1?` · ${count} 个柜号`:'';
   const system=channel==='email'&&mailProgram(settings.mailClient);
-  $('send').textContent=system?(test?'打开邮件程序（测试模式）':'打开邮件程序发送')+suffix:chat?(test?`联系 ONE 客服（测试模式·不发送）${count>1?' · '+count+' 个柜号':''}`:`发送 ONE 在线客服消息${count>1?'（'+count+' 个柜号）':''}`):portal?(test?'填写 COSCO 工单（测试模式）':'提交 COSCO 工单')+suffix:(test?'生成草稿（测试模式）':'发送邮件')+suffix;
+  $('send').textContent=system?'打开邮件程序发送'+suffix:chat?`发送 ONE 在线客服消息${count>1?'（'+count+' 个柜号）':''}`:portal?'提交 COSCO 工单'+suffix:'发送邮件'+suffix;
   $('draft').textContent=system?'打开邮件程序':chat?'转人工但不发送':portal?'仅填写工单':'仅生成草稿';
 }
-// The channel the current inquiry will use (On-Hire is always email).
 function matchedChannel(){const profile=matchedProfile();return profile?inquiryChannel(profile,$('inquiryType').value):undefined;}
-function matchedProfile(){const selected=$('carrier').value;return settings.carriers.find(p=>p.id===(selected&&selected!=='auto'?selected:lastResult?.carrierId));}
-function options(){return {carrierId:$('carrier').value||'auto',inquiryType:$('inquiryType').value};}
-function fillSelect(id,includeAuto,value){
+function matchedProfile(){const selected=$('carrier').value;return profiles().find(p=>p.id===(selected&&selected!=='auto'?selected:lastResult?.carrierId));}
+function options(){return {carrierId:$('carrier').value||'auto',inquiryType:$('inquiryType').value,mode:settings.mode};}
+function fillProfiles(id,list,auto,value){
   const select=$(id);select.replaceChildren();
-  if(includeAuto)select.add(new Option('自动识别','auto'));
-  for(const profile of settings.carriers)select.add(new Option(profile.name,profile.id));
-  select.value=[...select.options].some(option=>option.value===value)?value:includeAuto?'auto':settings.carriers[0].id;
+  if(auto)select.add(new Option('自动识别','auto'));
+  for(const profile of list)select.add(new Option(profile.name,profile.id));
+  select.value=[...select.options].some(option=>option.value===value)?value:select.options[0]?.value??'';
 }
-function hydrateSettings(){
-  const selected=$('carrier').value||settings.defaultCarrierId;
-  fillSelect('carrier',true,selected);fillSelect('defaultCarrierId',true,settings.defaultCarrierId);fillSelect('editCarrier',false,editingId||settings.carriers[0].id);
-  for(const key of ['sheetUrl','account','gmailIndex','defaultInquiryType'])$(key).value=settings[key];
+function fillQueryCarrier(value){
+  if(terminalMode()&&!settings.terminals.length){const select=$('carrier');select.replaceChildren(new Option('请先添加码头',''));return;}
+  fillProfiles('carrier',profiles(),!terminalMode(),value);
+}
+// All types known in the current mode, for the moment before a carrier has been matched.
+function knownTypes(){
+  const known=new Map(Object.entries(INQUIRY_TYPES).map(([id,label])=>[id,{id,label}]));
+  for(const profile of profiles())for(const type of profile.types)if(!known.has(type.id))known.set(type.id,type);
+  return [...known.values()];
+}
+function fillTypes(value=$('inquiryType').value){
+  const profile=matchedProfile(),list=profile?profile.types:knownTypes(),wanted=profile?resolveType(profile,value):value;
+  const select=$('inquiryType');select.replaceChildren(...list.map(type=>new Option(type.label,type.id)));
+  select.value=list.some(type=>type.id===wanted)?wanted:list[0]?.id??'';
+}
+function renderSelects(){
+  const selected=$('carrier').value||(terminalMode()?ui.profile.terminal:settings.defaultCarrierId);
+  fillQueryCarrier(selected);fillTypes();
+  fillProfiles('defaultCarrierId',settings.carriers,true,settings.defaultCarrierId);
+  const select=$('defaultInquiryType'),all=new Map();
+  for(const [id,label]of Object.entries(INQUIRY_TYPES))all.set(id,label);
+  for(const profile of [...settings.carriers,...settings.terminals])for(const type of profile.types)if(!all.has(type.id))all.set(type.id,`${type.label}（${profile.name}）`);
+  select.replaceChildren(...[...all].map(([id,label])=>new Option(label,id)));select.value=settings.defaultInquiryType;
+  document.querySelectorAll('.mode-btn').forEach(node=>node.classList.toggle('active',node.dataset.mode===settings.mode));
+  $('carrierLabel').textContent=kind();
+}
+function renderConnection(){
+  $('sheetUrl').value=settings.sheetUrl;$('gmailIndex').value=settings.gmailIndex;
   $('mailClient').value=mailProgram(settings.mailClient)?'program':'gmail';$('mailProgram').value=settings.mailClient==='outlook'?'outlook':'foxmail';syncMailClientNotice();
-  $('testMode').checked=settings.testMode!==false;syncMode();
-  loadProfile($('editCarrier').value);
 }
-function loadProfile(id,profileOverride){
-  const profile=profileOverride||settings.carriers.find(p=>p.id===id);if(!profile)return;
-  editingId=profile.id;newProfile=profileOverride?copy(profile):null;
-  if(profileOverride){$('editCarrier').add(new Option(profile.name+'（未保存）',profile.id));}
-  $('editCarrier').value=profile.id;
-  for(const [field,key]of [['carrierName','name'],['greeting','greeting'],['subjectTemplate','subjectTemplate'],['bodyTemplate','bodyTemplate']])$(field).value=profile[key]||'';
-  for(const [field,key]of [['carrierTo','to'],['carrierCc','cc'],['aliases','aliases'],['mblPrefixes','mblPrefixes']])$(field).value=(profile[key]||[]).join(', ');
-  $('channel').value=profile.channel||'email';fillPortal(profile.portal);fillChat(profile.chat);syncChannel();
-  const onHire=profile.onHire||{to:[],cc:[],subjectTemplate:'',bodyTemplate:''};
-  $('onHireTo').value=onHire.to.join(', ');$('onHireCc').value=onHire.cc.join(', ');$('onHireSubject').value=onHire.subjectTemplate||'';$('onHireBody').value=onHire.bodyTemplate||'';
-  const incomplete=profile.channel==='one-chat'?false:profile.channel==='cosco-portal'?!profile.portal?.requester||!profile.bodyTemplate:!profile.to.length||!profile.bodyTemplate;
-  $('profileState').textContent=incomplete?'尚未完成 · 可先保存配置':'已配置';
-  $('deleteCarrier').hidden=Boolean(profileOverride);$('deleteCarrier').disabled=busy||settings.carriers.length<2;
+function renderAll(){renderSelects();renderConnection();renderProfile(ui.profile[settings.mode]);syncMode();}
+const currentProfile=()=>profiles().find(p=>p.id===editingId);
+const currentType=()=>findType(currentProfile(),editingType);
+const isBuiltinType=id=>Object.hasOwn(INQUIRY_TYPES,id);
+function renderProfile(id){
+  const list=profiles(),profile=list.find(p=>p.id===id)||list[0];
+  editingId=profile?.id||'';ui.profile[settings.mode]=editingId;rememberUi();
+  fillProfiles('editCarrier',list,false,editingId);
+  $('nameLabel').textContent=`${kind()}名称`;$('noProfiles').hidden=Boolean(profile);$('carrierForm').hidden=!profile;$('editCarrier').hidden=!profile;
+  $('deleteCarrier').hidden=!profile;$('deleteCarrier').disabled=!terminalMode()&&list.length<2;
+  $('advanced').hidden=!profile||terminalMode();
+  if(!profile)return;
+  $('carrierName').value=profile.name;$('greeting').value=profile.greeting;
+  $('aliases').value=profile.aliases.join(', ');$('mblPrefixes').value=profile.mblPrefixes.join(', ');
+  fillPortal(profile.portal);fillChat(profile.chat);
+  renderType(ui.type[editingId]);
+}
+function renderType(id){
+  const profile=currentProfile(),type=findType(profile,id)||profile.types[0];
+  editingType=type?.id||'';ui.type[editingId]=editingType;rememberUi();
+  $('editType').replaceChildren(...profile.types.map(item=>new Option(item.label,item.id)));$('editType').value=editingType;
+  $('editType').disabled=!type;$('deleteType').hidden=!type;$('noTypes').hidden=Boolean(type);$('typeFields').hidden=!type;$('channelRow').hidden=!type;
+  if(type){
+    $('typeLabelRow').hidden=isBuiltinType(type.id);$('typeLabel').value=type.label;
+    $('carrierTo').value=type.to.join(', ');$('carrierCc').value=type.cc.join(', ');
+    $('subjectTemplate').value=type.subjectTemplate;$('bodyTemplate').value=type.bodyTemplate;$('channel').value=type.channel;
+  }
+  syncChannel();restoreDraft();
 }
 function fillPortal(portal={}){for(const [field,key]of [['portalRequester','requester'],['portalReference','reference'],['portalShipmentType','shipmentType'],['portalService','service']])$(field).value=portal?.[key]||'';}
 function fillChat(chat={}){for(const [field,key]of [['chatFirstName','firstName'],['chatLastName','lastName'],['chatEmail','email'],['chatCountry','country'],['chatMessage','message']])$(field).value=chat?.[key]||'';}
-function syncChannel(){const channel=$('channel').value,portal=channel==='cosco-portal',chat=channel==='one-chat';$('emailFields').hidden=portal||chat;$('subjectFields').hidden=portal||chat;$('portalFields').hidden=!portal;$('chatFields').hidden=!chat;$('bodyFields').hidden=chat;}
-function startNewProfile(name='新船公司'){
-  // Settings saved before COSCO / ONE support existed lack those built-in profiles; offer them by name.
-  const builtin=DEFAULT_CARRIERS.find(p=>p.channel!=='email'&&!settings.carriers.some(c=>c.id===p.id)&&[p.name,...p.aliases].some(alias=>alias.toUpperCase()===name.trim().toUpperCase()));
-  if(builtin){
-    fillSelect('editCarrier',false,editingId);loadProfile(builtin.id,copy(builtin));showPage('config');$('page-config').scrollTop=0;status(`已填入 ${builtin.name} ${builtin.channel==='one-chat'?'在线客服':'工单'}默认配置，核对后点击保存。`);return;
+function syncChannel(){
+  const channel=currentType()?$('channel').value:'email',portal=channel==='cosco-portal',chat=channel==='one-chat';
+  $('emailFields').hidden=portal||chat;$('subjectFields').hidden=portal||chat;$('portalFields').hidden=!portal;$('chatFields').hidden=!chat;$('bodyFields').hidden=chat;
+  // Channel-specific settings are the only thing to fill for these types, so show them.
+  if(portal||chat)$('advanced').open=true;
+}
+// Auto-save. Text that cannot be saved yet (half-typed address or placeholder) is kept in a local draft, so
+// closing the popup to copy something elsewhere never loses it; reopening restores it and retries.
+const DRAFT_KEY='lfd-config-draft';
+const autoFields=()=>[...document.querySelectorAll('#carrierForm [id]:not([data-nosave]),#connectionForm [id]:not([data-nosave])')].filter(node=>node.matches('input,select,textarea'));
+let saveTimer=null,saveQueue=Promise.resolve();
+function saveState(text,type=''){$('saveState').textContent=text;$('saveState').className='save-state '+type;}
+function writeDraft(){try{localStorage.setItem(DRAFT_KEY,JSON.stringify({mode:settings.mode,profile:editingId,type:editingType,fields:Object.fromEntries(autoFields().map(node=>[node.id,node.value]))}));}catch{}}
+function clearDraft(){try{localStorage.removeItem(DRAFT_KEY);}catch{}}
+// Only the draft of what is on screen: an unsaved edit of another carrier stays until the user returns to it.
+function clearSavedDraft(){try{const draft=JSON.parse(localStorage.getItem(DRAFT_KEY)||'null');if(draft?.mode===settings.mode&&draft.profile===editingId&&draft.type===editingType)clearDraft();}catch{}}
+function restoreDraft(){
+  let draft;try{draft=JSON.parse(localStorage.getItem(DRAFT_KEY)||'null');}catch{}
+  if(!draft||draft.mode!==settings.mode||draft.profile!==editingId||draft.type!==editingType)return;
+  for(const node of autoFields())if(Object.hasOwn(draft.fields,node.id))node.value=draft.fields[node.id];
+  syncChannel();syncMailClientNotice();scheduleSave();
+}
+function collectSettings(){
+  const next={...settings,sheetUrl:$('sheetUrl').value.trim(),gmailIndex:Number($('gmailIndex').value),defaultCarrierId:$('defaultCarrierId').value,defaultInquiryType:$('defaultInquiryType').value,mailClient:chosenMailClient()};
+  const profile=currentProfile();if(!profile)return next;
+  const name=$('carrierName').value.trim(),type=currentType();
+  if(profiles().some(p=>p.id!==profile.id&&carrierLabel(p.name)===carrierLabel(name)))throw new Error(`已有同名的${kind()}「${name}」。`);
+  const list=value=>value.split(/[,;，；\n]+/).map(v=>v.trim()).filter(Boolean);
+  const edited={...profile,name,greeting:$('greeting').value.trim(),...(terminalMode()?{}:{aliases:list($('aliases').value),mblPrefixes:$('mblPrefixes').value.split(/[\s,;，；]+/).filter(Boolean)})};
+  if(type){
+    const channel=terminalMode()?'email':$('channel').value,label=isBuiltinType(type.id)?type.label:$('typeLabel').value.trim();
+    if(profile.types.some(t=>t.id!==type.id&&carrierLabel(t.label)===carrierLabel(label)))throw new Error(`${profile.name} 已有同名的查询类型「${label}」。`);
+    edited.types=profile.types.map(t=>t.id===type.id?{...t,label,channel,to:addressList($('carrierTo').value),cc:addressList($('carrierCc').value),subjectTemplate:$('subjectTemplate').value,bodyTemplate:$('bodyTemplate').value}:t);
+    if(channel==='cosco-portal')edited.portal={...profile.portal,requester:$('portalRequester').value.trim(),reference:$('portalReference').value.trim(),shipmentType:$('portalShipmentType').value.trim(),service:$('portalService').value.trim()};
+    if(channel==='one-chat')edited.chat={firstName:$('chatFirstName').value.trim(),lastName:$('chatLastName').value.trim(),email:$('chatEmail').value.trim(),country:$('chatCountry').value.trim(),message:$('chatMessage').value.trim()};
   }
-  const profile={id:'carrier-'+crypto.randomUUID().slice(0,8),name,greeting:name,to:[],cc:[],aliases:name==='新船公司'?[]:[name],mblPrefixes:[],bodyTemplate:'',subjectTemplate:DEFAULT_SUBJECT_TEMPLATE};
-  fillSelect('editCarrier',false,editingId);loadProfile(profile.id,profile);showPage('config');$('page-config').scrollTop=0;$('carrierName').focus();status('填写收件邮箱和正文，或点击「使用标准模板」。');
+  return {...next,[listKey()]:profiles().map(p=>p.id===profile.id?edited:p)};
+}
+// Writes go out in order; the page's own copy is already current, so the form is never redrawn under the cursor.
+function persist(next){
+  settings=next;
+  const work=saveQueue.then(()=>rpc({type:'settings',settings:next}));
+  saveQueue=work.catch(()=>{});
+  work.then(()=>{if(!saveTimer){clearSavedDraft();saveState('已自动保存','success');}},error=>{saveState('未保存：'+error.message,'error');status(error.message,'error');});
+  return work;
+}
+function afterConfigChange(){
+  renderSelects();
+  const option=[...$('editCarrier').options].find(node=>node.value===editingId),profile=currentProfile(),type=currentType();
+  if(option&&profile)option.textContent=profile.name;
+  const typeOption=[...$('editType').options].find(node=>node.value===editingType);if(typeOption&&type)typeOption.textContent=type.label;
+  if(lastResult)renderResult({...lastResult,configurationMissing:lastResult.unrecognizedCarrier||lastResult.needsTerminal?lastResult.configurationMissing:undefined});else syncMode();
+}
+function scheduleSave(){clearTimeout(saveTimer);writeDraft();saveState('正在保存…');saveTimer=setTimeout(flushSave,400);}
+function flushSave(){
+  if(saveTimer===null)return;
+  clearTimeout(saveTimer);saveTimer=null;
+  let next;
+  try{next=validateSettings(collectSettings());}
+  catch(error){saveState('未保存：'+error.message,'error');return;}
+  persist(next);afterConfigChange();
+}
+function discardPendingEdits(){clearTimeout(saveTimer);saveTimer=null;clearDraft();}
+function openAddProfile(name=''){
+  showPage('config');$('page-config').scrollTop=0;$('newProfileRow').hidden=false;$('newProfileName').value=name;$('newProfileName').placeholder=`${kind()}名称`;$('newProfileName').focus();
+  status(`输入${kind()}名称后点击「添加」。`);
+}
+function closeAddProfile(){$('newProfileRow').hidden=true;$('newProfileName').value='';}
+function addProfile(){
+  const name=$('newProfileName').value.trim();
+  if(!name){status(`请填写${kind()}名称。`,'error');return;}
+  flushSave();
+  const same=profiles().find(p=>[p.name,...p.aliases].some(alias=>carrierLabel(alias)===carrierLabel(name)));
+  closeAddProfile();
+  if(same){renderProfile(same.id);status(`${same.name} 已经存在，每家只保留一份配置。`);return;}
+  if(profiles().length>=50){status(`最多配置 50 个${kind()}。`,'error');return;}
+  // A carrier deleted earlier comes back with its built-in settings when added by name.
+  const builtin=terminalMode()?null:DEFAULT_CARRIERS.find(p=>[p.name,...p.aliases].some(alias=>carrierLabel(alias)===carrierLabel(name))&&!profiles().some(c=>c.id===p.id));
+  const profile=builtin?copy(builtin):newProfile(`${terminalMode()?'terminal':'carrier'}-${crypto.randomUUID().slice(0,8)}`,name,{terminal:terminalMode()});
+  persist(validateSettings({...settings,[listKey()]:[...profiles(),profile]}));
+  afterConfigChange();renderProfile(profile.id);
+  if(terminalMode()){$('newType').click();status(`已添加 ${name}。为它添加第一个查询类型。`);}
+  else{$('carrierTo').focus();status(`已添加 ${profile.name}，填写收件邮箱即可使用。`,'success');}
+}
+function addType(){
+  const label=$('newTypeName').value.trim(),profile=currentProfile();
+  if(!label){status('请填写类型名称。','error');return;}
+  flushSave();
+  const same=profile.types.find(type=>carrierLabel(type.label)===carrierLabel(label));
+  $('newTypeRow').hidden=true;$('newTypeName').value='';
+  if(same){renderType(same.id);status(`${profile.name} 已有 ${same.label}。`);return;}
+  const builtin=Object.entries(INQUIRY_TYPES).find(([,title])=>carrierLabel(title)===carrierLabel(label));
+  const type=newInquiryType(builtin?builtin[0]:`type-${crypto.randomUUID().slice(0,8)}`,builtin?builtin[1]:label);
+  persist(validateSettings({...settings,[listKey()]:profiles().map(p=>p.id===profile.id?{...p,types:[...p.types,type]}:p)}));
+  afterConfigChange();renderType(type.id);$('carrierTo').focus();status(`已添加 ${type.label}，填写收件邮箱即可使用。`,'success');
 }
 function clearPreview(){
   $('source').textContent='识别完成后显示当前模板';
@@ -139,25 +267,25 @@ function clearPreview(){
 function renderResult(data){
   if(!data)return;lastResult=data;
   const record=data.record?{...data.record,...data}:data;
-  const carrierId=data.carrierId||data.carrier?.id,profile=settings.carriers.find(p=>p.id===carrierId);
-  const type=data.inquiryType||$('inquiryType').value,onHire=type===ON_HIRE;
+  const carrierId=data.carrierId||data.carrier?.id,profile=profiles().find(p=>p.id===carrierId);
+  fillTypes(data.inquiryType||$('inquiryType').value);
+  const type=$('inquiryType').value,typeEntry=findType(profile,type);
   const channel=profile?inquiryChannel(profile,type):undefined,portal=channel==='cosco-portal',chat=channel==='one-chat';
-  const missing=data.configurationMissing||(portal&&onHire?(profile.portal.requester?[]:['requester']):onHire&&profile?[...(!profile.onHire.to.length?['onHireTo']:[]),...(!profile.onHire.bodyTemplate?['onHireBody']:[]),...(!profile.onHire.subjectTemplate?['onHireSubject']:[])]
-    :chat?[]:[...(!profile?['carrier']:[]),...(profile&&!portal&&!profile.to.length?['to']:[]),...(portal&&!profile.portal.requester?['requester']:[]),...(profile&&!profile.bodyTemplate?['bodyTemplate']:[])]);
-  if(portal&&!onHire)$('inquiryType').value=PORTAL_INQUIRY_TYPE;
+  const missing=data.configurationMissing||(profile?missingConfiguration(profile,type):['carrier']);
+  const unknown=missing.includes('carrier');
   refreshRows();
-  missingConfiguration=missing.length>0||Boolean(data.unrecognizedCarrier);
-  $('matchCarrier').textContent=data.unrecognizedCarrier?'需要选择船公司':data.carrierName||profile?.name||'等待识别';
+  configMissing=missing.length>0;
+  $('matchCarrier').textContent=unknown?`需要选择${kind()}`:data.carrierName||profile?.name||'等待识别';
   $('manualMbl').value=record.mbl||'';$('matchMbl').textContent=record.mbl||'请手动填写 MBL';
-  $('matchSource').textContent=data.unrecognizedCarrier?data.recognitionError||'无法自动识别':sources[data.carrierSource||record.carrierSource]||'自动识别';
-  $('previewType').textContent=types[portal&&!onHire?PORTAL_INQUIRY_TYPE:type]||type;
+  $('matchSource').textContent=unknown?data.recognitionError||'无法自动识别':sources[data.carrierSource||record.carrierSource]||'自动识别';
+  $('previewType').textContent=typeEntry?.label||typeTitle({inquiryType:type});
   $('source').textContent=data.demo?'界面演示 · 示例数据':record.row?`${record.fromCache?'本地缓存':'提柜'} · 第 ${record.row} 行${record.sourceTime?' · '+new Date(record.sourceTime).toLocaleTimeString():''}`:'来自本次提柜表查询';
-  $('needsConfig').hidden=!missingConfiguration;
-  if(missingConfiguration){
-    $('missingTitle').textContent=data.unrecognizedCarrier?'暂未识别船公司':'首次使用：请补充配置';
-    const names={onHireTo:'On-Hire 收件邮箱',onHireBody:'On-Hire 正文模板',onHireSubject:'On-Hire 主题模板',carrier:'船公司',to:'收件邮箱',requester:'工单 Requester',body:'正文模板',bodyTemplate:'正文模板',subjectTemplate:'主题模板'};
-    $('missingDetail').textContent=data.recognitionError||`请为 ${profile?.name||data.carrierName||'此船公司'} 填写${missing.map(key=>names[key]||key).join('、')}，再生成邮件。`;
-    $('configureDetected').textContent=profile?'配置 '+profile.name:'新增或选择船公司';clearPreview();
+  $('needsConfig').hidden=!configMissing;
+  if(configMissing){
+    $('missingTitle').textContent=unknown?`暂未确定${kind()}`:'首次使用：请补充配置';
+    const names={carrier:kind(),type:'查询类型',to:'收件邮箱',requester:'工单 Requester',bodyTemplate:'正文模板',subjectTemplate:'主题模板'};
+    $('missingDetail').textContent=data.recognitionError||(missing.includes('type')?`请先为 ${profile?.name} 添加查询类型。`:`请为 ${profile?.name||data.carrierName||'此项'} 的 ${typeEntry?.label||''} 填写${missing.map(key=>names[key]||key).join('、')}，再生成邮件。`);
+    $('configureDetected').textContent=profile?'配置 '+profile.name:`新增或选择${kind()}`;clearPreview();
   }else{
     try{
       if(chat){
@@ -165,10 +293,10 @@ function renderResult(data){
         $('to').textContent=`ONE 在线客服 · ${message.firstName} ${message.lastName} · ${message.email}`;$('cc').textContent='—';$('subject').textContent=`Container Number · ${record.container}${message.messages.length>1?` · 共 ${message.messages.length} 条消息`:''}`;
         $('mailBody').replaceChildren();for(const line of message.messages){const p=document.createElement('p');p.textContent=line;$('mailBody').append(p);}
       }else if(portal){
-        const ticket=portalTemplate(record,{carrier:profile,inquiryType:type,...(onHire?{more:extraContainers()}:{})});
+        const ticket=portalTemplate(record,{carrier:profile,inquiryType:type,...(supportsManyContainers(profile,type)?{more:extraContainers()}:{})});
         $('to').textContent=`COSCO 工单 · ${new URL(ticket.url).hostname} · Requester ${ticket.requester}`;$('cc').textContent='—';$('subject').textContent=ticket.fields.map(f=>f.value).join(' · ');$('mailBody').innerHTML=ticket.html;
       }else{
-        const message=messageTemplate(record,{carrier:profile,inquiryType:type,...(onHire?{more:extraContainers()}:{})});
+        const message=messageTemplate(record,{carrier:profile,inquiryType:type,...(supportsManyContainers(profile,type)?{more:extraContainers()}:{})});
         $('to').textContent=message.to.join(', ');$('cc').textContent=message.cc.join(', ')||'—';$('subject').textContent=message.subject;$('mailBody').innerHTML=message.html;
       }
     }catch(error){clearPreview();status(error.message,'error');}
@@ -182,17 +310,17 @@ function reportResult(data,mode){
   const portal=data.channel==='cosco-portal',chat=data.channel==='one-chat';
   if(mailProgram(data.mailClient)&&data.status==='draft'){const name=data.mailClient==='outlook'?'Outlook':'Foxmail';status(`已请求打开 ${name} 写信窗口：检查后在 ${name} 里发送，发完后到「进行中」或「记录」点「我已发送」。如果没有弹出写信窗口，请确认已安装 ${name} 并设为 Windows 默认邮件程序（配置页有下载和设置入口）。`,'success');return;}
   if(data.background){status(`已加入后台任务：${(data.containers||[data.container]).join('、')}。可在「进行中」查看进度，现在可以继续查询其他柜号。`,'success');return;}
-  if(data.status==='draft')status(chat?`ONE 客服${data.agent?' '+data.agent:''}已接入，消息已填入聊天框，测试模式下未发送。可打开聊天页查看。`:portal?'COSCO 工单已填好，测试模式下未提交。可打开工单页检查。':'Gmail 草稿已填好，原签名已保留，尚未发送。可打开草稿检查。','success');
+  if(data.status==='draft')status(chat?`ONE 客服${data.agent?' '+data.agent:''}已接入，消息已填入聊天框，尚未发送。可打开聊天页查看。`:portal?'COSCO 工单已填好，尚未提交。可打开工单页检查。':'Gmail 草稿已填好，原签名已保留，尚未发送。可打开草稿检查。','success');
   else if(data.status==='sent')status(chat?`已查询：ONE 客服${data.agent?' '+data.agent:''}已读消息，回复请在聊天页查看。`:portal?`COSCO 工单已提交${data.ticketId?' #'+data.ticketId:''}。`:'Gmail 已显示发送成功。','success');
   else if(data.unrecognizedCarrier)status(data.recognitionError||'请选择船公司或补充识别规则。','error');
-  else if(missingConfiguration)status('已匹配柜号和船公司；完成提示中的配置后即可生成草稿。');
-  else status(data.demo?'演示匹配完成；未读取在线表格，也不会创建邮件。':mode==='identify'?(data.channel==='one-chat'?'已匹配 MBL 和船公司。点击发送 ONE 在线客服消息继续。':data.channel==='cosco-portal'?'已匹配 MBL 和船公司。点击填写 COSCO 工单继续。':'已匹配 MBL 和船公司。点击生成草稿继续。'):'邮件预览已更新。','success');
+  else if(configMissing)status('已匹配柜号；完成提示中的配置后即可生成草稿。');
+  else status(data.demo?'演示匹配完成；未读取在线表格，也不会创建邮件。':mode==='identify'?(data.channel==='one-chat'?'已匹配 MBL 和船公司。点击发送 ONE 在线客服消息继续。':data.channel==='cosco-portal'?'已匹配 MBL 和船公司。点击填写 COSCO 工单继续。':'已匹配 MBL。可以发送，或点「仅生成草稿」先检查。'):'邮件预览已更新。','success');
 }
 function syncOperation(operation,{restore=false}={}){
   if(!operation)return;
   if(restore){
     $('container').value=operation.container||$('container').value;
-    if(operation.options){if([...$('carrier').options].some(o=>o.value===operation.options.carrierId))$('carrier').value=operation.options.carrierId;$('inquiryType').value=operation.options.inquiryType||$('inquiryType').value;}
+    if(operation.options){if([...$('carrier').options].some(o=>o.value===operation.options.carrierId))$('carrier').value=operation.options.carrierId;fillTypes(operation.options.inquiryType||$('inquiryType').value);}
     rememberInput();
   }
   lastOperationId=operation.id||lastOperationId;
@@ -209,12 +337,12 @@ function renderHistory(ledger={}){
   const root=$('history');root.replaceChildren();const entries=Object.entries(ledger).sort((a,b)=>(b[1].time||0)-(a[1].time||0));$('historyCount').textContent=entries.length;
   if(!entries.length){const empty=document.createElement('p');empty.className='empty';empty.textContent='暂无操作记录';root.append(empty);return;}
   const statuses={preparing:'准备中 / 中断待核实',draft:'草稿已生成 · 未自动发送',sending:'发送中 / 待核实',sent:'Gmail 已确认发送',uncertain:'发送结果待核实',needs_review:'准备失败，请检查草稿'};
-  const chatStatuses={preparing:'准备中 / 中断待核实',draft:'客服已接入 · 消息未发送（测试模式）',sending:'联系客服中 / 待核实',sent:'已查询（客服已读）',uncertain:'客服消息结果待核实',needs_review:'消息未发送，请检查聊天页'};
+  const chatStatuses={preparing:'准备中 / 中断待核实',draft:'客服已接入 · 消息未发送',sending:'联系客服中 / 待核实',sent:'已查询（客服已读）',uncertain:'客服消息结果待核实',needs_review:'消息未发送，请检查聊天页'};
   const portalStatuses={preparing:'准备中 / 中断待核实',draft:'工单已填写 · 未提交',sending:'等待人机验证 / 提交中',sent:'COSCO 工单已提交',uncertain:'工单提交结果待核实',needs_review:'工单未提交，请检查页面'};
   for(const [key,entry]of entries){
     const row=document.createElement('div');row.className='history-row';
     const content=document.createElement('div'),name=document.createElement('strong');name.textContent=entry.container+' · '+entry.mbl;content.append(name);
-    const detail=document.createElement('p');detail.textContent=`${entry.carrierName||'Maersk'} · ${types[entry.inquiryType]||'Demurrage'} · ${new Date(entry.time).toLocaleString()}`;content.append(detail);
+    const detail=document.createElement('p');detail.textContent=`${entry.carrierName||'Maersk'} · ${typeTitle(entry)||'Demurrage'} · ${new Date(entry.time).toLocaleString()}`;content.append(detail);
     const portal=entry.channel==='cosco-portal',chat=entry.channel==='one-chat',system=mailProgram(entry.mailClient);
     const state=document.createElement('div');state.className='history-state';state.textContent=(system&&entry.status==='draft'?'已打开邮件程序 · 待确认发送':system&&entry.status==='sent'?'已发送（用户确认）':(chat?chatStatuses:portal?portalStatuses:statuses)[entry.status]||entry.status)+(entry.ticketId?` #${entry.ticketId}`:'')+(entry.agent?` · ${entry.agent}`:'');content.append(state);
     if(entry.detail){const note=document.createElement('p');note.textContent=entry.detail;content.append(note);}
@@ -246,7 +374,7 @@ function renderTasks(ledger={}){
     const entry=group[0],item=document.createElement('div');item.className='task-row';
     const content=document.createElement('div'),name=document.createElement('strong');name.textContent=group.map(e=>e.container).join('、');content.append(name);
     const detail=document.createElement('p');const minutes=Math.max(0,Math.round((Date.now()-(entry.time||Date.now()))/60000));
-    detail.textContent=`${entry.carrierName||''} · ${types[entry.inquiryType]||''} · ${new Date(entry.time).toLocaleTimeString()} 开始${entry.running?` · 已 ${minutes} 分钟`:''}`;content.append(detail);
+    detail.textContent=`${entry.carrierName||''} · ${typeTitle(entry)} · ${new Date(entry.time).toLocaleTimeString()} 开始${entry.running?` · 已 ${minutes} 分钟`:''}`;content.append(detail);
     const step=document.createElement('div');step.className='task-step'+(entry.running?'':' interrupted');
     step.textContent=entry.running?(entry.step||'进行中')+(entry.agent?` · ${entry.agent}`:''):mailProgram(entry.mailClient)&&entry.status==='draft'?'已打开邮件程序，发完后请点「我已发送」':entry.interrupted?'已中断，请打开页面核实结果':`${entry.status==='uncertain'?'结果待核实':'未完成'}：${entry.detail||''}`;content.append(step);
     const buttons=document.createElement('div');buttons.className='history-buttons';
@@ -286,20 +414,23 @@ function renderTasks(ledger={}){
 // Put containers back on the query page (first in the main box, others as extra rows) with the same type.
 function refill(containers,entry){
   showPage('query');$('extraContainers').replaceChildren();
-  if(entry.inquiryType)$('inquiryType').value=entry.inquiryType;
+  if(entry.inquiryType)fillTypes(entry.inquiryType);
   $('container').value=containers[0];$('container').dispatchEvent(new Event('input',{bubbles:true}));
   for(const container of containers.slice(1))addExtraRow(container,{focus:false});
   status('已解除锁定并填回查询页，确认后点击发送。');
 }
 async function refreshState({initial=false}={}){
-  const state=await rpc({type:'state'});settings=validateSettings(state.settings);renderHistory(state.ledger);renderTasks(state.ledger);
+  const state=await rpc({type:'state'});
+  // Only the first read: afterwards this page holds the newest settings, possibly with a write still on its way.
+  if(initial)settings=validateSettings(state.settings);
+  renderHistory(state.ledger);renderTasks(state.ledger);
   if(initial){
-    hydrateSettings();const saved=storedInput();$('container').value=saved.container||'';
-    fillSelect('carrier',true,saved.carrierId||settings.defaultCarrierId);$('inquiryType').value=types[saved.inquiryType]?saved.inquiryType:settings.defaultInquiryType;
+    const saved=storedInput();$('container').value=saved.container||'';
+    fillQueryCarrier(saved.carrierId||(terminalMode()?'':settings.defaultCarrierId));fillTypes(saved.inquiryType||settings.defaultInquiryType);renderAll();
     const restore=state.operation?.status==='running'||!saved.container||saved.container===state.operation?.container;
     if(restore)syncOperation(state.operation,{restore:true});
     else {lastOperationId=state.operation?.id||'';lastRenderedOperation=lastOperationId;}
-    if(!state.operation||!restore)status(demo?'界面演示：MRSU4786640 为 Maersk 示例；MSCU1234567 为 MSC 示例。':settings.testMode!==false?'输入完整柜号即可查表。测试模式下不会发送邮件。':'输入完整柜号即可查表。正式发送需要点击发送按钮。');
+    if(!state.operation||!restore)status(demo?'界面演示：MRSU4786640 为 Maersk 示例；MSCU1234567 为 MSC 示例。':'输入完整柜号即可查表。「发送」会真实发出，「仅生成草稿」不发送。');
   }else syncOperation(state.operation);
   return state;
 }
@@ -309,10 +440,10 @@ function startPolling(){
 }
 async function perform(mode,forceRefresh=false){
   clearTimeout(debounce);if(busy||initializing||!$('inquiry').reportValidity())return;
-  const multi=matchedChannel()==='one-chat'||$('inquiryType').value===ON_HIRE;
+  const multi=supportsManyContainers(matchedProfile(),$('inquiryType').value);
   const more=mode==='identify'||!multi?[]:extraContainers();
   if(mode!=='identify'&&multi&&blockedRows()){status('列表中有柜号尚未查到、找不到或船公司不同，请删除后再发送。','error');return;}
-  if(mode==='identify'){lastResult=null;$('manualMbl').value='';missingConfiguration=false;clearPreview();}
+  if(mode==='identify'){lastResult=null;$('manualMbl').value='';configMissing=false;clearPreview();}
   // Lookups never lock the popup: the user can type the next container while this one is read.
   const sequence=++requestSequence;rememberInput();
   if(mode==='identify'){lookingUp=true;syncSendButtons();}else setBusy(true);
@@ -333,32 +464,26 @@ async function perform(mode,forceRefresh=false){
 }
 function editMatch(){
   if(busy)return;
-  const selected=$('carrier').value;
-  const profile=settings.carriers.find(p=>p.id===(selected==='auto'?lastResult?.carrierId:selected));
+  const selected=$('carrier').value,profile=matchedProfile();
   renderResult({...lastResult,container:$('container').value.trim().toUpperCase(),mbl:$('manualMbl').value.trim().toUpperCase(),
     carrierId:profile?.id,carrierName:profile?.name,carrierSource:selected==='auto'?lastResult?.carrierSource:'manual',
-    inquiryType:$('inquiryType').value,configurationMissing:undefined,unrecognizedCarrier:profile?'':'unknown',recognitionError:profile?'':'请选择船公司。'});
+    inquiryType:$('inquiryType').value,configurationMissing:undefined,unrecognizedCarrier:profile?'':'unknown',needsTerminal:false,recognitionError:profile?'':`请选择${kind()}。`});
 }
 $('clearCache').addEventListener('click',async()=>{
   clearTimeout(debounce);if(busy)return;
   try{
     setBusy(true);await rpc({type:'clearCache'});
-    lastResult=null;lastOperationId='';lastRenderedOperation='';draftTabId=null;missingConfiguration=false;
+    lastResult=null;lastOperationId='';lastRenderedOperation='';draftTabId=null;configMissing=false;
     $('manualMbl').value='';$('needsConfig').hidden=true;$('openDraft').hidden=true;
     lookupError('本地缓存已清除，请点击查询或重新粘贴柜号。');
-    status('本地缓存已清除，航司配置和邮件操作记录已保留。','success');
+    status('本地缓存已清除，配置和邮件操作记录已保留。','success');
   }catch(error){status(error.message,'error');}finally{setBusy(false);}
 });
 function scheduleIdentify(){
   clearTimeout(debounce);if($('notFound').open)$('notFound').close();rememberInput();draftTabId=null;$('openDraft').hidden=true;
   if(busy||initializing)return;
-  lastResult=null;$('manualMbl').value='';missingConfiguration=false;$('needsConfig').hidden=true;clearPreview();$('matchCarrier').textContent='等待重新识别';$('matchMbl').textContent='MBL 将从「提柜」匹配';$('matchSource').textContent='仅查表，不会发送邮件';setBusy(false);syncMode();
+  lastResult=null;$('manualMbl').value='';configMissing=false;$('needsConfig').hidden=true;clearPreview();$('matchCarrier').textContent='等待重新识别';$('matchMbl').textContent='MBL 将从「提柜」匹配';$('matchSource').textContent='仅查表，不会发送邮件';setBusy(false);syncMode();
   if(/^[A-Za-z]{4}\d{7}$/.test($('container').value.trim()))debounce=setTimeout(()=>perform('identify'),700);
-}
-async function saveSettings(next){
-  if(busy)throw new Error('后台操作进行中，请完成后再修改配置。');
-  const normalized=validateSettings(next);settings=validateSettings(await rpc({type:'settings',settings:normalized}));hydrateSettings();
-  if(lastResult){const refreshed={...lastResult,configurationMissing:undefined};renderResult(refreshed);}setBusy(false);
 }
 // Mail drafts opened in the computer's mail program (Foxmail or Outlook) are sent by the user. 'system' is the
 // former name of the option, still found on older records.
@@ -371,31 +496,52 @@ function download(text,filename,type){const url=URL.createObjectURL(new Blob([te
 async function scriptText(){const response=await fetch('./airscript/LFD_ReadOnly.js');if(!response.ok)throw new Error('无法读取插件中的只读脚本。');return response.text();}
 document.querySelectorAll('.tab').forEach(button=>button.addEventListener('click',()=>showPage(button.dataset.page)));
 $('container').addEventListener('input',()=>{$('container').value=$('container').value.toUpperCase().replace(/\s/g,'');scheduleIdentify();});
-for(const id of ['carrier','inquiryType'])$(id).addEventListener('change',()=>{editMatch();syncMode();});$('manualMbl').addEventListener('input',editMatch);
+for(const id of ['carrier','inquiryType'])$(id).addEventListener('change',()=>{if(id==='carrier'){fillTypes();rememberInput();}editMatch();syncMode();});$('manualMbl').addEventListener('input',editMatch);
 $('inquiry').addEventListener('submit',event=>{event.preventDefault();perform('send');});$('identify').addEventListener('click',()=>perform('identify'));$('draft').addEventListener('click',()=>perform('draft'));$('openDraft').addEventListener('click',()=>openDraft(draftTabId));
-$('configureDetected').addEventListener('click',()=>{const id=lastResult?.carrierId||lastResult?.carrier?.id;if(settings.carriers.some(p=>p.id===id)){showPage('config');loadProfile(id);$('page-config').scrollTop=0;$('carrierTo').focus();}else startNewProfile(typeof lastResult?.carrier==='string'?lastResult.carrier:'新船公司');});
-$('newCarrier').addEventListener('click',()=>startNewProfile());
-$('channel').addEventListener('change',()=>{if($('channel').value==='cosco-portal'&&!$('portalShipmentType').value.trim())fillPortal(COSCO_PORTAL);if($('channel').value==='one-chat'&&!$('chatMessage').value.trim())fillChat(ONE_CHAT);syncChannel();});$('editCarrier').addEventListener('change',()=>loadProfile($('editCarrier').value));
-$('standardTemplate').addEventListener('click',()=>{$('bodyTemplate').value=DEFAULT_BODY_TEMPLATE;$('subjectTemplate').value=DEFAULT_SUBJECT_TEMPLATE;status('已填入标准模板，点击保存后生效。');});
-$('carrierForm').addEventListener('submit',async event=>{
-  event.preventDefault();if(busy)return;
-  try{
-    const original=newProfile||settings.carriers.find(p=>p.id===editingId);
-    const list=value=>value.split(/[,;，；\n]+/).map(v=>v.trim()).filter(Boolean);
-    const channel=$('channel').value,portal=channel==='cosco-portal'?{requester:$('portalRequester').value.trim(),reference:$('portalReference').value.trim(),shipmentType:$('portalShipmentType').value.trim(),service:$('portalService').value.trim()}:undefined;
-    const chat=channel==='one-chat'?{firstName:$('chatFirstName').value.trim(),lastName:$('chatLastName').value.trim(),email:$('chatEmail').value.trim(),country:$('chatCountry').value.trim(),message:$('chatMessage').value.trim()}:undefined;
-    const {portal:_previousPortal,chat:_previousChat,...base}=original;
-    const onHire={to:addressList($('onHireTo').value),cc:addressList($('onHireCc').value),subjectTemplate:$('onHireSubject').value,bodyTemplate:$('onHireBody').value};
-    const profile={...base,channel,onHire,...(portal?{portal}:{}),...(chat?{chat}:{}),name:$('carrierName').value.trim(),greeting:$('greeting').value.trim(),to:addressList($('carrierTo').value),cc:addressList($('carrierCc').value),aliases:list($('aliases').value),mblPrefixes:$('mblPrefixes').value.split(/[\s,;，；]+/).filter(Boolean),bodyTemplate:$('bodyTemplate').value,subjectTemplate:$('subjectTemplate').value};
-    const carriers=newProfile?[...settings.carriers,profile]:settings.carriers.map(p=>p.id===editingId?profile:p);const id=profile.id;
-    await saveSettings({...settings,carriers});loadProfile(id);status(`${profile.name} 配置已保存${chat?'。':portal?(!portal.requester||!profile.bodyTemplate?'，补齐 Requester 和正文后可填写工单。':'。'):!profile.to.length||!profile.bodyTemplate?'，补齐邮箱和正文后可生成邮件。':'。'}`,'success');
-  }catch(error){status(error.message,'error');}
+$('configureDetected').addEventListener('click',()=>{
+  const id=lastResult?.carrierId;
+  if(profiles().some(p=>p.id===id)){showPage('config');flushSave();ui.type[id]=$('inquiryType').value||ui.type[id];renderProfile(id);$('page-config').scrollTop=0;$('carrierTo').focus();}
+  else openAddProfile(typeof lastResult?.unrecognizedCarrier==='string'?lastResult.unrecognizedCarrier:'');
 });
-$('deleteCarrier').addEventListener('click',async()=>{
-  if(busy||settings.carriers.length<2)return;const profile=settings.carriers.find(p=>p.id===editingId);
-  if(!confirm(`删除 ${profile.name} 的船公司配置？操作记录仍然保留。`))return;
-  try{const carriers=settings.carriers.filter(p=>p.id!==editingId);editingId=carriers[0].id;await saveSettings({...settings,carriers,defaultCarrierId:settings.defaultCarrierId===profile.id?'auto':settings.defaultCarrierId});status('船公司配置已删除。');}catch(error){status(error.message,'error');}
+$('newCarrier').addEventListener('click',()=>openAddProfile());
+$('cancelNewProfile').addEventListener('click',closeAddProfile);$('confirmNewProfile').addEventListener('click',addProfile);
+$('newProfileName').addEventListener('keydown',event=>{if(event.key==='Enter'){event.preventDefault();addProfile();}if(event.key==='Escape')closeAddProfile();});
+$('newType').addEventListener('click',()=>{$('newTypeRow').hidden=false;$('newTypeName').focus();});
+$('cancelNewType').addEventListener('click',()=>{$('newTypeRow').hidden=true;$('newTypeName').value='';});$('confirmNewType').addEventListener('click',addType);
+$('newTypeName').addEventListener('keydown',event=>{if(event.key==='Enter'){event.preventDefault();addType();}if(event.key==='Escape')$('cancelNewType').click();});
+$('editCarrier').addEventListener('change',()=>{const id=$('editCarrier').value;flushSave();renderProfile(id);});
+$('editType').addEventListener('change',()=>{const id=$('editType').value;flushSave();renderType(id);});
+$('channel').addEventListener('change',()=>{if($('channel').value==='cosco-portal'&&!$('portalShipmentType').value.trim())fillPortal(COSCO_PORTAL);if($('channel').value==='one-chat'&&!$('chatMessage').value.trim())fillChat(ONE_CHAT);syncChannel();});
+$('standardTemplate').addEventListener('click',()=>{$('bodyTemplate').value=standardBody(editingType);$('subjectTemplate').value=standardSubject(editingType);scheduleSave();});
+// Every field of the config page saves itself.
+$('page-config').addEventListener('input',event=>{if(event.target.matches('input,select,textarea')&&!event.target.hasAttribute('data-nosave'))scheduleSave();});
+for(const id of ['carrierForm','connectionForm'])$(id).addEventListener('submit',event=>{event.preventDefault();flushSave();});
+// The popup closes as soon as it loses focus (e.g. to copy text from another window).
+addEventListener('pagehide',flushSave);document.addEventListener('visibilitychange',()=>{if(document.hidden)flushSave();});
+$('deleteCarrier').addEventListener('click',()=>{
+  const profile=currentProfile();if(!profile||(!terminalMode()&&profiles().length<2))return;
+  if(!confirm(`删除 ${profile.name} 的配置？操作记录仍然保留。`))return;
+  discardPendingEdits();delete ui.type[profile.id];
+  const list=profiles().filter(p=>p.id!==profile.id);
+  persist(validateSettings({...settings,[listKey()]:list,defaultCarrierId:settings.defaultCarrierId===profile.id?'auto':settings.defaultCarrierId}));
+  renderSelects();renderProfile(list[0]?.id);
+  if(lastResult?.carrierId===profile.id){lastResult=null;configMissing=false;clearPreview();$('needsConfig').hidden=true;syncSendButtons();}
+  syncMode();status(`${profile.name} 已删除。`);
 });
+$('deleteType').addEventListener('click',()=>{
+  const profile=currentProfile(),type=currentType();if(!type||!confirm(`删除 ${profile.name} 的 ${type.label} 配置？`))return;
+  discardPendingEdits();
+  persist(validateSettings({...settings,[listKey()]:profiles().map(p=>p.id===profile.id?{...p,types:p.types.filter(t=>t.id!==type.id)}:p)}));
+  afterConfigChange();renderType('');status(`${type.label} 已删除。`);
+});
+document.querySelectorAll('.mode-btn').forEach(button=>button.addEventListener('click',()=>{
+  const mode=button.dataset.mode;if(mode===settings.mode)return;
+  flushSave();persist(validateSettings({...settings,mode}));
+  lastResult=null;configMissing=false;$('needsConfig').hidden=true;$('extraContainers').replaceChildren();clearPreview();
+  fillQueryCarrier(terminalMode()?ui.profile.terminal:settings.defaultCarrierId);renderAll();
+  status(mode==='terminal'?(settings.terminals.length?'已切换到码头模式。':'已切换到码头模式。请先到配置页添加码头。'):'已切换到航司模式。');
+  if($('container').value)scheduleIdentify();
+}));
 const chosenMailClient=()=>$('mailClient').value==='program'?$('mailProgram').value:'gmail';
 function syncMailClientNotice(){
   const program=$('mailClient').value==='program';$('mailClientNotice').hidden=!program;$('mailProgramRow').hidden=!program;
@@ -406,24 +552,26 @@ function syncMailClientNotice(){
 $('mailProgram').addEventListener('change',syncMailClientNotice);
 $('defaultAppsLink').addEventListener('click',event=>{event.preventDefault();openMailto('ms-settings:defaultapps');});
 $('mailClient').addEventListener('change',syncMailClientNotice);
-$('connectionForm').addEventListener('submit',async event=>{event.preventDefault();if(mailProgram(chosenMailClient())&&!mailProgram(settings.mailClient)&&!confirm('改用电脑上的邮件程序（Foxmail 等）后，插件只能打开写好的邮件，不能自动发送，也无法确认是否已发出，需要你发完后点「我已发送」。推荐继续使用 Gmail 网页。\n\n确定改用电脑上的邮件程序？'))return;try{await saveSettings({...settings,sheetUrl:$('sheetUrl').value.trim(),account:$('account').value.trim(),gmailIndex:Number($('gmailIndex').value),testMode:$('testMode').checked,defaultCarrierId:$('defaultCarrierId').value,defaultInquiryType:$('defaultInquiryType').value,mailClient:chosenMailClient()});status('连接与默认选项已保存。','success');}catch(error){status(error.message,'error');}});
 $('exportConfig').addEventListener('click',()=>{try{download(JSON.stringify(createConfig(settings),null,2)+'\n','lfd-inquiry-config.json','application/json');status('配置 JSON 已导出。','success');}catch(error){status(error.message,'error');}});
-// The system file picker makes the toolbar popup go blank/close on Windows, so importing from the popup
-// opens the extension page in a normal tab (straight to this section), where the picker works.
-$('importLabel').addEventListener('click',event=>{
-  if(demo||!chrome.tabs?.getCurrent)return;
-  event.preventDefault();
-  chrome.tabs.getCurrent(tab=>{
-    if(tab){$('importFile').click();return;}
-    chrome.tabs.create({url:chrome.runtime.getURL('app.html#import')});window.close();
-  });
+// Pasted, not picked: on Windows the system file picker makes the toolbar popup go blank and close.
+function applyImport(){
+  const text=$('importText').value;if(!text.trim())return;
+  try{
+    const next=parseConfig(text,settings);
+    discardPendingEdits();persist(next);$('importText').value='';
+    lastResult=null;configMissing=false;$('needsConfig').hidden=true;clearPreview();
+    fillQueryCarrier(terminalMode()?ui.profile.terminal:settings.defaultCarrierId);renderAll();
+    status(`配置已导入：${next.carriers.length} 家船公司、${next.terminals.length} 个码头。`,'success');
+  }catch(error){status(error.message,'error');}
+}
+let importTimer;
+$('importText').addEventListener('input',()=>{clearTimeout(importTimer);importTimer=setTimeout(applyImport,250);});
+$('restoreDefaults').addEventListener('click',()=>{
+  if(!confirm('恢复默认配置？船公司、模板和连接设置会换成插件内置内容，码头配置和操作记录保留。'))return;
+  discardPendingEdits();persist(validateSettings({mode:settings.mode,terminals:settings.terminals}));
+  lastResult=null;configMissing=false;$('needsConfig').hidden=true;clearPreview();
+  fillQueryCarrier(terminalMode()?ui.profile.terminal:settings.defaultCarrierId);renderAll();status('已恢复默认配置。','success');
 });
-$('importFile').addEventListener('change',async event=>{
-  pendingImport=null;$('importReview').hidden=true;const file=event.target.files[0];if(!file)return;
-  try{if(file.size>MAX_CONFIG_BYTES)throw new Error('配置文件超过 256 KiB。');pendingImport=parseConfig(await file.text());$('importSummary').textContent=`将替换为 ${pendingImport.carriers.length} 家船公司：${pendingImport.carriers.map(p=>p.name).join('、')}。发件账号：${pendingImport.account}。操作记录保留，测试模式开启。`;$('importReview').hidden=false;status('已校验配置文件；查看摘要后点击应用。');}catch(error){status(error.message,'error');}finally{event.target.value='';}
-});
-$('applyImport').addEventListener('click',async()=>{if(!pendingImport)return;try{await saveSettings(pendingImport);pendingImport=null;$('importReview').hidden=true;status('配置已导入，测试模式已开启。','success');}catch(error){status(error.message,'error');}});
-$('cancelImport').addEventListener('click',()=>{pendingImport=null;$('importReview').hidden=true;});
 $('copyScript').addEventListener('click',async()=>{try{const text=await scriptText();try{await navigator.clipboard.writeText(text);status('只读脚本已复制，可到金山文档粘贴并保存。','success');}catch{$('scriptFallback').hidden=false;$('scriptFallback').value=text;$('scriptFallback').focus();$('scriptFallback').select();status('请复制下方已选中的脚本，或点击下载。');}}catch(error){status(error.message,'error');}});
 $('downloadScript').addEventListener('click',async()=>{try{download(await scriptText(),'LFD_ReadOnly_v1.js','text/javascript');status('只读脚本已下载。','success');}catch(error){status(error.message,'error');}});
 // Extra containers (On-Hire email, ONE chat). Each box is looked up on its own without replacing the main
@@ -460,7 +608,7 @@ function addExtraRow(value='',{focus=true,after=null}={}){
     done('pending','正在查询…');
     timer=setTimeout(async()=>{
       try{
-        const data=await rpc({type:'peek',container,options:{carrierId:'auto',inquiryType:$('inquiryType').value}});
+        const data=await rpc({type:'peek',container,options:{...options(),carrierId:terminalMode()?$('carrier').value:'auto'}});
         if(mine!==sequence)return;
         Object.assign(row.dataset,{container,mbl:data.mbl||'',carrierId:data.unrecognizedCarrier?'':data.carrierId||'',carrierName:data.carrierName||data.unrecognizedCarrier||''});
         if(!data.mbl){done('error','没有取得 MBL，请删除或在表格中补全','error');return;}
@@ -511,5 +659,8 @@ $('notFound').addEventListener('cancel',()=>{status('柜号未找到，可修改
 $('testNotification').addEventListener('click',async()=>{try{await rpc({type:'testNotification'});status('已发送测试通知，请点击它。');}catch(error){status(error.message,'error');}});
 $('refresh').addEventListener('click',()=>refreshState().catch(error=>status(error.message,'error')));
 try{await refreshState({initial:true});}catch(error){status(error.message,'error');}finally{initializing=false;if(!lastResult&&!busy&&!$('notFound').open&&/^[A-Za-z]{4}\d{7}$/.test($('container').value.trim()))scheduleIdentify();}
-// Opened from the popup's 「选择 JSON 文件」: go straight to the import section of the config page.
-if(location.hash==='#import'){showPage('config');$('importSection').open=true;$('page-config').scrollTop=$('importSection').offsetTop-$('page-config').offsetTop-12;status('在此页面点击「选择 JSON 文件」导入配置。');}
+// Back to where the user left off.
+for(const id of ui.open)if($(id))$(id).open=true;
+document.addEventListener('toggle',event=>{if(!event.target.id)return;ui.open=[...document.querySelectorAll('#page-config details[open]')].map(node=>node.id);rememberUi();},true);
+document.querySelectorAll('.page').forEach(node=>node.addEventListener('scroll',()=>{if(!node.hidden){ui.scroll[node.id.replace('page-','')]=node.scrollTop;rememberUi();}},{passive:true}));
+showPage(ui.page);
