@@ -205,6 +205,8 @@ An unpacked extension's id comes from its folder, so the Vue build has a differe
 
 **v0.7.0 (branch `refactor/vue3-naiveui`, not merged).** Rewritten with Vue 3, TypeScript, Less and Naive UI on a Vite build. Native dialogs replaced by in-app ones, because they break once the user blocks them. Behavior, schema and storage keys are unchanged.
 
+**v0.7.1 (same branch).** UI pass: header controls share one height, delete actions and the search button are real Naive UI buttons, all inputs and selects are 30px. Repeated hints removed: the status bar is empty at rest and shows only what is happening, each piece of help appears once.
+
 ## Known limitations
 
 - Gmail, COSCO, ONE and KDocs are driven through their page structure, so a site redesign can stop any flow. Failures stop with a message rather than guess.

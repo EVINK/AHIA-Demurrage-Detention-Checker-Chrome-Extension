@@ -4,7 +4,7 @@ import {busy,historyRows,markSent,openDraft,openMailto,refresh,releaseRecord,t} 
 </script>
 
 <template>
-  <div class="section-top"><div><h2>{{t('操作记录')}}</h2><p class="hint">{{t('按柜号、船公司和查询类型防止重复生成。')}}</p></div><n-button id="refresh" size="small" @click="refresh">{{t('刷新')}}</n-button></div>
+  <div class="section-top"><h2>{{t('操作记录')}}</h2><n-button id="refresh" size="small" @click="refresh">{{t('刷新')}}</n-button></div>
   <div id="history">
     <p v-if="!historyRows.length" class="empty">{{t('暂无操作记录')}}</p>
     <div v-for="row in historyRows" :key="row.key" class="history-row">

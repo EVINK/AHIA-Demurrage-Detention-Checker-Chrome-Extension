@@ -101,8 +101,8 @@ export const query=reactive({container:'',carrier:'auto',inquiryType:'demurrage'
 const storedInput=()=>remembered('lfd-popup-input',{});
 function rememberInput(){try{localStorage.setItem('lfd-popup-input',JSON.stringify({container:query.container,carrierId:query.carrier,inquiryType:query.inquiryType}));}catch{}}
 export const view=reactive({
-  matchCarrier:'尚未识别船公司',matchMbl:'MBL 将从「提柜」匹配',matchSource:'选择船公司可覆盖自动识别结果',previewType:'Demurrage',
-  source:'识别完成后显示当前模板',to:'—',cc:'—',subject:'等待匹配柜号和 MBL',html:'',lines:[],previewReady:false,
+  matchCarrier:'尚未识别船公司',matchMbl:'',matchSource:'',previewType:'Demurrage',
+  source:'',to:'—',cc:'—',subject:'—',html:'',lines:[],previewReady:false,
   needsConfig:false,missingTitle:'首次使用：请补充配置',missingDetail:'',configureLabel:'配置此船公司',
   openDraftLabel:'打开 Gmail 草稿 ↗',signatureNote:'＋ Gmail 中的原签名',signatureVisible:true
 });
@@ -218,7 +218,7 @@ export const draftLabel=computed(()=>{
 export const openDraftVisible=computed(()=>draftTabId.value!==null);
 
 function clearPreview(){
-  view.source='识别完成后显示当前模板';view.to='—';view.cc='—';view.subject='等待匹配柜号和 MBL';view.html='';view.lines=[];view.previewReady=false;
+  view.source='';view.to='—';view.cc='—';view.subject='—';view.html='';view.lines=[];view.previewReady=false;
 }
 function lookupError(text){view.matchCarrier='查表未完成';view.matchMbl='尚未取得 MBL';view.matchSource=text;clearPreview();}
 function resetResult(){lastResult.value=null;configMissing.value=false;view.needsConfig=false;clearPreview();}
@@ -270,12 +270,12 @@ function reportResult(data,mode){
   renderResult(data);
   const portal=data.channel==='cosco-portal',chat=data.channel==='one-chat';
   if(mailProgram(data.mailClient)&&data.status==='draft'){const name=data.mailClient==='outlook'?'Outlook':'Foxmail';status(`已请求打开 ${name} 写信窗口：检查后在 ${name} 里发送，发完后到「进行中」或「记录」点「我已发送」。如果没有弹出写信窗口，请确认已安装 ${name} 并设为 Windows 默认邮件程序（配置页有下载和设置入口）。`,'success');return;}
-  if(data.background){status(`已加入后台任务：${(data.containers||[data.container]).join('、')}。可在「进行中」查看进度，现在可以继续查询其他柜号。`,'success');return;}
+  if(data.background){status(`已加入后台任务：${(data.containers||[data.container]).join('、')}。`,'success');return;}
   if(data.status==='draft')status(chat?`ONE 客服${data.agent?' '+data.agent:''}已接入，消息已填入聊天框，尚未发送。可打开聊天页查看。`:portal?'COSCO 工单已填好，尚未提交。可打开工单页检查。':'Gmail 草稿已填好，原签名已保留，尚未发送。可打开草稿检查。','success');
   else if(data.status==='sent')status(chat?`已查询：ONE 客服${data.agent?' '+data.agent:''}已读消息，回复请在聊天页查看。`:portal?`COSCO 工单已提交${data.ticketId?' #'+data.ticketId:''}。`:'Gmail 已显示发送成功。','success');
   else if(data.unrecognizedCarrier)status(data.recognitionError||'请选择船公司或补充识别规则。','error');
   else if(configMissing.value)status('已匹配柜号；完成提示中的配置后即可生成草稿。');
-  else status(data.demo?'演示匹配完成；未读取在线表格，也不会创建邮件。':mode==='identify'?(data.channel==='one-chat'?'已匹配 MBL 和船公司。点击发送 ONE 在线客服消息继续。':data.channel==='cosco-portal'?'已匹配 MBL 和船公司。点击填写 COSCO 工单继续。':'已匹配 MBL。可以发送，或点「仅生成草稿」先检查。'):'邮件预览已更新。','success');
+  else status(data.demo?'演示匹配完成；未读取在线表格，也不会创建邮件。':mode==='identify'?'已匹配 MBL。':'邮件预览已更新。','success');
 }
 function syncOperation(operation,{restore=false}={}){
   if(!operation)return;
@@ -321,7 +321,7 @@ export async function refreshState({initial=false}={}){
     const restore=state.operation?.status==='running'||!saved.container||saved.container===state.operation?.container;
     if(restore)syncOperation(state.operation,{restore:true});
     else{lastOperationId=state.operation?.id||'';lastRenderedOperation=lastOperationId;}
-    if(!state.operation||!restore)status(demo?'界面演示：MRSU4786640 为 Maersk 示例；MSCU1234567 为 MSC 示例。':'输入完整柜号即可查表。「发送」会真实发出，「仅生成草稿」不发送。');
+    if(!state.operation||!restore)status(demo?'界面演示：MRSU4786640 为 Maersk 示例；MSCU1234567 为 MSC 示例。':'');
   }else syncOperation(state.operation);
   return state;
 }
@@ -383,7 +383,7 @@ function scheduleIdentify(){
   clearTimeout(debounce);notFoundDialog.show=false;rememberInput();draftTabId.value=null;
   if(busy.value||initializing)return;
   lastResult.value=null;query.mbl='';configMissing.value=false;view.needsConfig=false;clearPreview();
-  view.matchCarrier='等待重新识别';view.matchMbl='MBL 将从「提柜」匹配';view.matchSource='仅查表，不会发送邮件';
+  view.matchCarrier='等待重新识别';view.matchMbl='';view.matchSource='';
   if(validContainer(query.container))debounce=setTimeout(()=>perform('identify'),700);
 }
 // Launch the computer's default mail program with the filled message.
@@ -405,7 +405,7 @@ export const notFoundDialog=reactive({show:false,container:''});
 function showNotFound(container){notFoundDialog.container=container;notFoundDialog.show=true;}
 export function notFoundOk(){
   notFoundDialog.show=false;query.container='';scheduleIdentify();
-  view.matchCarrier='尚未识别船公司';view.matchSource='选择船公司可覆盖自动识别结果';status('请重新输入柜号。');focusField('container');
+  view.matchCarrier='尚未识别船公司';view.matchSource='';status('请重新输入柜号。');focusField('container');
 }
 export function notFoundRetry(){notFoundDialog.show=false;if(query.container.trim().toUpperCase()!==notFoundDialog.container)query.container=notFoundDialog.container;perform('identify');}
 // Esc closes it like 确定 would, but keeps the input so the user can correct it.
@@ -524,9 +524,6 @@ export const defaultTypeOptions=computed(()=>{
   for(const profile of [...settings.value.carriers,...settings.value.terminals])for(const type of profile.types)if(!all.has(type.id))all.set(type.id,`${type.label}（${profile.name}）`);
   return [...all].map(([value,label])=>({label,value}));
 });
-export const mailProgramHint=computed(()=>form.mailProgram==='outlook'
-  ?'Outlook：正文为纯文本，柜号以「Container#: … / MBL#: …」逐行显示（Outlook 不显示表格）。'
-  :'Foxmail：正文分行和带边框的 Container# / MBL# 表格会自动填好（Demurrage / Detention / On-Hire 都适用）。');
 const chosenMailClient=()=>form.mailClient==='program'?form.mailProgram:'gmail';
 
 function renderConnection(){

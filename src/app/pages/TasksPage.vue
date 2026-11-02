@@ -10,7 +10,7 @@ const sections=computed(()=>[
 </script>
 
 <template>
-  <div class="section-top"><div><h2>{{t('进行中的任务')}}</h2><p class="hint">{{t('发送和草稿都在后台进行，可以继续查询其他柜号。')}}</p></div></div>
+  <div class="section-top"><h2>{{t('进行中的任务')}}</h2></div>
   <div id="tasks">
     <p v-if="!taskGroups.all.length" class="empty">{{t('没有进行中的任务')}}</p>
     <template v-for="section in sections" :key="section.heading">

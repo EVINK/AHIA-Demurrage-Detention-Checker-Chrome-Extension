@@ -11,6 +11,8 @@ import {LANGUAGES} from '../core/i18n.ts';
 declare const __APP_VERSION__:string;
 const version=`v${__APP_VERSION__}`;
 const modeTheme={buttonColor:'transparent',buttonColorActive:'#d7eee0',buttonTextColor:'#deefe3',buttonTextColorActive:'#204d42',buttonTextColorHover:'#ffffff',buttonBorderColor:'#72988a',buttonBorderColorActive:'#d7eee0',buttonBorderColorHover:'#72988a',buttonBoxShadow:'none',buttonBoxShadowFocus:'none',buttonBoxShadowHover:'none'};
+const headerSelection={color:'transparent',colorActive:'transparent',textColor:'#deefe3',placeholderColor:'#deefe3',arrowColor:'#deefe3',border:'1px solid #72988a',borderHover:'1px solid #d7eee0',borderActive:'1px solid #d7eee0',borderFocus:'1px solid #d7eee0',boxShadowActive:'none',boxShadowFocus:'none',boxShadowHover:'none'};
+const languageTheme={peers:{InternalSelection:headerSelection}};
 const dialog=useDialog();
 // Replaces window.confirm, which stops working once the user ticks "prevent this page from creating additional dialogs".
 useAsk(text=>new Promise(resolve=>{
@@ -34,7 +36,7 @@ onMounted(boot);
         <n-radio-button value="carrier" data-mode="carrier">{{t('航司模式')}}</n-radio-button>
         <n-radio-button value="terminal" data-mode="terminal">{{t('码头模式')}}</n-radio-button>
       </n-radio-group>
-      <n-select id="language" class="lang-select" size="small" :title="t('界面语言')" :value="language" :options="languageOptions" :consistent-menu-width="false" @update:value="setLanguage"/>
+      <n-select id="language" class="lang-select" size="small" :theme-overrides="languageTheme" :title="t('界面语言')" :value="language" :options="languageOptions" :consistent-menu-width="false" @update:value="setLanguage"/>
     </header>
     <nav class="tabs" :aria-label="t('插件页面')">
       <button v-for="tab in tabs" :key="tab.page" class="tab" type="button" :class="{active:ui.page===tab.page}" :data-page="tab.page" :aria-selected="ui.page===tab.page" @click="showPage(tab.page)">

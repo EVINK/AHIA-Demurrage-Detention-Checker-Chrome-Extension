@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import {NButton,NCheckbox,NInput,NInputNumber,NSelect} from 'naive-ui';
-import {addProfile,addType,adding,channelChanged,channelOptions,channelVisible,clearCache,closeAddProfile,closeAddType,copyScript,currentProfile,currentType,customType,defaultCarrierOptions,defaultTypeOptions,deleteDisabled,deleteProfile,deleteType,downloadScript,editChannel,editTypeOptions,editingId,editingType,exportConfig,flushSave,form,importInput,importText,isOpen,kind,mailProgramHint,openAddProfile,openAddType,openDefaultApps,profileOptions,restoreDefaults,saveLine,scriptFallback,selectProfile,selectType,setOpen,t,terminalMode,testNotification,useStandardTemplate} from '../store.ts';
+import {addProfile,addType,adding,channelChanged,channelOptions,channelVisible,clearCache,closeAddProfile,closeAddType,copyScript,currentProfile,currentType,customType,defaultCarrierOptions,defaultTypeOptions,deleteDisabled,deleteProfile,deleteType,downloadScript,editChannel,editTypeOptions,editingId,editingType,exportConfig,flushSave,form,importInput,importText,isOpen,kind,openAddProfile,openAddType,openDefaultApps,profileOptions,restoreDefaults,saveLine,scriptFallback,selectProfile,selectType,setOpen,t,terminalMode,testNotification,useStandardTemplate} from '../store.ts';
 
 // Kept here because their {{tokens}} cannot sit inside a template expression.
 const TYPE_HINT='{{Type}} 显示为这个名称',SUBJECT_HINT='须含 {{container}} {{mbl}}',BODY_HINT='须含一个 {{table}}',CHAT_HINT='单行，必须包含 {{type}} {{container}} {{mbl}}';
@@ -14,7 +14,7 @@ const toggle=(id,event)=>setOpen(id,event.target.open);
   <div class="config-bar">
     <n-select v-if="currentProfile" id="editCarrier" class="config-select" size="small" filterable :value="editingId" :options="profileOptions" :aria-label="t('选择要编辑的项')" @update:value="selectProfile"/>
     <n-button id="newCarrier" size="small" @click="openAddProfile()">{{t('＋ 新增')}}</n-button>
-    <n-button v-if="currentProfile" id="deleteCarrier" size="small" text type="error" :disabled="deleteDisabled" @click="deleteProfile">{{t('删除')}}</n-button>
+    <n-button v-if="currentProfile" id="deleteCarrier" size="small" tertiary type="error" :disabled="deleteDisabled" @click="deleteProfile">{{t('删除')}}</n-button>
     <span id="saveState" class="save-state" :class="saveLine.type">{{t(saveLine.text)}}</span>
   </div>
   <div v-if="adding.profile" id="newProfileRow" class="inline-add">
@@ -31,7 +31,7 @@ const toggle=(id,event)=>setOpen(id,event.target.open);
     <div class="type-bar">
       <div class="type-select"><label class="field-label">{{t('查询类型')}}</label><n-select id="editType" size="small" :disabled="!currentType" :value="editingType" :options="editTypeOptions" @update:value="selectType"/></div>
       <n-button id="newType" size="small" @click="openAddType">{{t('＋ 新增类型')}}</n-button>
-      <n-button v-if="currentType" id="deleteType" size="small" text type="error" @click="deleteType">{{t('删除此类型')}}</n-button>
+      <n-button v-if="currentType" id="deleteType" size="small" tertiary type="error" @click="deleteType">{{t('删除此类型')}}</n-button>
     </div>
     <div v-if="adding.type" id="newTypeRow" class="inline-add">
       <n-input v-model:value="adding.typeName" :input-props="field('newTypeName')" :maxlength="80" size="small" :placeholder="t('类型名称，例如 Exam Hold')" @keydown.enter.prevent="addType" @keydown.esc="closeAddType"/>
@@ -68,7 +68,7 @@ const toggle=(id,event)=>setOpen(id,event.target.open);
           <div><label class="field-label" for="portalShipmentType">Shipment Type</label><n-input v-model:value="form.portalShipmentType" :input-props="field('portalShipmentType')" :maxlength="80"/></div>
           <div><label class="field-label" for="portalService">Per Diem Services</label><n-input v-model:value="form.portalService" :input-props="field('portalService')" :maxlength="80"/></div>
         </div>
-        <small class="hint">{{t('Detention 提交到 support.cosco-usa.com；On-Hire 提交到 coscoshippingla.freshdesk.com。人机验证需你手动完成，完成后插件自动 Submit。')}}</small>
+        <small class="hint">{{t('Detention 提交到 support.cosco-usa.com；On-Hire 提交到 coscoshippingla.freshdesk.com。')}}</small>
       </div>
       <div v-show="editChannel==='one-chat'" id="chatFields">
         <div class="field-pair">
@@ -80,7 +80,6 @@ const toggle=(id,event)=>setOpen(id,event.target.open);
           <div><label class="field-label" for="chatCountry">Country</label><n-input v-model:value="form.chatCountry" :input-props="field('chatCountry')" :maxlength="80"/></div>
         </div>
         <label class="field-label" for="chatMessage">{{t('聊天消息')}} <span>{{t(CHAT_HINT)}}</span></label><n-input v-model:value="form.chatMessage" :input-props="field('chatMessage')" :maxlength="500"/>
-        <small class="hint">{{t('客服接入后立即发送，客服「Read」已读才记为已查询。')}}</small>
       </div>
     </details>
   </form>
@@ -97,14 +96,13 @@ const toggle=(id,event)=>setOpen(id,event.target.open);
       <template v-if="form.mailClient==='program'">
         <div id="mailProgramRow"><label class="field-label">{{t('邮件程序')}} <span>{{t('须与 Windows 默认邮件程序一致')}}</span></label><n-select id="mailProgram" size="small" v-model:value="form.mailProgram" :options="mailPrograms()"/></div>
         <div id="mailClientNotice" class="notice">
-          <strong>{{t('推荐使用 Gmail 网页。')}}</strong>{{t('用电脑上的邮件程序时：')}}
+          {{t('用电脑上的邮件程序时：')}}
           <ul>
             <li>{{t('插件打开填好收件人、抄送、主题和正文的写信窗口，')}}<b>{{t('不能自动发送')}}</b>{{t('，需要你在邮件程序里点发送。')}}</li>
             <li>{{t('插件')}}<b>{{t('无法确认是否已发出')}}</b>{{t('，发完后要回到插件点「我已发送」，记录才会变成已发送。')}}</li>
             <li>{{t('签名由邮件程序自己添加，插件不检查签名。')}}</li>
             <li>{{t('第一次使用时 Chrome 会询问是否打开外部程序，请勾选「始终允许」；Windows 的默认邮件程序需要先设置好。')}}</li>
           </ul>
-          <p id="mailProgramHint">{{t(mailProgramHint)}}</p>
           <p class="mail-program-links">{{t('插件只能打开')}} <b>{{t('Windows 默认邮件程序')}}</b>{{t('（无法直接指定其他程序，也无法检测是否已安装），这里选的程序必须与 Windows 默认邮件程序一致。没有安装：')}}<a href="https://www.foxmail.com/" target="_blank" rel="noopener">{{t('下载 Foxmail')}}</a> · <a href="https://apps.microsoft.com/detail/9NRX63209R7B" target="_blank" rel="noopener">{{t('下载 Outlook（Microsoft Store）')}}</a> · <a id="defaultAppsLink" href="ms-settings:defaultapps" rel="noopener" @click.prevent="openDefaultApps">{{t('打开 Windows 默认应用设置')}}</a>{{t('（搜索「MAILTO」并选择）。')}}</p>
         </div>
       </template>
@@ -113,23 +111,22 @@ const toggle=(id,event)=>setOpen(id,event.target.open);
   <details id="autoCcSection" class="settings-section" :open="isOpen('autoCcSection')" @toggle="toggle('autoCcSection',$event)">
     <summary>{{t('实验性功能：Gmail 自动抄送（Auto CC）')}}</summary>
     <form id="autoCcForm" @submit.prevent="flushSave">
-      <p class="hint">{{t('开启后，在 Gmail 里写信或回复时，发件人是下面列出的邮箱才自动加上抄送；其他发件人不做任何改动，也不提示。开启后 Gmail logo 右侧会出现「Auto CC」按钮，点击回到这里。')}}</p>
+      <p class="hint">{{t('发件人在名单内时，写信和回复自动加上抄送；其他发件人不受影响。')}}</p>
       <n-checkbox id="autoCcEnabled" class="check" v-model:checked="form.autoCcEnabled">{{t('开启 Auto CC')}}</n-checkbox>
-      <label class="field-label" for="autoCcSenders">{{t('发件人')}} <span>{{t('多个邮箱用逗号分隔')}}</span></label><n-input v-model:value="form.autoCcSenders" :input-props="field('autoCcSenders')" :placeholder="t('只有这些邮箱发信时才加抄送')"/>
-      <label class="field-label" for="autoCcCc">{{t('抄送对象')}} <span>{{t('多个邮箱用逗号分隔')}}</span></label><n-input v-model:value="form.autoCcCc" :input-props="field('autoCcCc')"/>
+      <label class="field-label" for="autoCcSenders">{{t('发件人')}}</label><n-input v-model:value="form.autoCcSenders" :input-props="field('autoCcSenders')" :placeholder="t('多个邮箱用逗号分隔')"/>
+      <label class="field-label" for="autoCcCc">{{t('抄送对象')}}</label><n-input v-model:value="form.autoCcCc" :input-props="field('autoCcCc')" :placeholder="t('多个邮箱用逗号分隔')"/>
     </form>
   </details>
   <details id="importSection" class="settings-section" :open="isOpen('importSection')" @toggle="toggle('importSection',$event)">
     <summary>{{t('导入 / 导出配置')}}</summary>
-    <label class="field-label" for="importText">{{t('导入')}} <span>{{t('把 JSON 内容粘贴到这里，立即替换配置；操作记录保留')}}</span></label>
-    <n-input :value="importText" type="textarea" :input-props="field('importText')" :rows="3" :placeholder="t('用记事本打开 JSON 文件，全选复制后粘贴到这里')" @update:value="importInput"/>
+    <label class="field-label" for="importText">{{t('导入')}} <span>{{t('粘贴后立即替换配置，操作记录保留')}}</span></label>
+    <n-input :value="importText" type="textarea" :input-props="field('importText')" :rows="3" :placeholder="t('粘贴 JSON 内容')" @update:value="importInput"/>
     <div class="actions"><n-button id="exportConfig" size="small" @click="exportConfig">{{t('导出 JSON')}}</n-button><n-button id="restoreDefaults" size="small" @click="restoreDefaults">{{t('恢复默认配置')}}</n-button></div>
   </details>
   <details id="toolsSection" class="settings-section" :open="isOpen('toolsSection')" @toggle="toggle('toolsSection',$event)">
     <summary>{{t('缓存、通知与脚本')}}</summary>
-    <p class="hint">{{t('本地查表缓存只保存柜号、MBL 和 SSL 完整的记录。清除后，下次查询会重新读取提柜表；配置和操作记录保留。')}}</p>
+    <p class="hint">{{t('清除后下次查询会重新读取提柜表，配置和操作记录保留。')}}</p>
     <div class="actions"><n-button id="clearCache" size="small" @click="clearCache">{{t('清除本地缓存')}}</n-button><n-button id="testNotification" size="small" @click="testNotification">{{t('发送测试通知')}}</n-button></div>
-    <p class="hint">{{t('COSCO 人机验证和 ONE 客服回复用系统通知提醒，可用上面的按钮测试点击是否有效。')}}</p>
     <div class="actions"><n-button id="copyScript" size="small" @click="copyScript">{{t('复制只读脚本')}}</n-button><n-button id="downloadScript" size="small" @click="downloadScript">{{t('下载只读脚本')}}</n-button></div>
     <n-input v-if="scriptFallback" :value="scriptFallback" type="textarea" :input-props="field('scriptFallback')" :rows="5" readonly :aria-label="t('只读脚本代码')"/>
   </details>
