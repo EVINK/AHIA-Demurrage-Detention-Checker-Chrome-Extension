@@ -115,7 +115,7 @@ async function watchReplies(tabId,payload,agent){
 }
 async function focusTab(tabId){const tab=await chrome.tabs.get(tabId);await chrome.windows.update(tab.windowId,{focused:true});await chrome.tabs.update(tabId,{active:true});}
 const ONE_CHAT_URL='https://www.one-line.com/one-ecom/manage-shipment/cargo-tracking';
-const READ_TIMEOUT=5*60000;
+const READ_TIMEOUT=15*60000;
 // The agent wait can outlive this worker. Its state is stored so a new worker carries on, and `phase` decides whether
 // the message may still go out: 'waiting' yes; 'sending' and later never again.
 const chatWait={
@@ -159,7 +159,7 @@ async function waitRead(tabId,payload,progress,agent){
     progress(`等待客服已读（${read}/${statuses.length}）`);
     await pause(3000);
   }
-  const error=new Error(`ONE 客服 5 分钟内未读完消息（${statuses.map(s=>s||'未找到').join(' / ')}）`);
+  const error=new Error(`ONE 客服 15 分钟内未读完消息（${statuses.map(s=>s||'未找到').join(' / ')}）`);
   error.read=statuses.map(status=>/^Read$/i.test(status));
   throw error;
 }

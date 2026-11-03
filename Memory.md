@@ -215,6 +215,8 @@ An unpacked extension's id comes from its folder, so the Vue build has a differe
 
 **v0.7.5 (same branch).** Second ONE failure mode: Continue works and `#embeddedMessagingFrame` exists, but its page never loads within 45 seconds. The window is white because the small-window style hides ONE's page around that empty frame. `retryBlankChat` reloads the page up to 5 times, by the owner's decision; it stops at the pre-chat form, so no message can go out twice. Failures carry one `diagnostics.attempts` entry per try, with the frames seen, page state and window, and the style is removed so ONE's page shows. The chat frame ends at `/ESWOneMessaging…/?lwc.mode=prod&redirect=false`, and `Page.getFrameTree` does not show it: use `chrome.scripting` with `allFrames`. T icons. Why the frame stays empty is still unknown. The agent wait no longer times out at 10 minutes: `waitForAgent` runs until an agent joins, the window closes, the chat ends, it stops answering or 2 hours pass, showing ONE's queue line if there is one. State is in `chrome.storage.session` (`oneWait`), and a one-minute alarm or opening the popup lets a new worker resume. `phase` protects the single send: after `sending` the message is never sent again, and such a task becomes uncertain. The queue text match is a guess, since no real queue has been seen.
 
+**v0.7.6 (same branch).** The wait for ONE's Read receipt is 15 minutes, up from 5: a slow agent left a message at Sent and asked the owner to verify by hand.
+
 ## Known limitations
 
 - Gmail, COSCO, ONE and KDocs are driven through their page structure, so a site redesign can stop any flow. Failures stop with a message rather than guess.

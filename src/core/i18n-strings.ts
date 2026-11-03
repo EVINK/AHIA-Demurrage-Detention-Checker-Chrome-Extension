@@ -426,7 +426,7 @@ export const STRINGS=[
 ['{} 条消息均已读','{0} messages all read','{0} mensajes leídos'],
 ['等待客服已读（{}/{}）','Waiting for the agent to read ({0}/{1})','Esperando lectura del agente ({0}/{1})'],
 ['未找到','Not found','No encontrado'],
-['ONE 客服 5 分钟内未读完消息（{}）','The ONE agent did not read all messages in 5 minutes ({0})','El agente de ONE no leyó todo en 5 minutos ({0})'],
+['ONE 客服 15 分钟内未读完消息（{}）','The ONE agent did not read all messages in 15 minutes ({0})','El agente de ONE no leyó todo en 15 minutos ({0})'],
 ['开始对话，选择菜单','Starting chat, choosing menus','Iniciando chat, eligiendo menús'],
 ['转人工','Reaching an agent','Contactando un agente'],
 ['等待客服接入','Waiting for an agent','Esperando un agente'],
