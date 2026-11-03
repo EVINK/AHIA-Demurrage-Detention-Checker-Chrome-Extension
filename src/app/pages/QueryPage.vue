@@ -1,68 +1,80 @@
 <script setup lang="ts">
-import {NButton,NInput,NSelect} from 'naive-ui';
-import {addExtraRow,busy,carrierOptions,chooseCarrier,chooseType,configureDetected,containerInput,draftLabel,editMbl,extrasVisible,kind,multi,openDraft,openDraftVisible,pasteIntoContainer,pasteIntoRow,perform,pressEnter,query,removeMain,removeRow,rowLookup,rows,sendDisabled,sendLabel,t,typeOptions,view} from '../store.ts';
+import {NButton,NInput,NSelect,NTag} from 'naive-ui';
+import {busy,channelName,configureCarrier,containersInput,entryNote,groupLabels,groups,kind,lookup,moveGroup,pendingCount,previewOf,profileChoices,query,recordLabel,removeEntry,resendLocked,sendAll,sendGroup,sendAllLabel,sending,setManualMbl,setOverride,t,totals,typeOptions,chooseType,unresolved} from '../store.ts';
 
-const containerProps={id:'container',autocomplete:'off',spellcheck:false,maxlength:32};
+const missingNames={carrier:'船公司配置',type:'查询类型',to:'收件邮箱',requester:'工单 Requester',bodyTemplate:'正文模板',subjectTemplate:'主题模板'};
+const missingText=group=>group.missing.map(key=>t(missingNames[key]||key)).join(' · ');
 </script>
 
 <template>
   <div class="query-layout">
     <section class="query-controls">
-      <form id="inquiry" @submit.prevent="pressEnter">
-        <div class="container-sticky">
-          <label class="field-label" for="container">{{t('柜号')}}</label>
-          <div class="container-query">
-            <n-input :value="query.container" :input-props="containerProps" :disabled="busy" :placeholder="t('粘贴柜号…')" @update:value="containerInput" @paste="pasteIntoContainer" @keydown.enter.prevent="pressEnter"/>
-            <n-button v-if="rows.length" id="removeMain" size="small" quaternary type="error" :title="t('删除这个柜号，下面的柜号会往上补')" @click="removeMain">×</n-button>
-            <n-button v-if="multi" id="addContainer" size="small" quaternary type="primary" :title="t('再加一个柜号')" @click="addExtraRow()">＋</n-button>
-            <n-button id="identify" size="small" secondary type="primary" :disabled="busy" :title="t('优先查询本地缓存，未命中时读取提柜表')" @click="perform('identify')">{{t('查询')}}</n-button>
-          </div>
-        </div>
-        <div v-show="extrasVisible" id="extraContainers" class="extra-containers">
-          <div v-for="row in rows" :key="row.key" class="extra-row" :class="{mismatch:row.mismatch}">
-            <n-input v-model:value="row.value" :input-props="{id:`extra-${row.key}`,maxlength:32,autocomplete:'off',spellcheck:false}" :placeholder="t('再加一个柜号…')" size="small" @update:value="rowLookup(row)" @paste="pasteIntoRow($event,row)"/>
-            <n-button size="tiny" quaternary type="error" :title="t('移除这个柜号')" @click="removeRow(row)">×</n-button>
-            <span class="extra-status" :class="row.cls">{{t(row.note)}}</span>
-          </div>
-        </div>
-        <div class="field-pair">
-          <div><label class="field-label" id="carrierLabel">{{t(kind)}}</label><n-select id="carrier" :value="query.carrier" :options="carrierOptions" :disabled="busy" size="small" @update:value="chooseCarrier"/></div>
-          <div><label class="field-label">{{t('查询类型')}}</label><n-select id="inquiryType" :value="query.inquiryType" :options="typeOptions" :disabled="busy" size="small" @update:value="chooseType"/></div>
-        </div>
-        <label class="field-label" for="manualMbl">MBL</label>
-        <n-input :value="query.mbl" :input-props="{id:'manualMbl',maxlength:60,autocomplete:'off'}" :disabled="busy" :placeholder="t('未匹配时请填写 MBL')" @update:value="editMbl"/>
-        <div id="match" class="match">
-          <span class="eyebrow">{{t('匹配结果')}}</span>
-          <strong id="matchCarrier">{{t(view.matchCarrier)}}</strong>
-          <span v-if="view.matchMbl" id="matchMbl">{{t(view.matchMbl)}}</span>
-          <small v-if="view.matchSource" id="matchSource">{{t(view.matchSource)}}</small>
-        </div>
-        <div v-if="view.needsConfig" id="needsConfig" class="notice">
-          <strong id="missingTitle">{{t(view.missingTitle)}}</strong>
-          <p id="missingDetail">{{t(view.missingDetail)}}</p>
-          <n-button id="configureDetected" size="small" :disabled="busy" @click="configureDetected">{{t(view.configureLabel)}}</n-button>
-        </div>
-        <n-button id="send" type="primary" block attr-type="submit" :disabled="sendDisabled">{{t(sendLabel)}}</n-button>
-        <div class="actions"><n-button id="draft" size="small" :disabled="sendDisabled" @click="perform('draft')">{{t(draftLabel)}}</n-button></div>
-        <n-button v-if="openDraftVisible" id="openDraft" class="open-draft" size="small" dashed block @click="openDraft()">{{t(view.openDraftLabel)}}</n-button>
-      </form>
-    </section>
-    <section class="email-preview">
-      <div class="section-top"><h2>{{t('邮件预览')}}</h2><span id="previewType" class="mini-badge">{{view.previewType}}</span></div>
-      <p v-if="view.source" id="source" class="hint">{{t(view.source)}}</p>
-      <dl>
-        <dt>To</dt><dd id="to">{{t(view.to)}}</dd>
-        <dt>Cc</dt><dd id="cc">{{view.cc}}</dd>
-        <dt>{{t('主题')}}</dt><dd id="subject">{{view.previewReady?view.subject:t(view.subject)}}</dd>
-      </dl>
-      <div id="mailBody" class="mail-body">
-        <template v-if="view.previewReady">
-          <div v-if="view.html" v-html="view.html"></div>
-          <p v-for="line in view.lines" :key="line">{{line}}</p>
-        </template>
-        <p v-else class="empty-preview">{{t('匹配船公司并完成配置后显示邮件预览。')}}</p>
+      <label class="field-label" for="containers">{{t('柜号')}}</label>
+      <n-input id="containersBox" type="textarea" :value="query.text" :input-props="{id:'containers',spellcheck:false,autocomplete:'off'}" :autosize="{minRows:4,maxRows:10}" :placeholder="t('粘贴一个或多个柜号')" @update:value="containersInput"/>
+      <label class="field-label">{{t('查询类型')}}</label>
+      <n-select id="inquiryType" size="small" :value="query.inquiryType" :options="typeOptions" @update:value="chooseType"/>
+      <div class="send-all">
+        <n-button id="sendAll" type="primary" block :disabled="busy||!totals.containers||pendingCount>0" @click="sendAll('send')">{{t(sendAllLabel)}}</n-button>
+        <n-button id="draftAll" block :disabled="busy||!totals.containers||pendingCount>0" @click="sendAll('draft')">{{t('全部仅生成草稿')}}</n-button>
       </div>
-      <p v-if="view.signatureVisible" id="signatureNote" class="signature-note">{{t(view.signatureNote)}}</p>
+    </section>
+
+    <section class="query-groups">
+      <p v-if="!groups.length&&!unresolved.length&&!pendingCount" class="empty-preview">{{t('粘贴柜号后，这里按船公司分组显示。')}}</p>
+      <p v-if="pendingCount" class="hint">{{t(`正在查询 ${pendingCount} 个柜号…`)}}</p>
+
+      <div v-if="unresolved.length" id="unresolved" class="group-card attention">
+        <div class="group-head"><strong>{{t(`需要处理（${unresolved.length}）`)}}</strong><span class="hint">{{t('补全后会自动归入对应分组')}}</span></div>
+        <div v-for="entry in unresolved" :key="entry.key" class="fix-row">
+          <span class="mono">{{entry.container}}</span>
+          <n-input size="small" :value="entry.manualMbl||entry.mbl" :placeholder="t('MBL')" @update:value="value=>setManualMbl(entry,value)"/>
+          <n-select size="small" filterable :value="entry.override||entry.carrierId||null" :options="profileChoices" :placeholder="t(kind)" @update:value="value=>setOverride(entry,value)"/>
+          <n-button size="tiny" quaternary type="error" :title="t('移除这个柜号')" @click="removeEntry(entry)">×</n-button>
+          <span class="fix-note">{{t(entryNote(entry))}} <n-button v-if="entry.state==='notfound'||entry.state==='error'" text size="tiny" type="primary" @click="lookup(entry,true)">{{t('重新查找')}}</n-button></span>
+        </div>
+      </div>
+
+      <div v-for="(group,index) in groups" :key="group.id" class="group-card" :data-carrier="group.id">
+        <div class="group-head">
+          <n-select class="group-carrier" size="small" filterable :value="group.id" :options="profileChoices" :consistent-menu-width="false" @update:value="value=>moveGroup(group,value)"/>
+          <n-tag size="small" :bordered="false">{{t(channelName(group))}}</n-tag>
+          <span v-if="group.typeLabel" class="hint">{{group.typeLabel}}</span>
+          <span class="group-count">{{t(`${group.rows.length} 个柜号`)}}</span>
+        </div>
+        <p v-if="group.recipients" class="recipients">{{t(group.recipients)}}</p>
+        <table class="container-table">
+          <tr v-for="row in group.rows" :key="row.entry.key" :class="{locked:row.lock}">
+            <td class="mono">{{row.entry.container}}</td>
+            <td class="mono">{{row.entry.manualMbl||row.entry.mbl}}</td>
+            <td class="row-state">
+              <template v-if="row.lock">{{t('已有记录')}} · {{t(recordLabel(row.lock.status))}} <n-button text size="tiny" type="warning" @click="resendLocked(row)">{{t('仍要发送')}}</n-button></template>
+              <template v-else>{{t('已匹配')}}</template>
+            </td>
+            <td class="row-remove"><n-button size="tiny" quaternary type="error" :title="t('移除这个柜号')" @click="removeEntry(row.entry)">×</n-button></td>
+          </tr>
+        </table>
+        <div v-if="group.missing.length" class="notice missing"><span>{{t('还需要配置：')}}</span><strong>{{missingText(group)}}</strong><n-button size="tiny" @click="configureCarrier(group)">{{t(group.profile?`配置 ${group.name}`:`新增或选择${kind}`)}}</n-button></div>
+        <p v-if="group.channel==='cosco-portal'&&group.ready.length>1" class="hint">{{t('逐个提交，每张需人机验证')}}</p>
+        <details v-if="previewOf(group)" class="group-preview" :open="groups.length===1&&!unresolved.length">
+          <summary>{{t('预览')}}</summary>
+          <template v-for="preview in [previewOf(group)]" :key="group.id+'p'">
+            <p v-if="preview.error" class="notice">{{t(preview.error)}}</p>
+            <template v-else>
+              <dl>
+                <dt>To</dt><dd>{{preview.to}}</dd>
+                <template v-if="preview.cc"><dt>Cc</dt><dd>{{preview.cc}}</dd></template>
+                <template v-if="preview.subject"><dt>{{t('主题')}}</dt><dd class="subject">{{preview.subject}}</dd></template>
+              </dl>
+              <p v-if="preview.note" class="hint">{{t(preview.note)}}</p>
+              <div class="mail-body"><div v-if="preview.html" v-html="preview.html"></div><p v-for="line in preview.lines" :key="line">{{line}}</p></div>
+            </template>
+          </template>
+        </details>
+        <div class="group-actions">
+          <n-button class="group-send" size="small" type="primary" :loading="sending[group.id]" :disabled="busy||!group.ready.length" @click="sendGroup(group,'send')">{{t(groupLabels(group).send)}}</n-button>
+          <n-button v-if="groupLabels(group).draft" class="group-draft" size="small" :disabled="busy||!group.ready.length" @click="sendGroup(group,'draft')">{{t(groupLabels(group).draft)}}</n-button>
+        </div>
+      </div>
     </section>
   </div>
 </template>

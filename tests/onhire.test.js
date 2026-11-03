@@ -114,7 +114,7 @@ test('Demurrage and Detention take several containers like On-Hire: one email, o
     await service.job(started.requestId);
   }
   assert.equal(mails.length,2,'one email per type');
-  assert.equal(mails[0].subject,'Demurrage LFD Inquiry - Container#OOLU9995789, FFAU8502590 MBL#OOLU4055290001, OOLU4055290002');
+  assert.equal(mails[0].subject,'Demurrage LFD Inquiry - Containers#OOLU9995789, FFAU8502590 MBLs#OOLU4055290001, OOLU4055290002');
   assert.equal(mails[0].bodyText.split('\n').slice(-2).join('|'),'OOLU9995789\tOOLU4055290001|FFAU8502590\tOOLU4055290002');
   assert.equal(Object.keys(db.ledger).length,4,'a lock per container and type');
   await assert.rejects(service.run('OOLU9995789','draft',{inquiryType:'demurrage',more:[{container:'FFAU8502590',mbl:'OOLU4055290002'}]}),/已有/);

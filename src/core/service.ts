@@ -41,6 +41,8 @@ export async function retryBlankChat(start,describe,recovered=()=>{}){
 }
 export function createService({storage, readSheet, prepareMail, sendMail, prepareTicket, submitTicket, prepareChat, sendChat, now = Date.now, uuid = () => crypto.randomUUID()}) {
   let queue = Promise.resolve();
+  // COSCO tickets go one at a time: each waits for the user to pass its captcha before the next one opens.
+  let ticketLine = Promise.resolve();
   const active=new Set(),jobs=new Map(),cancelled=new Set();
   // Only ledger mutations are serialized; lookups and transmissions run concurrently.
   function serial(action) {const work = queue.then(action); queue = work.catch(() => {}); return work;}
@@ -117,8 +119,8 @@ export function createService({storage, readSheet, prepareMail, sendMail, prepar
     const extras=more.map(item=>{
       const extraContainer=containerNumber(item?.container);
       const cached=sheet?.records.find(r=>String(r.container).trim().toUpperCase()===extraContainer);
-      // Every container must belong to the first container's carrier (the user removes the others).
-      if(cached&&!terminalMode){let found;try{found=recognizeCarrier(cached,carriers).carrier;}catch{}if(found?.id!==carrier.id)throw new Error(`${extraContainer} 不是 ${carrier.name} 的柜号，请从列表中删除后再发送。`);}
+      // A carrier chosen by the user (or by the grouped query page) vouches for its containers; automatic recognition checks them.
+      if(cached&&!terminalMode&&selected==='auto'){let found;try{found=recognizeCarrier(cached,carriers).carrier;}catch{}if(found?.id!==carrier.id)throw new Error(`${extraContainer} 不是 ${carrier.name} 的柜号，请从列表中删除后再发送。`);}
       if(!cached&&!item.mbl)throw new Error(`${extraContainer} 尚未查询，请先查询后再加入。`);
       return {container:extraContainer,mbl:mblNumber(item.mbl||cached.mbl)};
     });
@@ -180,7 +182,12 @@ export function createService({storage, readSheet, prepareMail, sendMail, prepar
     // Adapters report each step; a cancelled task stops at its next step.
     const progress=step=>{if(cancelled.has(requestId))throw Object.assign(new Error('任务已手动终止'),{cancelled:true});write({step}).catch(()=>{});};
     let transmissionStarted = false;
+    let nextTicket=()=>{};
     try {
+      if(portal){
+        const previous=ticketLine;ticketLine=new Promise(resolve=>{nextTicket=resolve;});
+        progress('排队中（等待前一张工单）');await previous;
+      }
       const payload={...message,...record,requestId};
       const prepared = chat?await prepareChat({...payload,send:mode==='send'},progress)
         :portal?await prepareTicket({...payload,submit:mode==='send'},progress)
@@ -206,6 +213,7 @@ export function createService({storage, readSheet, prepareMail, sendMail, prepar
       if(chat)throw new Error(transmissionStarted?`ONE 客服消息结果待核实（${error.message}），已阻止重试。请打开聊天页查看。`:`${error.message} 消息未发送，聊天页已保留。`);
       throw new Error(transmissionStarted ? `发送结果待核实（${error.message}），已阻止重试。请查看 Gmail 已发送和草稿后，再处理记录。` : `${error.message} 自动发送已停止，请检查 Gmail 草稿。`);
     }
+    finally{nextTicket();}
   }
   // 「我已发送」 for a mail-program draft: only the user knows it went out.
   const markSent=requestId=>serial(async()=>{

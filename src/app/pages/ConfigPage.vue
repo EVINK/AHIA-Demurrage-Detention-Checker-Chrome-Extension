@@ -49,7 +49,7 @@ const toggle=(id,event)=>setOpen(id,event.target.open);
       <div v-show="editChannel!=='one-chat'" id="bodyFields">
         <div class="label-row"><label class="field-label" for="bodyTemplate">{{t('正文模板')}} <span>{{t(BODY_HINT)}}</span></label><n-button id="standardTemplate" text size="tiny" @click="useStandardTemplate">{{t('使用标准模板')}}</n-button></div>
         <n-input v-model:value="form.body" type="textarea" :input-props="field('bodyTemplate')" :rows="6" :maxlength="10000"/>
-        <p class="token-help">{{t('可用：')}} <code v-for="token in ['{{carrier}}','{{steam shipping line}}','{{type}}','{{Type}}','{{container}}','{{mbl}}','{{table}}']" :key="token" v-text="token"></code></p>
+        <p class="token-help">{{t('可用：')}} <code v-for="token in ['{{carrier}}','{{steam shipping line}}','{{type}}','{{Type}}','{{container}}','{{mbl}}','{{s}}','{{table}}']" :key="token" v-text="token"></code></p>
       </div>
     </div>
     <details v-if="!terminalMode" id="advanced" class="advanced" :open="isOpen('advanced')" @toggle="toggle('advanced',$event)">

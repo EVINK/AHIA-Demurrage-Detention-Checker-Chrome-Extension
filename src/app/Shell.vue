@@ -5,7 +5,7 @@ import ConfigPage from './pages/ConfigPage.vue';
 import HistoryPage from './pages/HistoryPage.vue';
 import QueryPage from './pages/QueryPage.vue';
 import TasksPage from './pages/TasksPage.vue';
-import {boot,duplicateDialog,duplicateForce,duplicateView,historyRows,language,message,notFoundDialog,notFoundEsc,notFoundOk,notFoundRetry,rememberScroll,setLanguage,setMode,settings,showPage,t,taskGroups,ui,useAsk} from './store.ts';
+import {boot,duplicateDialog,duplicateForce,duplicateView,historyRows,language,message,rememberScroll,setLanguage,setMode,settings,showPage,t,taskGroups,ui,useAsk} from './store.ts';
 import {LANGUAGES} from '../core/i18n.ts';
 
 declare const __APP_VERSION__:string;
@@ -23,7 +23,6 @@ useAsk(text=>new Promise(resolve=>{
 }));
 const tabs=computed(()=>[{page:'query',label:'查询'},{page:'tasks',label:'进行中',count:taskGroups.value.running.length},{page:'config',label:'配置'},{page:'history',label:'记录',count:historyRows.value.length}]);
 const languageOptions=Object.entries(LANGUAGES).map(([value,label])=>({value,label}));
-const notFoundText=computed(()=>t(`提柜表中找不到柜号 ${notFoundDialog.container}，请检查柜号是否输入正确。`));
 onMounted(boot);
 </script>
 
@@ -61,13 +60,6 @@ onMounted(boot);
         <n-button id="duplicateCancel" @click="duplicateDialog.show=false">{{t('取消')}}</n-button>
         <n-button id="duplicateView" @click="duplicateView">{{t('查看记录')}}</n-button>
         <n-button id="duplicateForce" type="primary" :disabled="duplicateDialog.running" @click="duplicateForce">{{t('强制重发')}}</n-button>
-      </template>
-    </n-modal>
-    <n-modal id="notFound" :show="notFoundDialog.show" preset="dialog" type="warning" :title="t('找不到该柜号')" :mask-closable="false" @esc="notFoundEsc" @close="notFoundEsc">
-      <p class="dialog-text">{{notFoundText}}</p>
-      <template #action>
-        <n-button id="notFoundRetry" @click="notFoundRetry">{{t('再次查找')}}</n-button>
-        <n-button id="notFoundOk" type="primary" @click="notFoundOk">{{t('确定')}}</n-button>
       </template>
     </n-modal>
   </main>

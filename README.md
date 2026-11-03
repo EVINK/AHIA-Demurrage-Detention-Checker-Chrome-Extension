@@ -1,4 +1,4 @@
-# Trucker Helper v0.8.0 — Chrome 插件使用说明
+# Trucker Helper v0.8.1 — Chrome 插件使用说明
 
 输入柜号，插件从金山文档「提柜」查出 MBL 和船公司，再按所选 Demurrage / Detention 类型准备查询邮件，保留 Gmail 原签名。支持 Maersk、MSC 和自行添加的船公司，收件邮箱与邮件模板均可配置。
 
@@ -56,7 +56,7 @@
 
 1. 确认原插件目录已经更新为 v0.3.18 文件。如果使用压缩包，将文件解压到原来加载的目录。
 2. 在 Chrome 手动打开 `chrome://extensions`，找到 **Trucker Helper**，点击刷新图标。
-3. 点击工具栏上的 Trucker Helper 图标，打开新版弹窗；确认底部显示 `v0.8.0`、右上角显示「航司模式 / 码头模式」。
+3. 点击工具栏上的 Trucker Helper 图标，打开新版弹窗；确认底部显示 `v0.8.1`、右上角显示「航司模式 / 码头模式」。
 
 新版使用真正的工具栏弹窗，尺寸为 780 × 600，包含「查询 / 配置 / 记录」三个页面，不再为主界面新开标签页。v0.2.6 新增 unlimitedStorage，解除 chrome.storage.local 默认容量配额；实际仍受磁盘空间和性能限制。缓存逻辑保持不变。原有连接设置、草稿和发送锁定记录保留。
 
@@ -450,3 +450,11 @@ Foxmail may flatten mailto line breaks even with CRLF. In Tasks/History, click �
 - 2026-10-20 在用户电脑实测：Foxmail 把 mailto 正文当 HTML（`<br>`、表格有效，普通换行被压成空格）；新版 Outlook 当纯文本（`<br>`、`<table>` 原样显示，普通换行正常）。两者都能把分号分隔的多个收件人 / 抄送拆成独立地址。没有一种正文格式能同时兼容两者，所以需要选择邮件程序。
 - 插件只能打开 **Windows 默认邮件程序**：Foxmail 没有专用链接协议；新版 Outlook 的 `ms-outlook://compose` 只打开主窗口、不填写写信窗口（实测）。插件也无法检测是否已安装。配置页提供 Foxmail / Outlook 下载链接和「Windows 默认应用」设置入口；发送后提示「没有弹出写信窗口时请确认已安装并设为默认邮件程序」。
 - 旧设置中的「其他电脑默认邮件程序（system）」自动改为 Foxmail。
+
+## v0.8.1 混合船公司分组、自动单复数、COSCO 一柜一单
+
+- 查询页重做：一个多行柜号框 + 查询类型；结果**按船公司分组**成卡片（发送方式、收件人、柜号 / MBL / 状态、删除），每组可改船公司、预览、单独发送或只生成草稿；左侧「全部发送 · N 个柜号 · M 家船公司」。
+- 找不到、缺 MBL、船公司未配置的柜号放在顶部「需要处理」，可当场填 MBL / 选船公司，不处理就不发送。
+- 模板新增 `{{s}}`：多于一个柜号时为 `s`。默认主题 `{{Type}} LFD Inquiry - Container{{s}}#{{container}} MBL{{s}}#{{mbl}}`，正文 `the container{{s}} below`；仍是旧默认值的模板自动换成新默认，自己改过的不动。
+- COSCO 工单（包括 On-Hire）一个柜号一张，排队依次提交，每张单独人机验证（以前 On-Hire 多个柜号合成一张）。
+

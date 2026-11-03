@@ -34,11 +34,7 @@ export const ledger=shallowRef({});
 export const message=reactive({text:'正在连接插件…',type:''});
 export function status(text,type=''){message.text=text;message.type=type;}
 export const busy=ref(false);
-const lookingUp=ref(false);
-const configMissing=ref(false);
-const lastResult=shallowRef(null);
-const draftTabId=ref(null);
-let initializing=true,debounce,pollTimer,polling=false,requestSequence=0,lastOperationId='',lastRenderedOperation='',tasksTimer=null;
+let tasksTimer=null;
 let demoSettings=copy(DEFAULT_SETTINGS),demoOperation=null;
 try{demoSettings=validateSettings(JSON.parse(localStorage.getItem('lfd-demo-settings')||'null')||DEFAULT_SETTINGS);}catch{}
 
@@ -97,209 +93,144 @@ export function setOpen(id,open){
 }
 const focusField=id=>nextTick(()=>document.getElementById(id)?.focus());
 
-// ---- Query page
-export const query=reactive({container:'',carrier:'auto',inquiryType:'demurrage',mbl:''});
+// ---- Query page. Containers are pasted or typed into one box; each is looked up on its own, then they are grouped by
+// carrier. Every group goes out with its own carrier's settings: one message where the channel takes several
+// containers, one request each where it does not (COSCO tickets).
+export const query=reactive({text:'',inquiryType:'demurrage'});
 const storedInput=()=>remembered('lfd-popup-input',{});
-function rememberInput(){try{localStorage.setItem('lfd-popup-input',JSON.stringify({container:query.container,carrierId:query.carrier,inquiryType:query.inquiryType}));}catch{}}
-export const view=reactive({
-  matchCarrier:'尚未识别船公司',matchMbl:'',matchSource:'',previewType:'Demurrage',
-  source:'',to:'—',cc:'—',subject:'—',html:'',lines:[],previewReady:false,
-  needsConfig:false,missingTitle:'首次使用：请补充配置',missingDetail:'',configureLabel:'配置此船公司',
-  openDraftLabel:'打开 Gmail 草稿 ↗',signatureNote:'＋ Gmail 中的原签名',signatureVisible:true
-});
-export const carrierOptions=computed(()=>{
-  if(terminalMode.value&&!settings.value.terminals.length)return [{label:t('请先添加码头'),value:''}];
-  return [...(terminalMode.value?[]:[{label:t('自动识别'),value:'auto'}]),...profiles.value.map(p=>({label:p.name,value:p.id}))];
-});
-function fillQueryCarrier(value){
-  const options=carrierOptions.value;
-  query.carrier=options.some(option=>option.value===value)?value:options[0]?.value??'';
+const parseContainers=text=>[...new Set(String(text||'').toUpperCase().match(/[A-Z]{4}\d{7}/g)||[])];
+export const entries=reactive([]);
+let entryKey=0,parseTimer=null;
+function rememberInput(){try{localStorage.setItem('lfd-popup-input',JSON.stringify({containers:entries.map(entry=>entry.container),inquiryType:query.inquiryType}));}catch{}}
+const terminalChoice=()=>{const list=settings.value.terminals;return list.find(p=>p.id===ui.profile.terminal)?.id||list[0]?.id||'';};
+const notFound=text=>/未找到该柜号/.test(text||'');
+function newEntry(container){return reactive({key:++entryKey,container,state:'pending',mbl:'',carrierId:'',carrierName:'',sheetCarrier:'',error:'',override:'',manualMbl:'',sequence:0,timer:null});}
+export function lookup(entry,forceRefresh=false){
+  clearTimeout(entry.timer);const mine=++entry.sequence;entry.state='pending';entry.error='';
+  entry.timer=setTimeout(async()=>{
+    try{
+      const data=await rpc({type:'peek',container:entry.container,options:{carrierId:terminalMode.value?terminalChoice()||'auto':'auto',inquiryType:query.inquiryType,mode:settings.value.mode,...(forceRefresh?{forceRefresh}:{})}});
+      if(mine!==entry.sequence)return;
+      const unknown=Boolean(data.unrecognizedCarrier!==undefined&&data.unrecognizedCarrier!==false||data.needsTerminal);
+      Object.assign(entry,{state:'done',mbl:data.mbl||'',carrierId:unknown?'':data.carrierId||'',carrierName:unknown?'':data.carrierName||'',
+        sheetCarrier:typeof data.unrecognizedCarrier==='string'?data.unrecognizedCarrier:data.carrier||'',error:unknown?data.recognitionError||'':''});
+    }catch(error){if(mine===entry.sequence)Object.assign(entry,{state:notFound(error.message)?'notfound':'error',error:error.message});}
+  },120);
 }
-export const matchedProfile=computed(()=>{const selected=query.carrier;return profiles.value.find(p=>p.id===(selected&&selected!=='auto'?selected:lastResult.value?.carrierId));});
-// All types known in the current mode, for the moment before a carrier has been matched.
+function syncEntries(){
+  clearTimeout(parseTimer);parseTimer=null;
+  const list=parseContainers(query.text).slice(0,60);
+  for(const container of list)if(!entries.some(entry=>entry.container===container)){const entry=newEntry(container);entries.push(entry);lookup(entry);}
+  for(let index=entries.length-1;index>=0;index--)if(!list.includes(entries[index].container)){clearTimeout(entries[index].timer);entries.splice(index,1);}
+  entries.sort((a,b)=>list.indexOf(a.container)-list.indexOf(b.container));
+  rememberInput();
+}
+export function containersInput(value){query.text=value.toUpperCase();clearTimeout(parseTimer);parseTimer=setTimeout(syncEntries,400);}
+function setContainers(list){query.text=list.join('\n');syncEntries();}
+export function removeEntry(entry){setContainers(parseContainers(query.text).filter(container=>container!==entry.container));}
+export function relookAll(forceRefresh=false){for(const entry of entries)lookup(entry,forceRefresh);}
+export function setManualMbl(entry,value){entry.manualMbl=value.toUpperCase().trim();}
+export function setOverride(entry,value){entry.override=value;}
+const carrierOf=entry=>entry.override||entry.carrierId;
+const mblOf=entry=>(entry.manualMbl||entry.mbl||'').trim().toUpperCase();
+// All types known in the current mode: containers of different carriers share the one selection.
 function knownTypes(){
   const known=new Map(Object.entries(INQUIRY_TYPES).map(([id,label])=>[id,{id,label}]));
   for(const profile of profiles.value)for(const type of profile.types)if(!known.has(type.id))known.set(type.id,type);
   return [...known.values()];
 }
-const typeList=computed(()=>matchedProfile.value?matchedProfile.value.types:knownTypes());
-export const typeOptions=computed(()=>typeList.value.map(type=>({label:type.label,value:type.id})));
-function fillTypes(value=query.inquiryType){
-  const profile=matchedProfile.value,list=typeList.value,wanted=profile?resolveType(profile,value):value;
-  query.inquiryType=list.some(type=>type.id===wanted)?wanted:list[0]?.id??'';
-}
-const matchedChannel=computed(()=>matchedProfile.value?inquiryChannel(matchedProfile.value,query.inquiryType):undefined);
-const options=()=>({carrierId:query.carrier||'auto',inquiryType:query.inquiryType,mode:settings.value.mode});
-
-// Extra containers (On-Hire email, ONE chat). Each box is looked up on its own without replacing the main result.
-// The first container's carrier is the reference: other carriers get a red border and block sending.
-export const rows=reactive([]);
-let rowKey=0;
-const parseContainers=text=>[...new Set(String(text||'').toUpperCase().match(/[A-Z]{4}\d{7}/g)||[])];
-const baseCarrier=()=>lastResult.value&&!lastResult.value.unrecognizedCarrier?lastResult.value.carrierId:null;
-function refreshRows(){
-  const base=baseCarrier(),baseName=lastResult.value?.carrierName||'第一个柜号';
-  for(const row of rows){
-    if(row.state!=='checked')continue;
-    row.mismatch=Boolean(base)&&row.carrierId!==base;
-    row.cls=row.mismatch?'error':'ok';
-    row.note=row.mismatch?`${row.carrierName||'未识别船公司'} · 与第一个柜号的船公司（${baseName}）不同，请删除`:`${row.carrierName} · ${row.mbl}`;
+export const typeOptions=computed(()=>knownTypes().map(type=>({label:type.label,value:type.id})));
+export function chooseType(value){query.inquiryType=value;rememberInput();}
+export const profileChoices=computed(()=>profiles.value.map(p=>({label:p.name,value:p.id})));
+// A container already on record for this carrier and type is not sent again unless the user asks.
+const lockOf=(entry,carrierId,type)=>Object.entries(ledger.value).find(([,record]:any)=>record.container===entry.container&&record.mbl===mblOf(entry)&&(record.carrierId||'maersk')===carrierId&&(record.inquiryType||'demurrage')===type);
+export const pendingCount=computed(()=>entries.filter(entry=>entry.state==='pending').length);
+export const unresolved=computed(()=>entries.filter(entry=>entry.state!=='pending'&&(!carrierOf(entry)||!mblOf(entry))));
+export const groups=computed(()=>{
+  const byCarrier=new Map();
+  for(const entry of entries){
+    if(entry.state==='pending'||!carrierOf(entry)||!mblOf(entry))continue;
+    const id=carrierOf(entry);if(!byCarrier.has(id))byCarrier.set(id,[]);byCarrier.get(id).push(entry);
   }
+  return [...byCarrier].map(([id,list])=>{
+    const profile=profiles.value.find(p=>p.id===id);
+    const type=profile?resolveType(profile,query.inquiryType):'',typeEntry=findType(profile,type),channel=type?inquiryChannel(profile,type):'email';
+    const many=Boolean(type)&&supportsManyContainers(profile,type),missing=!profile?['carrier']:type?missingConfiguration(profile,type):['type'];
+    const rows=list.map(entry=>{const lock=type?lockOf(entry,id,type):null;return {entry,lock:lock?{key:lock[0],status:(lock[1] as any).status}:null};});
+    const ready=missing.length?[]:rows.filter(row=>!row.lock).map(row=>row.entry);
+    const recipients=!typeEntry?'':channel==='one-chat'?`ONE 在线客服 · ${profile.chat?.email||''}`:channel==='cosco-portal'?`COSCO 工单 · Requester ${profile.portal?.requester||''}`:[typeEntry.to.join(', '),typeEntry.cc.length?`Cc ${typeEntry.cc.join(', ')}`:''].filter(Boolean).join(' · ');
+    return {id,profile,name:profile?.name||id,type,typeLabel:typeEntry?.label||'',channel,many,missing,rows,ready,recipients,runs:many?(ready.length?[ready]:[]):ready.map(entry=>[entry])};
+  });
+});
+export const totals=computed(()=>{const ready=groups.value.filter(group=>group.ready.length);return {containers:ready.reduce((n,group)=>n+group.ready.length,0),carriers:ready.length};});
+export const sendAllLabel=computed(()=>{const {containers,carriers}=totals.value;return containers?`全部发送 · ${containers} 个柜号${carriers>1?` · ${carriers} 家${kind.value}`:''}`:'全部发送';});
+const channelNames={email:'Gmail 邮件','cosco-portal':'COSCO 工单','one-chat':'ONE 在线客服'};
+export const channelName=group=>group.channel==='email'&&mailProgram(settings.value.mailClient)?'电脑邮件程序':channelNames[group.channel];
+export function groupLabels(group){
+  if(group.channel==='one-chat')return {send:'发送 ONE 消息',draft:'转人工但不发送'};
+  if(group.channel==='cosco-portal')return {send:'提交工单',draft:'仅填写工单'};
+  if(mailProgram(settings.value.mailClient))return {send:'打开邮件程序',draft:''};
+  return {send:'发送邮件',draft:'仅生成草稿'};
 }
-const extraContainers=()=>{const base=baseCarrier();return rows.filter(row=>row.state==='checked'&&row.carrierId===base).map(row=>({container:row.container,mbl:row.mbl}));};
-// Rows still loading, not found, or of another carrier must be resolved before sending.
-const blockedRows=()=>{const base=baseCarrier();return rows.filter(row=>['pending','error'].includes(row.state)||(row.state==='checked'&&base&&row.carrierId!==base)).length;};
-function rowDone(row,state,text,cls=''){row.state=state;row.note=text;row.cls=cls;row.mismatch=false;refreshRows();if(lastResult.value)renderResult(lastResult.value);}
-export function rowLookup(row){
-  row.value=row.value.toUpperCase().replace(/\s/g,'');clearTimeout(row.timer);
-  Object.assign(row,{container:'',mbl:'',carrierId:'',carrierName:''});
-  if(!/^[A-Z]{4}\d{7}$/.test(row.value)){rowDone(row,'',row.value?'柜号须为 4 个字母 + 7 位数字':'粘贴柜号后自动查询');return;}
-  const container=row.value,mine=++row.sequence;
-  if(container===query.container.trim().toUpperCase()||rows.some(other=>other!==row&&other.container===container)){rowDone(row,'error','这个柜号已经在列表里了','error');return;}
-  rowDone(row,'pending','正在查询…');
-  row.timer=setTimeout(async()=>{
+export const recordLabel=status=>recordStatus[status]||status;
+export function entryNote(entry){
+  if(entry.state==='pending')return '正在查询…';
+  if(entry.state==='notfound')return '提柜表中找不到这个柜号';
+  if(entry.state==='error')return entry.error;
+  if(!mblOf(entry))return '没有取得 MBL，请填写';
+  if(!carrierOf(entry))return entry.sheetCarrier?`表中船公司「${entry.sheetCarrier}」未配置，请选择`:`请选择${kind.value}`;
+  return '';
+}
+export function previewOf(group){
+  const items=(group.ready.length?group.ready:group.rows.map(row=>row.entry)).map(entry=>({container:entry.container,mbl:mblOf(entry)}));
+  if(!items.length||group.missing.length)return null;
+  const [first,...rest]=items;
+  try{
+    if(group.channel==='one-chat'){const chat=chatTemplate(first,{carrier:group.profile,inquiryType:group.type,more:rest.slice(0,9)});return {to:`${chat.firstName} ${chat.lastName} · ${chat.email}`,subject:'',html:'',lines:chat.messages};}
+    if(group.channel==='cosco-portal'){const ticket=portalTemplate(first,{carrier:group.profile,inquiryType:group.type});return {to:new URL(ticket.url).hostname,subject:ticket.fields.map(f=>f.value).join(' · '),html:ticket.html,lines:[],note:items.length>1?`共 ${items.length} 张工单，这里是第一张`:''};}
+    const mail=messageTemplate(first,{carrier:group.profile,inquiryType:group.type,...(rest.length?{more:rest}:{})});
+    return {to:mail.to.join(', '),cc:mail.cc.join(', '),subject:mail.subject,html:mail.html,lines:[]};
+  }catch(error){return {error:error.message};}
+}
+export const sending=reactive({});
+async function runGroup(group,mode){
+  const queued=[],failed=[],duplicates=[];
+  for(const run of group.runs){
+    const [first,...rest]=run;
     try{
-      const data=await rpc({type:'peek',container,options:{...options(),carrierId:terminalMode.value?query.carrier:'auto'}});
-      if(mine!==row.sequence)return;
-      Object.assign(row,{container,mbl:data.mbl||'',carrierId:data.unrecognizedCarrier?'':data.carrierId||'',carrierName:data.carrierName||data.unrecognizedCarrier||''});
-      if(!data.mbl){rowDone(row,'error','没有取得 MBL，请删除或在表格中补全','error');return;}
-      rowDone(row,'checked','');
-    }catch(error){if(mine===row.sequence)rowDone(row,'error',notFound(error.message)?'提柜表中找不到这个柜号':error.message,'error');}
-  },400);
-}
-export function addExtraRow(value='',{focus=true,after=-1}={}){
-  if(rows.length>=29){status('一次最多 30 个柜号。','error');return -1;}
-  const row=reactive({key:++rowKey,value,state:'',note:'粘贴柜号后自动查询',cls:'',mismatch:false,container:'',mbl:'',carrierId:'',carrierName:'',timer:null,sequence:0});
-  const index=after>=0?after+1:rows.length;
-  rows.splice(index,0,row);
-  if(value)rowLookup(row);
-  if(focus)focusField(`extra-${row.key}`);
-  return index;
-}
-export function removeRow(row){clearTimeout(row.timer);rows.splice(rows.indexOf(row),1);refreshRows();if(lastResult.value)renderResult(lastResult.value);}
-// Pasting several containers into a row fills it with the first and adds rows below for the rest.
-export function pasteIntoRow(event,row){
-  const list=parseContainers(event.clipboardData?.getData('text'));if(list.length<2)return;
-  event.preventDefault();row.value=list[0];rowLookup(row);
-  let last=rows.indexOf(row);for(const container of list.slice(1)){const placed=addExtraRow(container,{focus:false,after:last});if(placed>=0)last=placed;}
-}
-const clearRows=()=>{rows.forEach(row=>clearTimeout(row.timer));rows.splice(0);};
-// Pasting several containers into the main box: the first stays here, each of the others gets a row.
-export function pasteIntoContainer(event){
-  const list=parseContainers(event.clipboardData?.getData('text'));if(list.length<2)return;
-  event.preventDefault();clearRows();
-  query.container=list[0];containerInput(list[0]);
-  for(const container of list.slice(1))addExtraRow(container,{focus:false});
-  status(`已识别 ${list.length} 个柜号，正在逐个查询 MBL 和船公司。`,'running');
-}
-// Removing the first box moves the next one up.
-export function removeMain(){
-  const next=rows[0];
-  const value=next?next.value:'';if(next){clearTimeout(next.timer);rows.shift();}
-  containerInput(value);focusField('container');
-}
-export function containerInput(value){query.container=value.toUpperCase().replace(/\s/g,'');scheduleIdentify();}
-
-export const multi=computed(()=>supportsManyContainers(matchedProfile.value,query.inquiryType));
-export const extrasVisible=computed(()=>multi.value||!matchedProfile.value);
-export const sendDisabled=computed(()=>{
-  const pendingExtra=extrasVisible.value?blockedRows():0;
-  return busy.value||lookingUp.value||pendingExtra>0||configMissing.value||!query.mbl.trim();
-});
-export const sendLabel=computed(()=>{
-  const channel=matchedChannel.value,count=multi.value?1+extraContainers().length:1,suffix=count>1?` · ${count} 个柜号`:'';
-  if(channel==='email'&&mailProgram(settings.value.mailClient))return '打开邮件程序发送'+suffix;
-  if(channel==='one-chat')return `发送 ONE 在线客服消息${count>1?'（'+count+' 个柜号）':''}`;
-  return (channel==='cosco-portal'?'提交 COSCO 工单':'发送邮件')+suffix;
-});
-export const draftLabel=computed(()=>{
-  const channel=matchedChannel.value;
-  return channel==='email'&&mailProgram(settings.value.mailClient)?'打开邮件程序':channel==='one-chat'?'转人工但不发送':channel==='cosco-portal'?'仅填写工单':'仅生成草稿';
-});
-export const openDraftVisible=computed(()=>draftTabId.value!==null);
-
-function clearPreview(){
-  view.source='';view.to='—';view.cc='—';view.subject='—';view.html='';view.lines=[];view.previewReady=false;
-}
-function lookupError(text){view.matchCarrier='查表未完成';view.matchMbl='尚未取得 MBL';view.matchSource=text;clearPreview();}
-function resetResult(){lastResult.value=null;configMissing.value=false;view.needsConfig=false;clearPreview();}
-function renderResult(data){
-  if(!data)return;lastResult.value=data;
-  const record=data.record?{...data.record,...data}:data;
-  const carrierId=data.carrierId||data.carrier?.id,profile=profiles.value.find(p=>p.id===carrierId);
-  fillTypes(data.inquiryType||query.inquiryType);
-  const type=query.inquiryType,typeEntry=findType(profile,type);
-  const channel=profile?inquiryChannel(profile,type):undefined,portal=channel==='cosco-portal',chat=channel==='one-chat';
-  const missing=data.configurationMissing||(profile?missingConfiguration(profile,type):['carrier']);
-  const unknown=missing.includes('carrier');
-  refreshRows();
-  configMissing.value=missing.length>0;
-  view.matchCarrier=unknown?`需要选择${kind.value}`:data.carrierName||profile?.name||'等待识别';
-  query.mbl=record.mbl||'';view.matchMbl=record.mbl||'请手动填写 MBL';
-  view.matchSource=unknown?data.recognitionError||'无法自动识别':sources[data.carrierSource||record.carrierSource]||'自动识别';
-  view.previewType=typeEntry?.label||typeTitle({inquiryType:type});
-  view.source=data.demo?'界面演示 · 示例数据':record.row?`${record.fromCache?'本地缓存':'提柜'} · 第 ${record.row} 行${record.sourceTime?' · '+new Date(record.sourceTime).toLocaleTimeString():''}`:'来自本次提柜表查询';
-  view.needsConfig=configMissing.value;
-  if(configMissing.value){
-    view.missingTitle=unknown?`暂未确定${kind.value}`:'首次使用：请补充配置';
-    const names={carrier:kind.value,type:'查询类型',to:'收件邮箱',requester:'工单 Requester',bodyTemplate:'正文模板',subjectTemplate:'主题模板'};
-    view.missingDetail=data.recognitionError||(missing.includes('type')?`请先为 ${profile?.name} 添加查询类型。`:`请为 ${profile?.name||data.carrierName||'此项'} 的 ${typeEntry?.label||''} 填写${missing.map(key=>names[key]||key).join('、')}，再生成邮件。`);
-    view.configureLabel=profile?'配置 '+profile.name:`新增或选择${kind.value}`;clearPreview();
-  }else{
-    try{
-      const more=supportsManyContainers(profile,type)?{more:extraContainers()}:{};
-      if(chat){
-        const chatMessage=chatTemplate(record,{carrier:profile,inquiryType:type,more:extraContainers()});
-        view.to=`ONE 在线客服 · ${chatMessage.firstName} ${chatMessage.lastName} · ${chatMessage.email}`;view.cc='—';view.subject=`Container Number · ${record.container}${chatMessage.messages.length>1?` · 共 ${chatMessage.messages.length} 条消息`:''}`;
-        view.html='';view.lines=chatMessage.messages;
-      }else if(portal){
-        const ticket=portalTemplate(record,{carrier:profile,inquiryType:type,...more});
-        view.to=`COSCO 工单 · ${new URL(ticket.url).hostname} · Requester ${ticket.requester}`;view.cc='—';view.subject=ticket.fields.map(f=>f.value).join(' · ');view.html=ticket.html;view.lines=[];
-      }else{
-        const mail=messageTemplate(record,{carrier:profile,inquiryType:type,...more});
-        view.to=mail.to.join(', ');view.cc=mail.cc.join(', ')||'—';view.subject=mail.subject;view.html=mail.html;view.lines=[];
-      }
-      view.previewReady=true;
-    }catch(error){clearPreview();status(error.message,'error');}
+      const data=await rpc({type:'run',mode,container:first.container,options:{carrierId:group.id,inquiryType:query.inquiryType,mode:settings.value.mode,manualMbl:mblOf(first),useConfirmed:true,...(rest.length?{more:rest.map(entry=>({container:entry.container,mbl:mblOf(entry)}))}:{})}});
+      if(data.mailto)openMailto(data.mailto);
+      queued.push(...run.map(entry=>entry.container));
+    }catch(error){if(error.duplicate)duplicates.push(...error.duplicate);else failed.push(`${run.map(entry=>entry.container).join('、')}：${t(error.message)}`);}
   }
-  draftTabId.value=data.status==='draft'&&Number.isInteger(data.tabId)?data.tabId:null;
-  view.openDraftLabel=chat?'打开 ONE 聊天页 ↗':portal?'打开 COSCO 工单页 ↗':'打开 Gmail 草稿 ↗';
-  view.signatureVisible=!portal&&!chat;
-  view.signatureNote=settings.value.mailClient==='outlook'?'＋ Outlook 中的签名（纯文本正文）':mailProgram(settings.value.mailClient)?'＋ Foxmail 中的签名':'＋ Gmail 中的原签名';
+  return {queued,failed,duplicates};
 }
-function reportResult(data,mode){
-  renderResult(data);
-  const portal=data.channel==='cosco-portal',chat=data.channel==='one-chat';
-  if(mailProgram(data.mailClient)&&data.status==='draft'){const name=data.mailClient==='outlook'?'Outlook':'Foxmail';status(`已请求打开 ${name} 写信窗口：检查后在 ${name} 里发送，发完后到「进行中」或「记录」点「我已发送」。如果没有弹出写信窗口，请确认已安装 ${name} 并设为 Windows 默认邮件程序（配置页有下载和设置入口）。`,'success');return;}
-  if(data.background){status(`已加入后台任务：${(data.containers||[data.container]).join('、')}。`,'success');return;}
-  if(data.status==='draft')status(chat?`ONE 客服${data.agent?' '+data.agent:''}已接入，消息已填入聊天框，尚未发送。可打开聊天页查看。`:portal?'COSCO 工单已填好，尚未提交。可打开工单页检查。':'Gmail 草稿已填好，原签名已保留，尚未发送。可打开草稿检查。','success');
-  else if(data.status==='sent')status(chat?`已查询：ONE 客服${data.agent?' '+data.agent:''}已读消息，回复请在聊天页查看。`:portal?`COSCO 工单已提交${data.ticketId?' #'+data.ticketId:''}。`:'Gmail 已显示发送成功。','success');
-  else if(data.unrecognizedCarrier)status(data.recognitionError||'请选择船公司或补充识别规则。','error');
-  else if(configMissing.value)status('已匹配柜号；完成提示中的配置后即可生成草稿。');
-  else status(data.demo?'演示匹配完成；未读取在线表格，也不会创建邮件。':mode==='identify'?'已匹配 MBL。':'邮件预览已更新。','success');
+async function dispatch(list,mode){
+  if(busy.value)return;
+  busy.value=true;for(const group of list)sending[group.id]=true;
+  status('正在加入后台任务…','running');
+  const results=[];
+  try{for(const group of list)results.push(await runGroup(group,mode));}
+  finally{busy.value=false;for(const group of list)delete sending[group.id];}
+  const queued=results.flatMap(result=>result.queued),failed=results.flatMap(result=>result.failed),duplicates=results.flatMap(result=>result.duplicates);
+  if(queued.length)setContainers(parseContainers(query.text).filter(container=>!queued.includes(container)));
+  const parts=[...(queued.length?[`已加入后台任务：${queued.join('、')}。`]:[]),...failed.map(line=>`未发送 ${line}`)];
+  if(parts.length)status(parts.join(' '),failed.length?'error':'success');
+  await refreshState().catch(()=>{});
+  if(duplicates.length)showDuplicate(duplicates,mode);
 }
-function syncOperation(operation,{restore=false}={}){
-  if(!operation)return;
-  if(restore){
-    query.container=operation.container||query.container;
-    if(operation.options){if(carrierOptions.value.some(o=>o.value===operation.options.carrierId))query.carrier=operation.options.carrierId;fillTypes(operation.options.inquiryType||query.inquiryType);}
-    rememberInput();
-  }
-  lastOperationId=operation.id||lastOperationId;
-  if(operation.status==='running'){
-    if(operation.mode==='identify')lookingUp.value=true;else busy.value=true;
-    status(operation.mode==='identify'?'正在查表并识别船公司… 可关闭弹窗，后台会继续。':matchedChannel.value==='one-chat'?'正在后台联系 ONE 在线客服，转人工可能需要几分钟… 可关闭弹窗。':matchedChannel.value==='cosco-portal'&&operation.mode==='send'?'已打开 COSCO 工单页：请在该页完成人机验证，插件随后自动提交（3 分钟内）。':'正在后台准备邮件… 可关闭弹窗，完成后重新打开查看。','running');startPolling();return;
-  }
-  if(operation.id&&lastRenderedOperation===operation.id)return;
-  lastRenderedOperation=operation.id||'';
-  if(operation.mode==='identify')lookingUp.value=false;
-  if(operation.status==='complete'){busy.value=false;reportResult(operation.result,operation.mode);}
-  else if(operation.status==='failed'||operation.status==='interrupted'){
-    busy.value=false;
-    if(operation.mode==='identify')lookupError(operation.error||'请点击重新查表。');
-    if(operation.mode==='identify'&&notFound(operation.error)&&operation.container===query.container.trim().toUpperCase())showNotFound(operation.container);
-    status(operation.error||(operation.status==='interrupted'?'上次操作已中断，请先检查 Gmail 草稿和已发送记录。':'操作失败。'),'error');
-  }
+export const sendGroup=(group,mode)=>dispatch([group],mode);
+export const sendAll=mode=>dispatch(groups.value.filter(group=>group.ready.length),mode);
+// Sends one container again although it is on record: its lock is released first, after the user agrees.
+export async function resendLocked(row){
+  if(!await ask(`${row.entry.container} 已有记录（${t(recordLabel(row.lock.status))}）。解除锁定后可以再次发送；如果之前其实已经发出，对方会收到重复的邮件 / 消息。确定解除？`))return;
+  try{await rpc({type:'release',key:row.lock.key});await refreshState();status('已解除该条记录的锁定。');}catch(error){status(error.message,'error');}
+}
+export function moveGroup(group,carrierId){for(const row of group.rows)row.entry.override=carrierId===row.entry.carrierId?'':carrierId;}
+export function configureCarrier(group){
+  if(!group.profile){openAddProfile(group.name);return;}
+  showPage('config');flushSave();if(group.type)ui.type[group.id]=group.type;renderProfile(group.id);
+  nextTick(()=>{document.getElementById('page-config').scrollTop=0;focusField('carrierTo');});
 }
 function setLedger(next={}){
   ledger.value=next;
@@ -317,100 +248,20 @@ export async function refreshState({initial=false}={}){
   }
   setLedger(state.ledger);
   if(initial){
-    const saved=storedInput();query.container=saved.container||'';
-    fillQueryCarrier(saved.carrierId||(terminalMode.value?'':settings.value.defaultCarrierId));fillTypes(saved.inquiryType||settings.value.defaultInquiryType);renderAll();
-    const restore=state.operation?.status==='running'||!saved.container||saved.container===state.operation?.container;
-    if(restore)syncOperation(state.operation,{restore:true});
-    else{lastOperationId=state.operation?.id||'';lastRenderedOperation=lastOperationId;}
-    if(!state.operation||!restore)status(demo?'界面演示：MRSU4786640 为 Maersk 示例；MSCU1234567 为 MSC 示例。':'');
-  }else syncOperation(state.operation);
+    const saved=storedInput();
+    query.inquiryType=typeOptions.value.some(option=>option.value===saved.inquiryType)?saved.inquiryType:settings.value.defaultInquiryType;
+    setContainers(Array.isArray(saved.containers)?saved.containers:saved.container?[saved.container]:[]);
+    renderAll();
+    status(demo?'界面演示：MRSU4786640 为 Maersk 示例；MSCU1234567 为 MSC 示例。':'');
+  }
   return state;
 }
 export const refresh=()=>refreshState().catch(error=>status(error.message,'error'));
-function startPolling(){
-  if(pollTimer)return;
-  pollTimer=setInterval(async()=>{
-    if(polling)return;polling=true;
-    try{const state=await refreshState();if(state.operation?.status!=='running'&&!busy.value){clearInterval(pollTimer);pollTimer=null;}}
-    catch(error){status(error.message,'error');}finally{polling=false;}
-  },850);
-}
-const validContainer=value=>/^[A-Za-z]{4}\d{7}$/.test(value.trim());
-export async function perform(mode,forceRefresh=false){
-  clearTimeout(debounce);
-  if(busy.value||initializing)return;
-  if(!validContainer(query.container)){status('柜号须为 4 个英文字母 + 7 位数字。','error');return;}
-  const isMulti=multi.value,more=mode==='identify'||!isMulti?[]:extraContainers();
-  if(mode!=='identify'&&isMulti&&blockedRows()){status('列表中有柜号尚未查到、找不到或船公司不同，请删除后再发送。','error');return;}
-  if(mode==='identify'){lastResult.value=null;query.mbl='';configMissing.value=false;clearPreview();}
-  // Lookups never lock the popup: the user can type the next container while this one is read.
-  const sequence=++requestSequence;rememberInput();
-  if(mode==='identify')lookingUp.value=true;else busy.value=true;
-  status(mode==='identify'?'正在匹配本地数据，未命中时查表… 可以继续输入其他柜号。':'正在加入后台任务…','running');
-  const previousOperation=lastOperationId;
-  try{
-    startPolling();
-    const data=await rpc({type:'run',mode,container:query.container.trim().toUpperCase(),options:{...options(),forceRefresh,...(mode==='identify'?{}:{manualMbl:query.mbl,useConfirmed:true,...(more.length?{more}:{})})}});
-    if(sequence!==requestSequence)return;
-    lookingUp.value=false;busy.value=false;
-    if(data.mailto)openMailto(data.mailto);
-    if(data.mailto||data.background)clearRows();
-    reportResult(data,mode);
-    const state=await rpc({type:'state'});setLedger(state.ledger);
-    if(state.operation?.id!==previousOperation){lastOperationId=state.operation?.id||lastOperationId;lastRenderedOperation=lastOperationId;}
-  }catch(error){
-    if(sequence===requestSequence&&error.duplicate&&mode!=='identify'){lookingUp.value=false;busy.value=false;status(error.message,'error');showDuplicate(error.duplicate,mode);return;}
-    if(sequence===requestSequence){
-      lookingUp.value=false;busy.value=false;
-      if(mode==='identify')lookupError(error.message);
-      status(error.message,'error');
-      if(mode==='identify'&&notFound(error.message))showNotFound(query.container.trim().toUpperCase());
-      try{const state=await rpc({type:'state'});setLedger(state.ledger);lastRenderedOperation=state.operation?.id||lastRenderedOperation;}catch{}
-    }
-  }finally{if(sequence===requestSequence&&!busy.value&&!lookingUp.value){clearInterval(pollTimer);pollTimer=null;}}
-}
-export function pressEnter(){if(!sendDisabled.value)perform('send');}
-function editMatch(){
-  if(busy.value)return;
-  const selected=query.carrier,profile=matchedProfile.value;
-  renderResult({...lastResult.value,container:query.container.trim().toUpperCase(),mbl:query.mbl.trim().toUpperCase(),
-    carrierId:profile?.id,carrierName:profile?.name,carrierSource:selected==='auto'?lastResult.value?.carrierSource:'manual',
-    inquiryType:query.inquiryType,configurationMissing:undefined,unrecognizedCarrier:profile?'':'unknown',needsTerminal:false,recognitionError:profile?'':`请选择${kind.value}。`});
-}
-export function chooseCarrier(value){query.carrier=value;fillTypes();rememberInput();editMatch();}
-export function chooseType(value){query.inquiryType=value;editMatch();}
-export function editMbl(value){query.mbl=value;editMatch();}
-function scheduleIdentify(){
-  clearTimeout(debounce);notFoundDialog.show=false;rememberInput();draftTabId.value=null;
-  if(busy.value||initializing)return;
-  lastResult.value=null;query.mbl='';configMissing.value=false;view.needsConfig=false;clearPreview();
-  view.matchCarrier='等待重新识别';view.matchMbl='';view.matchSource='';
-  if(validContainer(query.container))debounce=setTimeout(()=>perform('identify'),700);
-}
 // Launch the computer's default mail program with the filled message.
 export function openMailto(url){const a=document.createElement('a');a.href=url;a.rel='noopener';document.body.append(a);a.click();a.remove();}
 export async function markSent(requestId){try{await rpc({type:'markSent',requestId});status('已记录为已发送。','success');await refreshState();}catch(error){status(error.message,'error');}}
-export async function openDraft(tabId=draftTabId.value){if(busy.value)return;try{await rpc({type:'openDraft',tabId});}catch(error){status(error.message,'error');}}
-export function configureDetected(){
-  const id=lastResult.value?.carrierId;
-  if(profiles.value.some(p=>p.id===id)){
-    showPage('config');flushSave();ui.type[id]=query.inquiryType||ui.type[id];renderProfile(id);
-    nextTick(()=>{document.getElementById('page-config').scrollTop=0;focusField('carrierTo');});
-  }else openAddProfile(typeof lastResult.value?.unrecognizedCarrier==='string'?lastResult.value.unrecognizedCarrier:'');
-}
+export async function openDraft(tabId){if(busy.value)return;try{await rpc({type:'openDraft',tabId});}catch(error){status(error.message,'error');}}
 
-// ---- Dialogs of the query page
-// Not found in the cache nor in the sheet: query once, then let the user decide whether to look again.
-const notFound=text=>/未找到该柜号/.test(text||'');
-export const notFoundDialog=reactive({show:false,container:''});
-function showNotFound(container){notFoundDialog.container=container;notFoundDialog.show=true;}
-export function notFoundOk(){
-  notFoundDialog.show=false;query.container='';scheduleIdentify();
-  view.matchCarrier='尚未识别船公司';view.matchSource='';status('请重新输入柜号。');focusField('container');
-}
-export function notFoundRetry(){notFoundDialog.show=false;if(query.container.trim().toUpperCase()!==notFoundDialog.container)query.container=notFoundDialog.container;perform('identify');}
-// Esc closes it like 确定 would, but keeps the input so the user can correct it.
-export function notFoundEsc(){notFoundDialog.show=false;status('柜号未找到，可修改后重新查询。','error');}
 // Sending was blocked by existing records (duplicate lock): show them and offer a forced resend.
 export const duplicateDialog=reactive({show:false,lines:[],note:'',running:false,blocking:[],mode:''});
 function showDuplicate(blocking,mode){
@@ -422,7 +273,7 @@ function showDuplicate(blocking,mode){
 export function duplicateView(){duplicateDialog.show=false;showPage('history');}
 export async function duplicateForce(){
   const {blocking,mode}=duplicateDialog;duplicateDialog.show=false;
-  try{for(const b of blocking)await rpc({type:'release',key:b.key});status('已解除旧记录的锁定，正在重新发送…','running');await refreshState();perform(mode);}
+  try{for(const b of blocking)await rpc({type:'release',key:b.key});status('已解除旧记录的锁定，正在重新发送…','running');await refreshState();sendAll(mode);}
   catch(error){status(error.message,'error');}
 }
 
@@ -481,12 +332,11 @@ export async function deleteTask(view){
   if(!await ask(`删除 ${view.names} 的任务？会解除防重复锁，之后可以重新查询发送。${view.entry.status==='uncertain'?'\n\n注意：这个任务的结果待核实，消息可能已经发出，请先核实。':''}`))return;
   try{await rpc({type:'deleteTask',requestId:view.entry.requestId});status('任务已删除，可以重新发送。');await refreshState();}catch(error){status(error.message,'error');}
 }
-// Put containers back on the query page (first in the main box, others as extra rows) with the same type.
+// Put the containers back on the query page with the same type.
 function refill(containers,entry){
-  showPage('query');clearRows();
-  if(entry.inquiryType)fillTypes(entry.inquiryType);
-  containerInput(containers[0]);
-  for(const container of containers.slice(1))addExtraRow(container,{focus:false});
+  showPage('query');
+  if(entry.inquiryType)query.inquiryType=entry.inquiryType;
+  setContainers(containers);
   status('已解除锁定并填回查询页，确认后点击发送。');
 }
 
@@ -599,10 +449,8 @@ function persist(next){
   work.then(()=>{clearSavedDraft(saved);if(!saveTimer)saveState('已自动保存','success');},error=>{saveState('未保存：'+error.message,'error');status(error.message,'error');});
   return work;
 }
-function afterConfigChange(){
-  fillQueryCarrier(query.carrier||(terminalMode.value?ui.profile.terminal:settings.value.defaultCarrierId));fillTypes();
-  if(lastResult.value)renderResult({...lastResult.value,configurationMissing:lastResult.value.unrecognizedCarrier||lastResult.value.needsTerminal?lastResult.value.configurationMissing:undefined});
-}
+// The query page's groups follow the settings by themselves; a type that no longer exists falls back to the first.
+function afterConfigChange(){if(!typeOptions.value.some(option=>option.value===query.inquiryType))query.inquiryType=typeOptions.value[0]?.value||'demurrage';}
 function scheduleSave(){clearTimeout(saveTimer);writeDraft();saveState('正在保存…');saveTimer=setTimeout(flushSave,400);}
 export function flushSave(){
   if(saveTimer===null)return;
@@ -658,8 +506,7 @@ export async function deleteProfile(){
   discardPendingEdits();delete ui.type[profile.id];
   const list=profiles.value.filter(p=>p.id!==profile.id);
   persist(validateSettings({...settings.value,[listKey()]:list,defaultCarrierId:settings.value.defaultCarrierId===profile.id?'auto':settings.value.defaultCarrierId}));
-  if(lastResult.value?.carrierId===profile.id)resetResult();
-  afterConfigChange();renderConnection();renderProfile(list[0]?.id);
+    afterConfigChange();renderConnection();renderProfile(list[0]?.id);
   status(`${profile.name} 已删除。`);
 }
 export async function deleteType(){
@@ -673,10 +520,9 @@ export function useStandardTemplate(){form.body=standardBody(editingType.value);
 export function setMode(mode){
   if(mode===settings.value.mode)return;
   flushSave();persist(validateSettings({...settings.value,mode}));
-  resetResult();clearRows();
-  fillQueryCarrier(terminalMode.value?ui.profile.terminal:settings.value.defaultCarrierId);fillTypes();renderAll();
+  for(const entry of entries)entry.override='';
+  afterConfigChange();renderAll();relookAll();
   status(mode==='terminal'?(settings.value.terminals.length?'已切换到码头模式。':'已切换到码头模式。请先到配置页添加码头。'):'已切换到航司模式。');
-  if(query.container)scheduleIdentify();
 }
 export function setLanguage(value){flushSave();applyLanguage(value);persist(validateSettings({...settings.value,language:value}));}
 // Only on the user's click. Chrome always asks before opening another program; a page cannot replace that prompt.
@@ -688,7 +534,7 @@ export async function exportHistory(){
   catch(error){status(error.message,'error');}
 }
 export function exportConfig(){try{download(JSON.stringify(createConfig(settings.value),null,2)+'\n','trucker-helper-config.json','application/json');status('配置 JSON 已导出。','success');}catch(error){status(error.message,'error');}}
-function afterReplace(){resetResult();fillQueryCarrier(terminalMode.value?ui.profile.terminal:settings.value.defaultCarrierId);fillTypes();renderAll();}
+function afterReplace(){afterConfigChange();renderAll();relookAll();}
 // Pasted, not picked: on Windows the system file picker makes the toolbar popup go blank and close.
 function applyImport(){
   const text=importText.value;if(!text.trim())return;
@@ -706,13 +552,11 @@ export async function restoreDefaults(){
   discardPendingEdits();persist(validateSettings({mode,terminals,autoCc,language:chosen}));afterReplace();status('已恢复默认配置。','success');
 }
 export async function clearCache(){
-  clearTimeout(debounce);if(busy.value)return;
+  if(busy.value)return;
   try{
     busy.value=true;await rpc({type:'clearCache'});
-    lastResult.value=null;lastOperationId='';lastRenderedOperation='';draftTabId.value=null;configMissing.value=false;
-    query.mbl='';view.needsConfig=false;
-    lookupError('本地缓存已清除，请点击查询或重新粘贴柜号。');
     status('本地缓存已清除，配置和邮件操作记录已保留。','success');
+    relookAll();
   }catch(error){status(error.message,'error');}finally{busy.value=false;}
 }
 export async function testNotification(){try{await rpc({type:'testNotification'});status('已发送测试通知，请点击它。');}catch(error){status(error.message,'error');}}
@@ -733,10 +577,6 @@ function showAutoCcSection(){
 export async function boot(){
   try{await refreshState({initial:true});}
   catch(error){status(error.message,'error');}
-  finally{
-    initializing=false;
-    if(!lastResult.value&&!busy.value&&!notFoundDialog.show&&validContainer(query.container))scheduleIdentify();
-  }
   showPage(ui.page);
   if(openedAutoCc)nextTick(()=>document.getElementById('autoCcSection')?.scrollIntoView());
   // The popup closes as soon as it loses focus (e.g. to copy text from another window).
@@ -752,7 +592,7 @@ export async function boot(){
     if(JSON.stringify(next)===JSON.stringify(settings.value))return;
     settings.value=next;followingChange=true;applyLanguage(next.language);
     const typing=document.activeElement?.closest?.('#page-config form');
-    fillQueryCarrier(query.carrier);fillTypes();
+    afterConfigChange();
     if(!typing)renderAll();
     followingChange=false;
   });

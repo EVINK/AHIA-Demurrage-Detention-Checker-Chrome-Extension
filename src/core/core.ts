@@ -3,8 +3,15 @@ import {DEFAULT_CARRIERS} from './defaults.ts';
 export const TO='us.customerexperience@maersk.com';
 export const CC=['truck@darwinpacific.com','service@darwinpacific.com'];
 export const QUESTION='Could you please advise the demurrage LFD for the container below?';
-export const DEFAULT_BODY_TEMPLATE='Dear {{steam shipping line}},\n\nCould you please advise the {{type}} LFD for the container below?\n\n{{table}}';
-export const DEFAULT_SUBJECT_TEMPLATE='{{Type}} LFD Inquiry - Container#{{container}} MBL#{{mbl}}';
+// {{s}} is 's' when the message lists several containers, so one template reads right either way.
+export const DEFAULT_BODY_TEMPLATE='Dear {{steam shipping line}},\n\nCould you please advise the {{type}} LFD for the container{{s}} below?\n\n{{table}}';
+export const DEFAULT_SUBJECT_TEMPLATE='{{Type}} LFD Inquiry - Container{{s}}#{{container}} MBL{{s}}#{{mbl}}';
+// Earlier built-in wording: a template still equal to one of these takes the new one.
+const FORMER_DEFAULTS=new Map([
+  ['Dear {{steam shipping line}},\n\nCould you please advise the {{type}} LFD for the container below?\n\n{{table}}','Dear {{steam shipping line}},\n\nCould you please advise the {{type}} LFD for the container{{s}} below?\n\n{{table}}'],
+  ['{{Type}} LFD Inquiry - Container#{{container}} MBL#{{mbl}}','{{Type}} LFD Inquiry - Container{{s}}#{{container}} MBL{{s}}#{{mbl}}'],
+  ['On-Hire Request - Container#{{container}} MBL#{{mbl}}','On-Hire Request - Container{{s}}#{{container}} MBL{{s}}#{{mbl}}']
+]);
 // COSCO USA takes LFD inquiries through its Freshdesk ticket portal; Per Diem is always Detention.
 export const COSCO_PORTAL=Object.freeze({requester:'service@darwinpacific.com',shipmentType:'Per Diem',service:'Last Free Day',reference:''});
 // COSCO On-Hire goes through COSCO Shipping LA's Freshdesk portal (Type Equipment → On / Off Hire).
@@ -52,10 +59,10 @@ export function resolveType(profile,requested){
   if(findType(profile,requested))return requested;
   return requested!==ON_HIRE&&inquiryChannel(profile,PORTAL_INQUIRY_TYPE)==='cosco-portal'&&findType(profile,PORTAL_INQUIRY_TYPE)?PORTAL_INQUIRY_TYPE:'';
 }
-/** Several containers in one message: every email type, ONE chats, and COSCO On-Hire. COSCO's Detention ticket takes one. */
+/** Several containers in one message: email and ONE chat. A COSCO ticket takes one container, so each gets its own. */
 export function supportsManyContainers(profile,id){
   const type=findType(profile,id);if(!type)return false;
-  return type.channel==='email'||type.channel==='one-chat'||id===ON_HIRE;
+  return type.channel==='email'||type.channel==='one-chat';
 }
 /** What still has to be filled in before this type can go out. */
 export function missingConfiguration(profile,id){
@@ -95,14 +102,14 @@ function templateText(value,kind){
   if(!result)return '';
   if(result.length>(body?10000:400)||/[\u0000-\u0008\u000b-\u001f\u007f]/.test(result)||(!body&&/[\n\t]/.test(result)))throw new Error(`${label}过长或含有无效控制字符。`);
   const tokens=[...result.matchAll(/\{\{([^{}]*)\}\}/g)].map(m=>m[1]);
-  const allowed=['steam shipping line','carrier','type','Type','container','mbl',...(body?['table']:[])];
+  const allowed=['steam shipping line','carrier','type','Type','container','mbl','s',...(body?['table']:[])];
   if(tokens.some(token=>!allowed.includes(token))||/\{\{|\}\}/.test(result.replace(/\{\{([^{}]*)\}\}/g,'')))throw new Error(`${label}含有未知或不完整的占位符。`);
   if(body&&tokens.filter(token=>token==='table').length!==1)throw new Error('正文模板必须包含且仅包含一个 {{table}}。');
   if(!body&&(!tokens.includes('container')||!tokens.includes('mbl')))throw new Error('主题模板必须包含 {{container}} 和 {{mbl}}。');
   return result;
 }
 export const ON_HIRE_BODY_TEMPLATE='Dear {{steam shipping line}},\n\nPlease on-hire below containers to Terminal A, B,C,D,...,etc.\n\n{{table}}';
-export const ON_HIRE_SUBJECT_TEMPLATE='On-Hire Request - Container#{{container}} MBL#{{mbl}}';
+export const ON_HIRE_SUBJECT_TEMPLATE='On-Hire Request - Container{{s}}#{{container}} MBL{{s}}#{{mbl}}';
 // Optional. 'AHIA' is the old built-in value, removed from saved settings and imported files as they are read.
 function portalReference(value){
   const reference=String(value??'').trim();
@@ -131,6 +138,7 @@ function chatFields(value){
   return {firstName:profileText(value.firstName,'First Name'),lastName:profileText(value.lastName,'Last Name'),email:email[0],
     country:profileText(value.country??ONE_CHAT.country,'Country'),message};
 }
+const updated=text=>{const value=String(text??'').replace(/\r\n?/g,'\n').trim();return FORMER_DEFAULTS.get(value)??value;};
 function typeFields(value,profileId){
   if(!value||typeof value!=='object'||Array.isArray(value)||typeof value.id!=='string')throw new Error('查询类型配置格式无效。');
   const id=value.id.trim().toLowerCase();
@@ -140,7 +148,7 @@ function typeFields(value,profileId){
   const to=addressList(value.to),cc=addressList(value.cc).filter(address=>!to.includes(address));
   // Saved by an earlier version that offered every channel to every carrier: back to email.
   return {id,label:profileText(value.label??INQUIRY_TYPES[id]??'','查询类型名称'),channel:channelsFor(profileId).includes(channel)?channel:'email',to,cc,
-    subjectTemplate:templateText(value.subjectTemplate??'','subject'),bodyTemplate:templateText(value.bodyTemplate??'','body')};
+    subjectTemplate:templateText(updated(value.subjectTemplate),'subject'),bodyTemplate:templateText(updated(value.bodyTemplate),'body')};
 }
 /** Old format: top-level To/Cc/templates shared by Demurrage and Detention, plus an onHire sub-object. */
 function legacyTypes(profile,id){
@@ -305,7 +313,7 @@ function renderTemplates(record,profile,type,more=[],tableStyle='table'){
   if(items.length>30)throw new Error('一封邮件最多 30 个柜号。');
   const container=items.map(item=>item.container).join(', '),mbl=[...new Set(items.map(item=>item.mbl))].join(', ');
   const lines=tableStyle==='lines';
-  const values={'steam shipping line':profile.greeting,carrier:profile.name,type:type.label.toLowerCase(),Type:type.label,container,mbl,
+  const values={'steam shipping line':profile.greeting,carrier:profile.name,type:type.label.toLowerCase(),Type:type.label,container,mbl,s:items.length>1?'s':'',
     table:tableStyle==='labels'?items.map(item=>`Container#: ${item.container}\nMBL#: ${item.mbl}`).join('\n\n'):lines?items.map(item=>`${item.container} ${item.mbl}`).join('\n'):`Container#\tMBL#\n${items.map(item=>`${item.container}\t${item.mbl}`).join('\n')}`};
   const fill=text=>text.replace(/\{\{([^{}]*)\}\}/g,(_,token)=>values[token]);
   const subject=type.subjectTemplate?fill(type.subjectTemplate):'';
