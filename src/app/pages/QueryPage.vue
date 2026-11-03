@@ -14,7 +14,7 @@ const containerProps={id:'container',autocomplete:'off',spellcheck:false,maxleng
           <div class="container-query">
             <n-input :value="query.container" :input-props="containerProps" :disabled="busy" :placeholder="t('粘贴柜号…')" @update:value="containerInput" @paste="pasteIntoContainer" @keydown.enter.prevent="pressEnter"/>
             <n-button v-if="rows.length" id="removeMain" size="small" quaternary type="error" :title="t('删除这个柜号，下面的柜号会往上补')" @click="removeMain">×</n-button>
-            <n-button v-if="multi" id="addContainer" size="small" quaternary type="primary" :title="t('同一个 ONE 会话再加一个柜号')" @click="addExtraRow()">＋</n-button>
+            <n-button v-if="multi" id="addContainer" size="small" quaternary type="primary" :title="t('再加一个柜号')" @click="addExtraRow()">＋</n-button>
             <n-button id="identify" size="small" secondary type="primary" :disabled="busy" :title="t('优先查询本地缓存，未命中时读取提柜表')" @click="perform('identify')">{{t('查询')}}</n-button>
           </div>
         </div>

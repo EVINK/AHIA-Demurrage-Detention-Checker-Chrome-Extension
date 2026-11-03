@@ -52,10 +52,10 @@ export function resolveType(profile,requested){
   if(findType(profile,requested))return requested;
   return requested!==ON_HIRE&&inquiryChannel(profile,PORTAL_INQUIRY_TYPE)==='cosco-portal'&&findType(profile,PORTAL_INQUIRY_TYPE)?PORTAL_INQUIRY_TYPE:'';
 }
-/** Several containers in one message: chats, On-Hire, and custom email types. Demurrage/Detention are one at a time. */
+/** Several containers in one message: every email type, ONE chats, and COSCO On-Hire. COSCO's Detention ticket takes one. */
 export function supportsManyContainers(profile,id){
   const type=findType(profile,id);if(!type)return false;
-  return type.channel==='one-chat'||id===ON_HIRE||(type.channel==='email'&&id!=='demurrage'&&id!=='detention');
+  return type.channel==='email'||type.channel==='one-chat'||id===ON_HIRE;
 }
 /** What still has to be filled in before this type can go out. */
 export function missingConfiguration(profile,id){
@@ -260,8 +260,7 @@ export function messageTemplate(record,options={}){
   if(type.channel!=='email')throw new Error(`${profile.name} 使用${type.channel==='one-chat'?'在线客服':'工单网站'}，不发邮件。`);
   if(!type.to.length)throw new Error(`请先在 ${profile.name} 的配置中填写 ${type.label} 收件邮箱。`);
   if(!type.bodyTemplate||!type.subjectTemplate)throw new Error(`首次使用该类型，请先配置 ${profile.name} 的 ${type.label} 正文模板和主题模板。`);
-  if(options.more?.length&&!supportsManyContainers(profile,id))throw new Error('只有 On-Hire 和自定义类型的邮件支持一次发送多个柜号。');
-  const {subject,bodyText,html,mailtoHtml}=renderTemplates(record,profile,type,options.more||[],options.plainTextLayout==='labels'?'labels':'table');
+    const {subject,bodyText,html,mailtoHtml}=renderTemplates(record,profile,type,options.more||[],options.plainTextLayout==='labels'?'labels':'table');
   return {to:[...type.to],cc:[...type.cc],question:`Could you please advise the ${type.label.toLowerCase()} LFD for the container below?`,carrierId:profile.id,carrierName:profile.name,inquiryType:id,typeLabel:type.label,subject,bodyText,html,mailtoHtml};
 }
 /** Ticket content for a carrier whose channel is a support portal instead of email. */

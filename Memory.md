@@ -121,7 +121,7 @@ A version 1 file does not mention terminals, mode, Auto CC or language, so those
 
 **one-chat.** Runs on one-line.com: form, menus, transfer to agent, one message per container, done when each shows Read. ONE allows one chat per browser, so tasks queue and append to a live chat. On-Hire for ONE is email.
 
-Several containers in one message: ONE chat, On-Hire, and custom email types (`supportsManyContainers`).
+Several containers in one message (`supportsManyContainers`): every email type, ONE chat, and COSCO On-Hire. COSCO's Detention ticket takes one container. Since v0.8.0 Demurrage and Detention work like On-Hire: each extra row is looked up for its MBL and carrier, rows of another carrier are marked and block sending, and one email carries all containers in `{{table}}`, with `{{container}}` and `{{mbl}}` joined by commas.
 
 Duplicate lock: container + MBL + profile + type. The check compares entry contents, so old key formats (with the account, or the earliest three-part ones) still block.
 
@@ -218,6 +218,8 @@ An unpacked extension's id comes from its folder, so the Vue build has a differe
 **v0.7.6 (same branch).** The wait for ONE's Read receipt is 15 minutes, up from 5: a slow agent left a message at Sent and asked the owner to verify by hand.
 
 **v0.7.7 (same branch).** A run that recovered after reloads keeps `recovery` on its ledger entry, shown in 记录 and in the export, so data on the blank page builds up without a final failure.
+
+**v0.8.0 (same branch).** Demurrage, Detention and custom email types take several containers, the same way as On-Hire, at the owner's request.
 
 ## Known limitations
 

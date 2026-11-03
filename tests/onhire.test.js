@@ -100,3 +100,22 @@ test('an old COSCO entry with the generic On-Hire text converts to COSCO\'s own 
   assert.equal(findType(normalizeCarriers([old('My own text\n{{table}}')])[0],'on-hire').bodyTemplate,'My own text\n{{table}}');
   assert.equal(inquiryChannel(normalizeCarriers([old('')])[0],'on-hire'),'cosco-portal');
 });
+
+test('Demurrage and Detention take several containers like On-Hire: one email, one lock each, other carriers refused',async()=>{
+  const records=[{container:'OOLU9995789',mbl:'OOLU4055290001',row:1,carrier:'OOCL'},{container:'FFAU8502590',mbl:'OOLU4055290002',row:2,carrier:'OOCL'},{container:'TIIU8074576',mbl:'ZIMUNGB208771',row:3,carrier:'ZIM'}];
+  const carriers=[{id:'oocl',name:'OOCL',greeting:'OOCL',to:['lfd@oocl.example'],cc:[],aliases:['OOCL'],mblPrefixes:['OOLU'],bodyTemplate:'Dear {{steam shipping line}},\n\nPlease advise the {{type}} LFD.\n\n{{table}}',subjectTemplate:'{{Type}} LFD Inquiry - Container#{{container}} MBL#{{mbl}}'},{id:'zim',name:'ZIM',greeting:'ZIM',to:['z@zim.example'],cc:[],aliases:['ZIM'],mblPrefixes:[]}];
+  let db={settings:{gmailIndex:0,carriers},ledger:{}};const mails=[];
+  const service=createService({storage:{get:async()=>structuredClone(db),set:async x=>{db={...db,...structuredClone(x)};}},readSheet:async()=>({records,readAt:1}),
+    prepareMail:async p=>{mails.push(p);return {tabId:8};},sendMail:async()=>({confirmed:true,evidence:'ok'}),uuid:()=>'r'+mails.length});
+  await service.run('OOLU9995789','identify',{inquiryType:'demurrage'});
+  await assert.rejects(service.run('OOLU9995789','draft',{inquiryType:'demurrage',more:[{container:'TIIU8074576',mbl:'ZIMUNGB208771'}]}),/不是 OOCL/);
+  for(const type of ['demurrage','detention']){
+    const started=await service.run('OOLU9995789','draft',{inquiryType:type,more:[{container:'FFAU8502590',mbl:'OOLU4055290002'}]});
+    await service.job(started.requestId);
+  }
+  assert.equal(mails.length,2,'one email per type');
+  assert.equal(mails[0].subject,'Demurrage LFD Inquiry - Container#OOLU9995789, FFAU8502590 MBL#OOLU4055290001, OOLU4055290002');
+  assert.equal(mails[0].bodyText.split('\n').slice(-2).join('|'),'OOLU9995789\tOOLU4055290001|FFAU8502590\tOOLU4055290002');
+  assert.equal(Object.keys(db.ledger).length,4,'a lock per container and type');
+  await assert.rejects(service.run('OOLU9995789','draft',{inquiryType:'demurrage',more:[{container:'FFAU8502590',mbl:'OOLU4055290002'}]}),/已有/);
+});

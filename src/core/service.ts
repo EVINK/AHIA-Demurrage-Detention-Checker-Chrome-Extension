@@ -112,7 +112,7 @@ export function createService({storage, readSheet, prepareMail, sendMail, prepar
     const channel=inquiryChannel(carrier,type),portal=channel==='cosco-portal',chat=channel==='one-chat',typeLabel=findType(carrier,type)?.label;
     if(mode==='identify')return {...record,carrierId:carrier.id,carrierName:carrier.name,channel,inquiryType:type,typeLabel,configurationMissing:missingConfiguration(carrier,type)};
     const more=Array.isArray(options.more)?options.more:[];
-    if(more.length&&(!supportsManyContainers(carrier,type)||mode==='identify'))throw new Error('只有 ONE 在线客服、On-Hire 和自定义类型支持一次查询多个柜号。');
+    if(more.length&&(!supportsManyContainers(carrier,type)||mode==='identify'))throw new Error('这个查询类型一次只能查询一个柜号。');
     // Extra containers must be cached ONE records of the same carrier (or explicitly carry a manual MBL).
     const extras=more.map(item=>{
       const extraContainer=containerNumber(item?.container);
