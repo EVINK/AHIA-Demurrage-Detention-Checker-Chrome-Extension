@@ -175,7 +175,11 @@ Use a separate profile, never the owner's main Chrome: `%LOCALAPPDATA%\Temp\lfd-
 
 ## Reloading
 
-This branch is checked out in its own worktree, `C:\Users\AMERI\Documents\workspace\demurrage-lfd-extension-vue`. Load unpacked from its `dist\extension`, after `vite build`. Never switch the branch of the original `demurrage-lfd-extension` folder: the owner's Chrome loads v0.6.x from that folder's root, and this branch has no root `manifest.json`.
+Layout since 2026-11-03 (owner: keep only the Vue 3 version):
+- `C:\Users\AMERI\Documents\workspace\demurrage-lfd-extension` holds only the git store: `.git` with `core.bare=true` plus a README. The old non-Vue files are gone (still in history). Never delete it: both worktrees below use its `.git`.
+- `...\demurrage-lfd-extension-vue`: worktree on `refactor/vue3-naiveui`, the code in use. Load unpacked from its `dist\extension` after `vite build`; release zips stay in its `dist\`.
+- `...\demurrage-lfd-extension-chagui`: worktree on `feat/experimental-chagui`, another workstream (automated container checking). Do not touch.
+- GitHub has `main` and `refactor/vue3-naiveui`, both at the same commit when this was written; `fix/gmail-send-confirmation` is deleted (all its commits are in Vue history). `workspace\releases` is empty.
 
 1. Build.
 2. `chrome://extensions` → Trucker Helper → refresh.
@@ -248,7 +252,6 @@ An unpacked extension's id comes from its folder, so the Vue build has a differe
 
 ## Open items
 
-- The branch `fix/gmail-send-confirmation` has no pull request and is not merged to `main`.
 - The GitHub repository name still contains AHIA. Renaming it is done on GitHub.
-- `refactor/vue3-naiveui` is pushed and not merged. Merging moves the load path to `dist/extension`, which changes the extension id.
+- `main` was fast-forwarded to `refactor/vue3-naiveui` on 2026-11-03. Keep pushing new work to `refactor/vue3-naiveui` and fast-forward `main` when the owner asks. Loading from `dist\extension` instead of the old folder root changed the extension id.
 - Stricter TypeScript for the ported modules, which still carry `@ts-nocheck`.
