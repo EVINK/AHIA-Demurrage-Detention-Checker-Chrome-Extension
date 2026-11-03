@@ -187,7 +187,7 @@ export function previewOf(group){
   const [first,...rest]=items;
   try{
     if(group.channel==='one-chat'){const chat=chatTemplate(first,{carrier:group.profile,inquiryType:group.type,more:rest.slice(0,9)});return {to:`${chat.firstName} ${chat.lastName} · ${chat.email}`,subject:'',html:'',lines:chat.messages};}
-    if(group.channel==='cosco-portal'){const ticket=portalTemplate(first,{carrier:group.profile,inquiryType:group.type});return {to:new URL(ticket.url).hostname,subject:ticket.fields.map(f=>f.value).join(' · '),html:ticket.html,lines:[],note:items.length>1?`共 ${items.length} 张工单，这里是第一张`:''};}
+    if(group.channel==='cosco-portal'){const ticket=portalTemplate(first,{carrier:group.profile,inquiryType:group.type,...(group.many&&rest.length?{more:rest}:{})});return {to:new URL(ticket.url).hostname,subject:ticket.fields.map(f=>f.value).join(' · '),html:ticket.html,lines:[],note:!group.many&&items.length>1?`共 ${items.length} 张工单，这里是第一张`:''};}
     const mail=messageTemplate(first,{carrier:group.profile,inquiryType:group.type,...(rest.length?{more:rest}:{})});
     return {to:mail.to.join(', '),cc:mail.cc.join(', '),subject:mail.subject,html:mail.html,lines:[]};
   }catch(error){return {error:error.message};}

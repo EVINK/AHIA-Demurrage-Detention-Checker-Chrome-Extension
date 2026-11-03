@@ -59,10 +59,10 @@ export function resolveType(profile,requested){
   if(findType(profile,requested))return requested;
   return requested!==ON_HIRE&&inquiryChannel(profile,PORTAL_INQUIRY_TYPE)==='cosco-portal'&&findType(profile,PORTAL_INQUIRY_TYPE)?PORTAL_INQUIRY_TYPE:'';
 }
-/** Several containers in one message: email and ONE chat. A COSCO ticket takes one container, so each gets its own. */
+/** Several containers in one message: email, ONE chat and the COSCO On-Hire ticket. Other COSCO tickets take one container each. */
 export function supportsManyContainers(profile,id){
   const type=findType(profile,id);if(!type)return false;
-  return type.channel==='email'||type.channel==='one-chat';
+  return type.channel==='email'||type.channel==='one-chat'||(type.channel==='cosco-portal'&&id===ON_HIRE);
 }
 /** What still has to be filled in before this type can go out. */
 export function missingConfiguration(profile,id){

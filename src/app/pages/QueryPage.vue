@@ -54,7 +54,7 @@ const missingText=group=>group.missing.map(key=>t(missingNames[key]||key)).join(
           </tr>
         </table>
         <div v-if="group.missing.length" class="notice missing"><span>{{t('还需要配置：')}}</span><strong>{{missingText(group)}}</strong><n-button size="tiny" @click="configureCarrier(group)">{{t(group.profile?`配置 ${group.name}`:`新增或选择${kind}`)}}</n-button></div>
-        <p v-if="group.channel==='cosco-portal'&&group.ready.length>1" class="hint">{{t('逐个提交，每张需人机验证')}}</p>
+        <p v-if="group.channel==='cosco-portal'&&!group.many&&group.ready.length>1" class="hint">{{t('逐个提交，每张需人机验证')}}</p>
         <details v-if="previewOf(group)" class="group-preview" :open="groups.length===1&&!unresolved.length">
           <summary>{{t('预览')}}</summary>
           <template v-for="preview in [previewOf(group)]" :key="group.id+'p'">

@@ -18,9 +18,9 @@ test('{{s}} adds the plural only for several containers; old default templates m
   assert.equal(findType(own,'demurrage').subjectTemplate,'LFD {{container}} {{mbl}}');assert.equal(findType(own,'demurrage').bodyTemplate,'Hi {{table}}');
 });
 
-test('COSCO tickets take one container each, including On-Hire; email and ONE chat take several',()=>{
+test('a COSCO On-Hire ticket takes several containers, other COSCO tickets one each; email and ONE chat take several',()=>{
   const carriers=normalizeCarriers();const of=id=>carriers.find(p=>p.id===id);
-  assert.equal(supportsManyContainers(of('cosco'),'on-hire'),false);assert.equal(supportsManyContainers(of('cosco'),'detention'),false);
+  assert.equal(supportsManyContainers(of('cosco'),'on-hire'),true);assert.equal(supportsManyContainers(of('cosco'),'detention'),false);
   assert.equal(supportsManyContainers(of('one'),'demurrage'),true);assert.equal(supportsManyContainers(of('msc'),'detention'),true);
 });
 
@@ -35,12 +35,14 @@ test('COSCO tickets wait in line: the second ticket starts only after the first 
   const records=[{container:'TRHU6630515',mbl:'COSU6466276490',row:1,carrier:'COS'},{container:'OOCU8526498',mbl:'COSU6466276590',row:2,carrier:'COS'}];
   const order=[];let release;const first=new Promise(resolve=>{release=resolve;});
   const s=service(records,normalizeCarriers(),{prepareTicket:async p=>{order.push('start '+p.fields.at(-1)?.value);if(order.length===1)await first;order.push('end');return {tabId:9};}});
-  await assert.rejects(s.run('TRHU6630515','send',{inquiryType:'on-hire',more:[{container:'OOCU8526498',mbl:'COSU6466276590'}]}),/一次只能查询一个柜号/);
-  const a=await s.run('TRHU6630515','send',{inquiryType:'on-hire'}),b=await s.run('OOCU8526498','send',{inquiryType:'on-hire'});
+  await assert.rejects(s.run('TRHU6630515','send',{inquiryType:'detention',more:[{container:'OOCU8526498',mbl:'COSU6466276590'}]}),/一次只能查询一个柜号/);
+  const a=await s.run('TRHU6630515','send',{inquiryType:'detention'}),b=await s.run('OOCU8526498','send',{inquiryType:'detention'});
   await new Promise(resolve=>setTimeout(resolve,30));
   assert.equal(order.length,1,'the second ticket has not started');
   release();await s.job(a.requestId);await s.job(b.requestId);
   assert.deepEqual(order.map(x=>x.split(' ')[0]),['start','end','start','end']);
+  const both=await s.run('TRHU6630515','send',{inquiryType:'on-hire',more:[{container:'OOCU8526498',mbl:'COSU6466276590'}]});await s.job(both.requestId);
+  assert.equal(order.length,6,'On-Hire: one ticket for both');assert.match(order[4],/TRHU6630515 OOCU8526498/);
 });
 
 test('a carrier chosen for the group vouches for its containers; automatic recognition still checks them',async()=>{

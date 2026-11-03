@@ -221,7 +221,9 @@ An unpacked extension's id comes from its folder, so the Vue build has a differe
 
 **v0.8.0 (same branch).** Demurrage, Detention and custom email types take several containers, the same way as On-Hire, at the owner's request.
 
-**v0.8.1 (same branch).** Query page groups pasted containers by carrier (cards with channel, recipients, rows, per-group carrier override, preview, send/draft; send-all runs groups in order). Unresolved rows (not found, no MBL, unconfigured carrier) sit on top with inline MBL/carrier fixes and are never sent. `{{s}}` template token pluralizes; templates equal to the former defaults migrate (`FORMER_DEFAULTS` in core.ts). COSCO tickets, On-Hire included, take one container each and queue through `ticketLine` in service.ts, at the owner's request. A carrier passed explicitly (`carrierId`) skips the extra-container carrier check; only `auto` checks.
+**v0.8.1 (same branch).** Query page groups pasted containers by carrier (cards with channel, recipients, rows, per-group carrier override, preview, send/draft; send-all runs groups in order). Unresolved rows (not found, no MBL, unconfigured carrier) sit on top with inline MBL/carrier fixes and are never sent. `{{s}}` template token pluralizes; templates equal to the former defaults migrate (`FORMER_DEFAULTS` in core.ts). COSCO tickets take one container each and queue through `ticketLine` in service.ts.
+
+**v0.8.2 (same branch).** The COSCO On-Hire ticket takes all containers of the group again; only Detention tickets go one per container, the owner's correction of v0.8.1. A carrier passed explicitly (`carrierId`) skips the extra-container carrier check; only `auto` checks.
 
 ## Known limitations
 

@@ -1,4 +1,4 @@
-# Trucker Helper v0.8.1 — Chrome 插件使用说明
+# Trucker Helper v0.8.2 — Chrome 插件使用说明
 
 输入柜号，插件从金山文档「提柜」查出 MBL 和船公司，再按所选 Demurrage / Detention 类型准备查询邮件，保留 Gmail 原签名。支持 Maersk、MSC 和自行添加的船公司，收件邮箱与邮件模板均可配置。
 
@@ -56,7 +56,7 @@
 
 1. 确认原插件目录已经更新为 v0.3.18 文件。如果使用压缩包，将文件解压到原来加载的目录。
 2. 在 Chrome 手动打开 `chrome://extensions`，找到 **Trucker Helper**，点击刷新图标。
-3. 点击工具栏上的 Trucker Helper 图标，打开新版弹窗；确认底部显示 `v0.8.1`、右上角显示「航司模式 / 码头模式」。
+3. 点击工具栏上的 Trucker Helper 图标，打开新版弹窗；确认底部显示 `v0.8.2`、右上角显示「航司模式 / 码头模式」。
 
 新版使用真正的工具栏弹窗，尺寸为 780 × 600，包含「查询 / 配置 / 记录」三个页面，不再为主界面新开标签页。v0.2.6 新增 unlimitedStorage，解除 chrome.storage.local 默认容量配额；实际仍受磁盘空间和性能限制。缓存逻辑保持不变。原有连接设置、草稿和发送锁定记录保留。
 
@@ -457,4 +457,8 @@ Foxmail may flatten mailto line breaks even with CRLF. In Tasks/History, click �
 - 找不到、缺 MBL、船公司未配置的柜号放在顶部「需要处理」，可当场填 MBL / 选船公司，不处理就不发送。
 - 模板新增 `{{s}}`：多于一个柜号时为 `s`。默认主题 `{{Type}} LFD Inquiry - Container{{s}}#{{container}} MBL{{s}}#{{mbl}}`，正文 `the container{{s}} below`；仍是旧默认值的模板自动换成新默认，自己改过的不动。
 - COSCO 工单（包括 On-Hire）一个柜号一张，排队依次提交，每张单独人机验证（以前 On-Hire 多个柜号合成一张）。
+
+## v0.8.2 COSCO On-Hire 恢复多柜号一张工单
+
+- COSCO **On-Hire** 工单恢复为同一组的多个柜号合成一张（Container # 列出全部柜号）；只有 **Detention** 工单一个柜号一张，逐张提交、每张人机验证。查询页的「逐个提交，每张需人机验证」只在 Detention 组显示。
 
