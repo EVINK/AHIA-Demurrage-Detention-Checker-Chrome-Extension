@@ -1,5 +1,41 @@
 // @ts-nocheck
 import {containerNumber, mblNumber, lookup, cacheRecords, messageTemplate, portalTemplate, chatTemplate, normalizeCarriers, normalizeTerminals, inquiryType, recognizeCarrier, inquiryChannel, resolveType, findType, missingConfiguration, supportsManyContainers} from './core.ts';
+/** ONE sometimes leaves its page or chat frame empty, and loading it again fixes that. `start` stops at the pre-chat
+ * form, before any agent or message, so reloading cannot send anything twice. Each try goes on the record. */
+// The queue can be long: this only guards against a chat nobody will ever answer.
+export const AGENT_WAIT_LIMIT=2*3600000;
+/** Keeps checking until an agent joins. Ends only when the window closes, the chat ends, it stops answering or the cap is hit. */
+export async function waitForAgent({read,pause,progress,startedAt,now=Date.now}){
+  let failures=0,shown='',queue='';
+  for(;;){
+    if(now()-startedAt>AGENT_WAIT_LIMIT)throw Object.assign(new Error('等待 ONE 客服接入已超过 2 小时，已停止'),{diagnostics:{waitedMinutes:Math.round((now()-startedAt)/60000),lastQueue:queue}});
+    let state;
+    try{state=await read();failures=0;}
+    catch(error){
+      if(error.closed||++failures>=15)throw error;
+      await pause(5000);continue;
+    }
+    if(state.agent)return state.agent;
+    if(state.ended)throw new Error('ONE 对话已结束，客服未接入');
+    queue=state.queue||queue;
+    const line=state.queue?`等待客服接入 · ${state.queue}`:'等待客服接入';
+    if(line!==shown){shown=line;progress(line);}
+    await pause(3000);
+  }
+}
+export const CHAT_RELOADS=5;
+export async function retryBlankChat(start,describe){
+  const blank=error=>Boolean(error?.notLoaded)||/在线客服图标/.test(error?.message||'');
+  const attempts=[];
+  for(let reload=0;;reload++){
+    try{return await start();}
+    catch(error){
+      if(!blank(error))throw error;
+      attempts.push(await describe(error,{reload,reloadsLeft:CHAT_RELOADS-reload}));
+      if(reload===CHAT_RELOADS){error.diagnostics={attempts};throw error;}
+    }
+  }
+}
 export function createService({storage, readSheet, prepareMail, sendMail, prepareTicket, submitTicket, prepareChat, sendChat, now = Date.now, uuid = () => crypto.randomUUID()}) {
   let queue = Promise.resolve();
   const active=new Set(),jobs=new Map(),cancelled=new Set();
@@ -193,7 +229,14 @@ export function createService({storage, readSheet, prepareMail, sendMail, prepar
     for(const key of keys){archive.push({...ledger[key],releasedAt:now()});delete ledger[key];}
     await storage.set({ledger,archive});return keys.length;
   });
-  return {active:()=>new Set(active),cancel,releaseTask,markSent,job:requestId=>jobs.get(requestId)||Promise.reject(new Error('任务不存在。')),run,release:key=>serial(async()=>{
+  // A chat wait picked up again after the worker restarted: the job that started it is gone.
+  const adoptTask=requestId=>{active.add(requestId);};
+  const updateTask=(requestId,patch,{finished=false}={})=>serial(async()=>{
+    const {ledger={}}=await storage.get(['ledger']);
+    for(const key of Object.keys(ledger))if(ledger[key].requestId===requestId)ledger[key]={...ledger[key],...patch,updatedAt:now()};
+    await storage.set({ledger});if(finished)active.delete(requestId);
+  });
+  return {active:()=>new Set(active),adoptTask,updateTask,cancel,releaseTask,markSent,job:requestId=>jobs.get(requestId)||Promise.reject(new Error('任务不存在。')),run,release:key=>serial(async()=>{
     const {ledger={},archive=[]}=await storage.get(['ledger','archive']);
     if(!ledger[key])throw new Error('记录不存在。');
     if(active.has(ledger[key].requestId))throw new Error('该任务仍在后台进行，请先终止任务。');

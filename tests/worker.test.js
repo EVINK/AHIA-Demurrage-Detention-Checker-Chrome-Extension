@@ -18,12 +18,13 @@ async function until(predicate){
 }
 
 function setup({data={},run=async()=>({status:'draft',tabId:42}),read=async value=>value,tabs=[],scriptError=null,popupFails=false,contexts=[]}={}){
-  let changed;const session={},pushed=[];
+  let changed,alarm;const session={},pushed=[],serviceCalls={adoptTask:()=>{},updateTask:async()=>{}};
   let db={settings:{...defaults},ledger:{},...clone(data)},listener,deps,id=0;
   const calls={runtimeMessages:[],notifications:[],windows:[],windowUpdates:[],windowRemoved:[],fetched:[],run:[],release:[],writes:[],created:[],updated:[],queries:[],scripts:[],access:[],removed:[]};
   const tabMap=new Map(tabs.map(tab=>[tab.id,clone(tab)]));
   const readKdocsPage=()=>{},gmailPage=()=>{},coscoPage=()=>{},onePage=()=>{};
   const chrome={
+    alarms:{create:(name,info)=>{calls.alarms=[...(calls.alarms||[]),name];},clear:async()=>true,onAlarm:{addListener:fn=>{alarm=fn;}}},
     action:{openPopup:async()=>{calls.popup=(calls.popup||0)+1;if(popupFails)throw new Error('no window');}},
     storage:{onChanged:{addListener:fn=>{changed=fn;}},session:{get:async key=>({[key]:session[key]}),set:async value=>{Object.assign(session,value);}},local:{
       setAccessLevel:async value=>{calls.access.push(clone(value));},
@@ -56,19 +57,19 @@ function setup({data={},run=async()=>({status:'draft',tabId:42}),read=async valu
   };
   vm.runInNewContext(source,{
     chrome,URL,URLSearchParams,Date,setTimeout,fetch:async url=>{calls.fetched.push(url);return {text:async()=>'// LFD build: 3\nmain();'};},
-    crypto:{randomUUID:()=>`operation-${++id}`},translate:text=>text,resolveLanguage:()=>'zh',readKdocsPage,gmailPage,coscoPage,onePage,
+    crypto:{randomUUID:()=>`operation-${++id}`},translate:text=>text,resolveLanguage:()=>'zh',retryBlankChat:async start=>start(),waitForAgent:async()=>'agent',readKdocsPage,gmailPage,coscoPage,onePage,
     validateSettings:value=>({...defaults,...clone(value)}),
-    createService:dependencies=>{deps=dependencies;return {active:()=>new Set(),
+    createService:dependencies=>{deps=dependencies;return Object.assign(serviceCalls,{active:()=>new Set(),
       run:async(...args)=>{calls.run.push(clone(args));return run(...args);},
       release:async key=>{calls.release.push(key);return true;}
-    };}
+    });}
   },{filename:'worker.js'});
   function send(message,{from=sender,ignoreResponse=false}={}){
     let resolve;const response=new Promise(yes=>{resolve=yes;});
     const accepted=listener(message,from,value=>{if(!ignoreResponse)resolve(clone(value));});
     return {accepted,response};
   }
-  return {send,calls,deps,session,pushed,changed:(...args)=>changed(...args),db:()=>clone(db),removeTab:tabId=>chrome.tabs.remove(tabId),updateTab:(tabId,options)=>chrome.tabs.update(tabId,options)};
+  return {send,calls,deps,session,pushed,serviceCalls,alarm:(...args)=>alarm(...args),changed:(...args)=>changed(...args),db:()=>clone(db),removeTab:tabId=>chrome.tabs.remove(tabId),updateTab:(tabId,options)=>chrome.tabs.update(tabId,options)};
 }
 
 test('lookup persists running before work and completes after popup response is ignored',async()=>{
@@ -359,4 +360,13 @@ test('history export reads the records and the archive, from plugin pages only',
   const reply=await t.send({type:'history'}).response;
   assert.equal(reply.ok,true);assert.deepEqual(reply.data,{ledger:{a:{container:'X'}},archive:[{container:'Y'}]});
   assert.equal(t.send({type:'history'},{from:gmailPage}).accepted,false);
+});
+
+test('a chat wait left by a stopped worker is not sent again once the message may be out',async()=>{
+  const t=setup();t.session.oneWait={tabId:9,payload:{container:'X'},last:'send',requestId:'r1',startedAt:1,phase:'sending'};
+  const updates=[];t.serviceCalls.updateTask=async(id,patch,options)=>{updates.push([id,patch,options]);};
+  await t.alarm({name:'one-wait'});await until(()=>updates.length>0);
+  assert.equal(updates[0][1].status,'uncertain');assert.equal(updates[0][2].finished,true);
+  assert.equal(t.calls.scripts.length,0,'nothing was run in the chat');
+  await until(()=>t.session.oneWait===null);
 });

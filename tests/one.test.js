@@ -1,8 +1,9 @@
 import test from 'node:test';
+import {readFileSync} from 'node:fs';
 import assert from 'node:assert/strict';
 import {DEFAULT_CARRIERS,ONE_CHAT,normalizeCarriers,chatTemplate,messageTemplate,recognizeCarrier,inquiryChannel} from '../src/core/core.ts';
 import {validateSettings,createConfig,parseConfig} from '../src/core/config.ts';
-import {createService} from '../src/core/service.ts';
+import {createService,retryBlankChat,waitForAgent,AGENT_WAIT_LIMIT} from '../src/core/service.ts';
 
 const record={container:'TRHU6206940',mbl:'ONEYSZPGR9159802',row:20,carrier:'ONE'};
 const one=()=>normalizeCarriers().find(profile=>profile.id==='one');
@@ -112,4 +113,43 @@ test('the page state of a failed chat start stays on the record',async()=>{
   await assert.rejects(t.service.run(record.container,'send'),/90 秒/);
   const [entry]=Object.values(t.db().ledger);
   assert.equal(entry.status,'needs_review');assert.deepEqual(entry.diagnostics,failure.diagnostics);
+});
+
+const blankPage=()=>Object.assign(new Error('ONE 页面没有加载出所需的聊天窗口。'),{notLoaded:true});
+test('a blank ONE page is reloaded until it works',async()=>{
+  let starts=0;const seen=[];
+  const result=await retryBlankChat(async()=>{if(++starts<4)throw blankPage();return 'chat';},async(error,info)=>{seen.push(info.reload);return {};});
+  assert.equal(result,'chat');assert.equal(starts,4);assert.deepEqual(seen,[0,1,2]);
+});
+test('after five reloads it fails, with every try on the record',async()=>{
+  let starts=0;
+  await assert.rejects(retryBlankChat(async()=>{starts++;throw starts%2?blankPage():new Error('ONE 页面上没有找到在线客服图标。');},async(error,info)=>({reload:info.reload,left:info.reloadsLeft})),error=>{
+    assert.equal(error.diagnostics.attempts.length,6);assert.deepEqual(error.diagnostics.attempts.at(-1),{reload:5,left:0});return true;});
+  assert.equal(starts,6,'first load plus five reloads');
+});
+test('the worker reloads only before the pre-chat form, so a message cannot go out twice',()=>{
+  const worker=readFileSync(new URL('../src/background/worker.ts',import.meta.url),'utf8');
+  const start=worker.indexOf('const startChat='),retry=worker.indexOf('await retryBlankChat(startChat'),deliver=worker.indexOf('return deliver(tab.id,payload,progress,false)');
+  assert.ok(start>0&&retry>start&&deliver>retry,'order');
+  assert.doesNotMatch(worker.slice(start,retry),/'send'|deliver|toAgent|'type'/,'nothing is sent inside the retried part');
+});
+test('other failures are not retried: they may need a person, or a message may be out',async()=>{
+  let starts=0;
+  await assert.rejects(retryBlankChat(async()=>{starts++;throw new Error('ONE 在线客服（United States）当前不在服务时间，请稍后再查询。');},async()=>({})),/服务时间/);
+  assert.equal(starts,1);
+});
+
+const wait=(states,options={})=>{const steps=[];let index=0;return {steps,run:waitForAgent({startedAt:0,now:()=>0,pause:async()=>{},progress:step=>steps.push(step),read:async()=>{const next=states[Math.min(index++,states.length-1)];if(next instanceof Error)throw next;return next;},...options})};};
+test('the wait goes on through a long queue, shows its text once per change, and returns the agent',async()=>{
+  const queue={queue:'You are number 3 in the queue'},states=[...Array(500).fill({}),queue,queue,{queue:'You are number 1 in the queue'},{agent:'Liza'}];
+  const t=wait(states);
+  assert.equal(await t.run,'Liza');
+  assert.deepEqual(t.steps,['等待客服接入','等待客服接入 · You are number 3 in the queue','等待客服接入 · You are number 1 in the queue']);
+});
+test('the wait stops when the window closes, the chat ends, the page stays silent or the cap passes',async()=>{
+  await assert.rejects(wait([Object.assign(new Error('ONE 页面已被关闭'),{closed:true})]).run,/关闭/);
+  await assert.rejects(wait([{},{ended:true}]).run,/对话已结束/);
+  await assert.rejects(wait([new Error('no frame')]).run,/no frame/);
+  const brief=[new Error('blip'),new Error('blip'),{agent:'Liza'}];assert.equal(await wait(brief).run,'Liza','a short gap is tolerated');
+  await assert.rejects(waitForAgent({startedAt:0,now:()=>AGENT_WAIT_LIMIT+1,pause:async()=>{},progress:()=>{},read:async()=>({queue:'x'})}),error=>{assert.match(error.message,/2 小时/);assert.equal(error.diagnostics.waitedMinutes,120);return true;});
 });

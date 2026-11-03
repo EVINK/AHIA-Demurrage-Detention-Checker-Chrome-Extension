@@ -9,7 +9,8 @@ export async function onePage(kind,action,payload){
   const here=location.hostname==='www.one-line.com'?'top'
     :location.hostname==='one-line.my.site.com'&&/\/ESWOneMessaging\w*\//.test(location.pathname)&&!/\/assets\//.test(location.pathname)?'chat'
     :/^cms-resources-[a-z]+\.one-line\.com$/.test(location.hostname)&&/freedays-and-dndcalculator/.test(location.pathname)?'calc':'';
-  if(here!==kind)return {ok:true,data:{skip:true}};
+  // Other frames answer with where they are, so a frame that never arrives leaves a trail.
+  if(here!==kind)return {ok:true,data:{skip:true,frame:{url:location.host+location.pathname,ready:document.readyState,text:document.body?document.body.innerText.length:-1}}};
   const pause=ms=>new Promise(r=>setTimeout(r,ms));
   // Hidden pages get throttled timers (up to one per minute), so always check once more after the deadline.
   async function waitFor(fn,description,timeout=30000){const end=Date.now()+timeout;while(Date.now()<end){const v=fn();if(v)return v;await pause(250);}const v=fn();if(v)return v;throw new Error(description);}
@@ -46,7 +47,7 @@ export async function onePage(kind,action,payload){
     return {ok:true,data:{chatOnly:!!document.getElementById('embeddedMessagingFrame')}};
   }
   if(kind==='top'){
-    if(action!=='open'&&action!=='retryOpen')throw new Error('未知 ONE 页面操作。');
+    if(!['open','retryOpen','state'].includes(action))throw new Error('未知 ONE 页面操作。');
     const wrapper=()=>document.querySelector('#one-chat-wrapper');
     const maintenance=()=>[...document.querySelectorAll('.mtn-combile-block,#one-chat-wrapper-mtn')].find(visible);
     const chatFrame=()=>document.getElementById('embeddedMessagingFrame');
@@ -79,6 +80,13 @@ export async function onePage(kind,action,payload){
       if(outcome==='maintenance'){forgetTrace();throw new Error(`ONE 在线客服暂不可用：${text(maintenance()).slice(0,200)}`);}
       if(outcome==='chat'){forgetTrace();return {opened:true};}
       return null;
+    }
+    if(action==='state'){
+      // Without the small-window style the user sees ONE's own page again instead of an empty chat frame.
+      if(payload.unhide)document.getElementById('lfd-chat-only')?.remove();
+      const frame=chatFrame();
+      return {ok:true,data:{...snapshot(storedTrace()||{}),documentStatus:performance.getEntriesByType('navigation')[0]?.responseStatus,readyState:document.readyState,bodyText:document.body?document.body.innerText.length:-1,
+        frameSrc:frame?.src?.slice(0,120)||'',frameRect:frame?(({width,height})=>[Math.round(width),Math.round(height)])(frame.getBoundingClientRect()):null,frameDisplay:frame?getComputedStyle(frame).display:''}};
     }
     if(action==='retryOpen'){
       const trace=window.__lfdOneTrace||watch(storedTrace()||{});window.__lfdOneTrace=trace;trace.retried=true;keepTrace(trace);
@@ -175,7 +183,9 @@ export async function onePage(kind,action,payload){
   if(action==='transfer'){await choose('Transfer to a Customer Care Agent');return {ok:true,data:{requested:true}};}
   if(action==='agent'){
     const ended=events().some(e=>/ended the chat|chat (has )?ended|conversation ended|timed out/i.test(e));
-    return {ok:true,data:{agent:agent(),ended}};
+    // ONE's own queue line, when it shows one; the wording is theirs, so it is matched loosely.
+    const queue=deepAll(e=>e.matches('li.slds-chat-listitem')&&!e.children.length||e.matches('li.slds-chat-listitem_event')).map(text).reverse().find(line=>line.length<160&&/\bqueue\b|position|wait(ing)? time|estimated|\bnext agent\b|排队/i.test(line))||'';
+    return {ok:true,data:{agent:agent(),ended,queue}};
   }
   const messages=Array.isArray(payload?.messages)&&payload.messages.length?payload.messages:[payload?.message];
   // Message bubbles are custom components whose text the page hides from textContent; walk the text nodes.

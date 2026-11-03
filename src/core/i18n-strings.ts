@@ -431,7 +431,6 @@ export const STRINGS=[
 ['转人工','Reaching an agent','Contactando un agente'],
 ['等待客服接入','Waiting for an agent','Esperando un agente'],
 ['ONE 对话已结束，客服未接入','The ONE chat ended before an agent joined','El chat de ONE terminó sin agente'],
-['等待 ONE 客服接入超时（10 分钟）','Timed out waiting for a ONE agent (10 minutes)','Tiempo agotado esperando agente de ONE (10 minutos)'],
 ['客服已接入，发送消息','Agent joined; sending message','Agente conectado; enviando mensaje'],
 ['客服已接入，填入消息','Agent joined; filling in message','Agente conectado; rellenando mensaje'],
 ['ONE 页面已被关闭','The ONE page was closed','La página de ONE se cerró'],
@@ -582,4 +581,10 @@ export const STRINGS=[
 ['诊断信息','Diagnostics','Diagnóstico'],
 ['导出记录','Export history','Exportar historial'],
 ['记录已导出。','History exported.','Historial exportado.'],
+['ONE 页面没有加载完，正在重新打开（第 {}/5 次）','The ONE page did not finish loading; opening it again ({0}/5)','La página de ONE no terminó de cargar; abriéndola de nuevo ({0}/5)'],
+['等待 ONE 客服接入已超过 2 小时，已停止','Stopped: no ONE agent joined within 2 hours','Detenido: ningún agente de ONE se unió en 2 horas'],
+['等待客服接入 · {}','Waiting for an agent · {0}','Esperando un agente · {0}'],
+['ONE 客服 {} 已接入','ONE agent {0} joined','El agente {0} de ONE se unió'],
+['{}：消息已发送。点击打开聊天小窗。','{0}: message sent. Click to open the chat.','{0}: mensaje enviado. Pulse para abrir el chat.'],
+['后台重启时消息可能已发出，请打开聊天页查看。','The message may have gone out when the background restarted; check the chat.','El mensaje pudo enviarse al reiniciarse el segundo plano; revise el chat.'],
 ];

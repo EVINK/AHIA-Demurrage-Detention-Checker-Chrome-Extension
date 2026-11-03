@@ -1,5 +1,5 @@
 // @ts-nocheck
-import {createService} from '../core/service.ts';
+import {createService,retryBlankChat,waitForAgent} from '../core/service.ts';
 import {readKdocsPage} from '../injected/kdocs.ts';
 import {gmailPage} from '../injected/gmail.ts';
 import {coscoPage} from '../injected/cosco.ts';
@@ -115,7 +115,14 @@ async function watchReplies(tabId,payload,agent){
 }
 async function focusTab(tabId){const tab=await chrome.tabs.get(tabId);await chrome.windows.update(tab.windowId,{focused:true});await chrome.tabs.update(tabId,{active:true});}
 const ONE_CHAT_URL='https://www.one-line.com/one-ecom/manage-shipment/cargo-tracking';
-const AGENT_TIMEOUT=10*60000,READ_TIMEOUT=5*60000;
+const READ_TIMEOUT=5*60000;
+// The agent wait can outlive this worker. Its state is stored so a new worker carries on, and `phase` decides whether
+// the message may still go out: 'waiting' yes; 'sending' and later never again.
+const chatWait={
+  get:async()=>(await chrome.storage.session.get('oneWait')).oneWait||null,
+  set:async value=>{await chrome.storage.session.set({oneWait:value});if(value)chrome.alarms.create('one-wait',{periodInMinutes:1});else chrome.alarms.clear('one-wait').catch(()=>{});},
+  phase:async phase=>{const current=await chatWait.get();if(current)await chatWait.set({...current,phase});}
+};
 // Start the chat, walk the bot menus, transfer to an agent and, once one joins, `type` or `send` the message.
 let chatQueue=Promise.resolve();
 // Remembered in session storage so a restarted worker still finds the open chat window.
@@ -133,11 +140,13 @@ async function liveChat(){
 }
 // Send the messages (after reaching an agent unless appending), then wait until every message is Read.
 async function deliver(tabId,payload,progress,appended){
-  let sent;
-  try{sent=appended?(progress('发送消息'),await inFrame(tabId,'chat','send',payload)):await toAgent(tabId,payload,'send',progress);}
-  catch(error){if(error.sent>0)return {tabId,sendError:error};throw error;}
-  try{return {tabId,agent:sent.agent,sent:await waitRead(tabId,payload,progress,sent.agent)};}
-  catch(error){return {tabId,agent:sent.agent,sendError:error};}
+  try{
+    let sent;
+    try{sent=appended?(progress('发送消息'),await inFrame(tabId,'chat','send',payload)):await toAgent(tabId,payload,'send',progress);}
+    catch(error){if(error.sent>0)return {tabId,sendError:error};throw error;}
+    try{return {tabId,agent:sent.agent,sent:await waitRead(tabId,payload,progress,sent.agent)};}
+    catch(error){return {tabId,agent:sent.agent,sendError:error};}
+  }finally{await chatWait.set(null);}
 }
 async function waitRead(tabId,payload,progress,agent){
   progress('等待客服已读');
@@ -161,30 +170,54 @@ async function toAgent(tabId,payload,last,progress=()=>{}){
   progress('转人工');
   await inFrame(tabId,'chat','transfer',payload,90000);
   progress('等待客服接入');
-  // Agents close idle chats within minutes, so act as soon as one joins.
-  const end=Date.now()+AGENT_TIMEOUT;
-  for(;;){
-    const state=await inFrame(tabId,'chat','agent');
-    if(state.agent)break;
-    if(state.ended)throw new Error('ONE 对话已结束，客服未接入');
-    if(Date.now()>end)throw new Error('等待 ONE 客服接入超时（10 分钟）');
-    await pause(3000);
-  }
-  progress(last==='send'?'客服已接入，发送消息':'客服已接入，填入消息');
-  return inFrame(tabId,'chat',last,payload);
+  await chatWait.set({tabId,payload,last,requestId:payload.requestId,startedAt:Date.now(),phase:'waiting'});
+  return afterAgent(tabId,payload,last,progress,Date.now());
 }
+// Agents close idle chats within minutes, so act as soon as one joins.
+async function afterAgent(tabId,payload,last,progress,startedAt){
+  const agent=await waitForAgent({startedAt,pause,progress,read:()=>inFrame(tabId,'chat','agent',{},20000)});
+  // Written before the message goes out: a restart from here on must not send it again.
+  await chatWait.phase('sending');
+  progress(last==='send'?'客服已接入，发送消息':'客服已接入，填入消息');
+  const result=await inFrame(tabId,'chat',last,payload);
+  await chatWait.phase('sent');
+  if(last==='send')notify(`lfd-one-sent-${tabId}`,tabId,`ONE 客服 ${agent} 已接入`,`${(payload.containers||[payload.container]).join('、')}：消息已发送。点击打开聊天小窗。`);
+  return {...result,agent:result?.agent||agent};
+}
+// A worker that started after the original one died: pick the wait up where it was left.
+let resuming=false;
+async function resumeChatWait(){
+  const wait=await chatWait.get().catch(()=>null);
+  if(!wait||resuming||service.active().has(wait.requestId))return;
+  resuming=true;service.adoptTask(wait.requestId);
+  const {tabId,payload,last,requestId,startedAt,phase}=wait;
+  const progress=step=>{service.updateTask(requestId,{step}).catch(()=>{});};
+  const finish=patch=>service.updateTask(requestId,{...patch,running:false,step:''},{finished:true});
+  try{
+    if(phase==='sending'){await finish({status:'uncertain',detail:'后台重启时消息可能已发出，请打开聊天页查看。'});return;}
+    const sent=phase==='sent'?{}:await afterAgent(tabId,payload,last,progress,startedAt);
+    if(last!=='send'){await finish({status:'draft',tabId,agent:sent.agent});return;}
+    const read=await waitRead(tabId,payload,progress,sent.agent);
+    await finish({status:'sent',confirmation:read.evidence,tabId,...(sent.agent?{agent:sent.agent}:{})});
+  }catch(error){
+    const latest=await chatWait.get().catch(()=>null);
+    await finish({status:error.closed||latest?.phase==='waiting'?'needs_review':'uncertain',detail:error.message,...(error.diagnostics?{diagnostics:error.diagnostics}:{})});
+  }finally{await chatWait.set(null);resuming=false;}
+}
+chrome.alarms?.onAlarm.addListener(alarm=>{if(alarm.name==='one-wait')resumeChatWait();});
 // Run onePage in whichever frame of the tab is `kind`; frames appear asynchronously, so retry until one answers.
 async function inFrame(tabId,kind,action,payload={},timeout=45000){
-  const end=Date.now()+timeout;let lastError='';
+  const end=Date.now()+timeout;let lastError='',frames=[];
   while(Date.now()<end){
     let results=[];
     try{results=await chrome.scripting.executeScript({target:{tabId,allFrames:true},func:onePage,args:[kind,action,payload],world:'MAIN'});}
     catch(error){lastError=error.message;if(/No tab with id|tab was closed|No frame/i.test(error.message))throw Object.assign(new Error('ONE 页面已被关闭'),{closed:true});}
+    frames=results.map(r=>r?.result?.data?.frame).filter(Boolean);
     const hit=results.map(r=>r?.result).find(r=>r&&!(r.ok&&r.data?.skip));
     if(hit){if(!hit.ok)throw Object.assign(new Error(hit.error||'ONE 页面操作失败。'),hit.sent?{sent:hit.sent}:{},hit.diagnostics?{diagnostics:hit.diagnostics}:{});return hit.data;}
     await pause(1000);
   }
-  throw new Error(`ONE 页面没有加载出所需的${kind==='chat'?'聊天窗口':kind==='calc'?'计算器':'页面'}${lastError?'（'+lastError+'）':''}。`);
+  throw Object.assign(new Error(`ONE 页面没有加载出所需的${kind==='chat'?'聊天窗口':kind==='calc'?'计算器':'页面'}${lastError?'（'+lastError+'）':''}。`),{notLoaded:true,diagnostics:{waitingFor:kind,action,frames,...(lastError?{injectError:lastError}:{})}});
 }
 async function closedByGmail(tabId){const end=Date.now()+SEND_CLOSE_TIMEOUT;while(Date.now()<end){try{await chrome.tabs.get(tabId);}catch{return true;}await pause(500);}return false;}
 // With `origin`, also waits out redirects through other sites: a tab can report 'complete' on such a stop, where
@@ -280,17 +313,26 @@ const service=createService({storage:store,
         await inFrame(tab.id,'top','chatOnly',{},5000).catch(()=>{});
       };
       progress('填写聊天表单');
-      await fresh();
-      try{await inFrame(tab.id,'chat','form',payload);}
-      catch(error){
-        if(!/已有进行中的对话/.test(error.message))throw error;
-        await inFrame(tab.id,'chat','reset');await fresh();
-        await inFrame(tab.id,'chat','form',payload);
-      }
+      const startChat=async()=>{
+        await fresh();
+        try{await inFrame(tab.id,'chat','form',payload);}
+        catch(error){
+          if(!/已有进行中的对话/.test(error.message))throw error;
+          await inFrame(tab.id,'chat','reset');await fresh();
+          await inFrame(tab.id,'chat','form',payload);
+        }
+      };
+      // Only reaches the pre-chat form: the message goes out further down, once, after an agent has joined.
+      await retryBlankChat(startChat,async(error,{reload,reloadsLeft})=>{
+        if(reloadsLeft)progress(`ONE 页面没有加载完，正在重新打开（第 ${reload+1}/5 次）`);
+        const page=await inFrame(tab.id,'top','state',{unhide:true},8000).catch(failure=>({unavailable:failure.message}));
+        const window=await chrome.tabs.get(tab.id).then(item=>({status:item.status,active:item.active,discarded:item.discarded,width:item.width,height:item.height})).catch(()=>null);
+        return {at:new Date().toISOString(),reload,error:error.message,...error.diagnostics,page,window};
+      });
       await chatWindow.set(tab.id);
       if(!payload.send){
         // 「转人工但不发送」 goes all the way to the agent and types the message, but never sends it.
-        const typed=await toAgent(tab.id,payload,'type',progress);
+        const typed=await toAgent(tab.id,payload,'type',progress).finally(()=>chatWait.set(null));
         notify(`lfd-one-typed-${tab.id}`,tab.id,`ONE 客服 ${typed.agent} 已接入（未发送）`,`${(payload.containers||[payload.container]).join('、')}：消息已填入聊天框，未发送。点击打开聊天小窗查看。`,true);
         return {tabId:tab.id,agent:typed.agent};
       }
@@ -387,13 +429,14 @@ chrome.runtime.onMessage.addListener((message,sender,respond)=>{
     if(message.type==='cancel'){
       // Stop a running task: flag it, then close its window so any wait ends immediately.
       const tabId=await service.cancel(message.requestId);
+      const wait=await chatWait.get();if(wait?.requestId===message.requestId)await chatWait.set(null);
       if(Number.isInteger(tabId))await chrome.tabs.remove(tabId).catch(()=>{});
       return true;
     }
     if(message.type==='deleteTask')return service.releaseTask(message.requestId);
     if(message.type==='markSent')return service.markSent(message.requestId);
     if(message.type==='testNotification'){notify('lfd-test',-1,'Trucker Helper 测试通知','请点击这条通知。插件收到点击后会再弹出「插件已收到点击」。',true);return true;}
-    if(message.type==='state')return {...await state(),openTarget:await takeOpenTarget()};
+    if(message.type==='state'){resumeChatWait().catch(()=>{});return {...await state(),openTarget:await takeOpenTarget()};}
     if(message.type==='history'){const {ledger={},archive=[]}=await store.get(['ledger','archive']);return {ledger,archive};}
     if(message.type==='clearCache'){
       if(pendingOperations.size)throw new Error('请等当前查询完成后再清除缓存。');
