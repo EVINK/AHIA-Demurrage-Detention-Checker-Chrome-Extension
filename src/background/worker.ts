@@ -328,7 +328,8 @@ const service=createService({storage:store,
         const page=await inFrame(tab.id,'top','state',{unhide:true},8000).catch(failure=>({unavailable:failure.message}));
         const window=await chrome.tabs.get(tab.id).then(item=>({status:item.status,active:item.active,discarded:item.discarded,width:item.width,height:item.height})).catch(()=>null);
         return {at:new Date().toISOString(),reload,error:error.message,...error.diagnostics,page,window};
-      });
+      // Kept even though it worked: this is the data that can show how often the page stays blank, and why.
+      },recovery=>service.updateTask(payload.requestId,{recovery}).catch(()=>{}));
       await chatWindow.set(tab.id);
       if(!payload.send){
         // 「转人工但不发送」 goes all the way to the agent and types the message, but never sends it.

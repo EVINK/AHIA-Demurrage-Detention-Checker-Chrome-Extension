@@ -121,6 +121,13 @@ test('a blank ONE page is reloaded until it works',async()=>{
   const result=await retryBlankChat(async()=>{if(++starts<4)throw blankPage();return 'chat';},async(error,info)=>{seen.push(info.reload);return {};});
   assert.equal(result,'chat');assert.equal(starts,4);assert.deepEqual(seen,[0,1,2]);
 });
+test('a run that recovered keeps the reload record; a first-time success records nothing',async()=>{
+  const records=[];let starts=0;
+  await retryBlankChat(async()=>{if(++starts<3)throw blankPage();},async(error,info)=>({reload:info.reload}),record=>{records.push(record);});
+  assert.deepEqual(records,[{reloads:2,attempts:[{reload:0},{reload:1}]}]);
+  await retryBlankChat(async()=>{},async()=>({}),record=>{records.push(record);});
+  assert.equal(records.length,1);
+});
 test('after five reloads it fails, with every try on the record',async()=>{
   let starts=0;
   await assert.rejects(retryBlankChat(async()=>{starts++;throw starts%2?blankPage():new Error('ONE 页面上没有找到在线客服图标。');},async(error,info)=>({reload:info.reload,left:info.reloadsLeft})),error=>{

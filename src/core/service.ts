@@ -24,12 +24,15 @@ export async function waitForAgent({read,pause,progress,startedAt,now=Date.now})
   }
 }
 export const CHAT_RELOADS=5;
-export async function retryBlankChat(start,describe){
+export async function retryBlankChat(start,describe,recovered=()=>{}){
   const blank=error=>Boolean(error?.notLoaded)||/在线客服图标/.test(error?.message||'');
   const attempts=[];
   for(let reload=0;;reload++){
-    try{return await start();}
-    catch(error){
+    try{
+      const result=await start();
+      if(reload)await recovered({reloads:reload,attempts});
+      return result;
+    }catch(error){
       if(!blank(error))throw error;
       attempts.push(await describe(error,{reload,reloadsLeft:CHAT_RELOADS-reload}));
       if(reload===CHAT_RELOADS){error.diagnostics={attempts};throw error;}

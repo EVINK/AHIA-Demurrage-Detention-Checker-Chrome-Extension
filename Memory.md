@@ -217,6 +217,8 @@ An unpacked extension's id comes from its folder, so the Vue build has a differe
 
 **v0.7.6 (same branch).** The wait for ONE's Read receipt is 15 minutes, up from 5: a slow agent left a message at Sent and asked the owner to verify by hand.
 
+**v0.7.7 (same branch).** A run that recovered after reloads keeps `recovery` on its ledger entry, shown in 记录 and in the export, so data on the blank page builds up without a final failure.
+
 ## Known limitations
 
 - Gmail, COSCO, ONE and KDocs are driven through their page structure, so a site redesign can stop any flow. Failures stop with a message rather than guess.

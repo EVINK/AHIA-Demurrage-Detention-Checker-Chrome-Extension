@@ -1,6 +1,6 @@
 # Trucker Helper（原 LFD Inquiry）— Agent 交接文档
 
-更新时间：2026-11-02（America/Los_Angeles）。代码版本：**0.7.6**（Vue 重写分支，结构和命令见 Memory.md，本文件的文件路径是重写前的）（改名与多语言，见第 12 节；Auto CC，见第 11 节；配置改为 profile.types、自动保存、码头模式，见第 10 节；更早：默认邮件程序 Foxmail/Outlook；Foxmail 自动填写；导入改在标签页；重复锁可强制重发；Gmail 收件人兼容其他插件；ONE 白屏修复；COSCO On-Hire 工单；On-Hire 多柜号、ONE 气泡文字修复；可选本机邮件程序；On-Hire；ONE 对话复用、独立小窗、终止/删除；浮动小窗+通知；查询不阻塞/后台任务/ONE 多柜号；ONE 在线客服；英文界面兼容；2026-10-14：发送确认加严、COSCO 工单网站、取消DO 后分段读取、日志虚拟列表读取、脚本自动安装、找不到柜号提示框，见第 6 节）。
+更新时间：2026-11-02（America/Los_Angeles）。代码版本：**0.7.7**（Vue 重写分支，结构和命令见 Memory.md，本文件的文件路径是重写前的）（改名与多语言，见第 12 节；Auto CC，见第 11 节；配置改为 profile.types、自动保存、码头模式，见第 10 节；更早：默认邮件程序 Foxmail/Outlook；Foxmail 自动填写；导入改在标签页；重复锁可强制重发；Gmail 收件人兼容其他插件；ONE 白屏修复；COSCO On-Hire 工单；On-Hire 多柜号、ONE 气泡文字修复；可选本机邮件程序；On-Hire；ONE 对话复用、独立小窗、终止/删除；浮动小窗+通知；查询不阻塞/后台任务/ONE 多柜号；ONE 在线客服；英文界面兼容；2026-10-14：发送确认加严、COSCO 工单网站、取消DO 后分段读取、日志虚拟列表读取、脚本自动安装、找不到柜号提示框，见第 6 节）。
 Chrome 现直接从 WSL 目录 `/home/evink/demurrage-lfd-extension` 加载；git 分支 `fix/gmail-send-confirmation`。
 本文件依据本次对话及当前源码整理；它是工程交接，不代表安装在 Chrome 中的版本已自动更新。
 

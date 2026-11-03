@@ -13,7 +13,8 @@ import {busy,exportHistory,historyRows,markSent,openDraft,openMailto,refresh,rel
         <p>{{row.detail}}</p>
         <div class="history-state">{{t(row.state)}}{{row.suffix}}</div>
         <p v-if="row.entry.detail">{{t(row.entry.detail)}}</p>
-        <details v-if="row.entry.diagnostics" class="diagnostics"><summary>{{t('诊断信息')}}</summary><pre>{{JSON.stringify(row.entry.diagnostics,null,2)}}</pre></details>
+        <p v-if="row.recovered">{{t(row.recovered)}}</p>
+        <details v-if="row.diagnostics" class="diagnostics"><summary>{{t('诊断信息')}}</summary><pre>{{JSON.stringify(row.diagnostics,null,2)}}</pre></details>
       </div>
       <div class="history-buttons">
         <n-button v-if="row.openable" size="tiny" :disabled="busy" @click="openDraft(row.entry.tabId)">{{t(row.openLabel)}}</n-button>

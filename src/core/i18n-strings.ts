@@ -587,4 +587,5 @@ export const STRINGS=[
 ['ONE 客服 {} 已接入','ONE agent {0} joined','El agente {0} de ONE se unió'],
 ['{}：消息已发送。点击打开聊天小窗。','{0}: message sent. Click to open the chat.','{0}: mensaje enviado. Pulse para abrir el chat.'],
 ['后台重启时消息可能已发出，请打开聊天页查看。','The message may have gone out when the background restarted; check the chat.','El mensaje pudo enviarse al reiniciarse el segundo plano; revise el chat.'],
+['重载 {} 次后恢复','Recovered after {0} reload(s)','Recuperado tras {0} recarga(s)'],
 ];

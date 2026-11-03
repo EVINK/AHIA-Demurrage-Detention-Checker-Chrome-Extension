@@ -436,6 +436,8 @@ export const historyRows=computed(()=>Object.entries(ledger.value).sort((a:any,b
     detail:`${entry.carrierName||'Maersk'} · ${typeTitle(entry)||'Demurrage'} · ${new Date(entry.time).toLocaleString()}`,
     state:system&&entry.status==='draft'?'已打开邮件程序 · 待确认发送':system&&entry.status==='sent'?'已发送（用户确认）':(chat?chatStatuses:portal?portalStatuses:statuses)[entry.status]||entry.status,
     suffix:(entry.ticketId?` #${entry.ticketId}`:'')+(entry.agent?` · ${entry.agent}`:''),
+    recovered:entry.recovery?`重载 ${entry.recovery.reloads} 次后恢复`:'',
+    diagnostics:entry.diagnostics||entry.recovery?{...entry.recovery&&{recovery:entry.recovery},...entry.diagnostics}:null,
     openable:['draft','uncertain',...(portal||chat?['needs_review']:[])].includes(entry.status)&&Number.isInteger(entry.tabId),
     openLabel:chat?'打开聊天页':portal?'打开工单页':entry.status==='draft'?'打开草稿':'打开写信页'};
 }));
