@@ -167,6 +167,7 @@ export const STRINGS=[
 ['暂未确定{}','{0} not determined yet','{0} aún sin determinar'],
 ['收件邮箱','To address','dirección Para'],
 ['工单 Requester','ticket Requester','Requester del ticket'],
+['COSCO Detention 工单需要 PD INV /BL /BKG /HOU # /SCAC Code，请先在配置页填写。','COSCO Detention tickets need PD INV /BL /BKG /HOU # /SCAC Code. Fill it in on the settings page first.','Los tickets de Detention de COSCO necesitan PD INV /BL /BKG /HOU # /SCAC Code. Rellénelo primero en la página de configuración.'],
 ['请先为 {} 添加查询类型。','Add an inquiry type for {0} first.','Añada primero un tipo de consulta para {0}.'],
 ['此项','this item','este elemento'],
 ['请为 {} 的 {} 填写{}，再生成邮件。','Fill in {2} for {0} {1} before creating the email.','Complete {2} para {0} {1} antes de crear el correo.'],

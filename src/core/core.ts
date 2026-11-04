@@ -69,7 +69,8 @@ export function missingConfiguration(profile,id){
   const type=findType(profile,id);
   if(!type)return ['type'];
   if(type.channel==='one-chat')return [];
-  if(type.channel==='cosco-portal')return [...(!profile.portal?.requester?['requester']:[]),...(!type.bodyTemplate?['bodyTemplate']:[])];
+  // The Detention ticket needs PD INV / BL / BKG / HOU # / SCAC Code; On-Hire's SCAC Code stays optional.
+  if(type.channel==='cosco-portal')return [...(!profile.portal?.requester?['requester']:[]),...(id!==ON_HIRE&&!profile.portal?.reference?['reference']:[]),...(!type.bodyTemplate?['bodyTemplate']:[])];
   return [...(!type.to.length?['to']:[]),...(!type.bodyTemplate?['bodyTemplate']:[]),...(!type.subjectTemplate?['subjectTemplate']:[])];
 }
 export const standardBody=id=>id===ON_HIRE?ON_HIRE_BODY_TEMPLATE:DEFAULT_BODY_TEMPLATE;
@@ -110,10 +111,11 @@ function templateText(value,kind){
 }
 export const ON_HIRE_BODY_TEMPLATE='Dear {{steam shipping line}},\n\nPlease on-hire below containers to Terminal A, B,C,D,...,etc.\n\n{{table}}';
 export const ON_HIRE_SUBJECT_TEMPLATE='On-Hire Request - Container{{s}}#{{container}} MBL{{s}}#{{mbl}}';
-// Optional. 'AHIA' is the old built-in value, removed from saved settings and imported files as they are read.
+// Kept as typed. It used to clear 'AHIA' (an old built-in value), which also wiped the company's own SCAC when typed in.
+// Required for COSCO Detention tickets (see missingConfiguration), optional for On-Hire.
 function portalReference(value){
   const reference=String(value??'').trim();
-  return reference&&reference!=='AHIA'?profileText(reference,'PD INV /BL /BKG /HOU # /SCAC Code'):'';
+  return reference?profileText(reference,'PD INV /BL /BKG /HOU # /SCAC Code'):'';
 }
 function portalFields(value){
   if(!value||typeof value!=='object'||Array.isArray(value))throw new Error('COSCO 工单配置格式无效。');

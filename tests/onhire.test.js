@@ -49,7 +49,7 @@ test('On-Hire for ONE is sent by email, not chat; COSCO On-Hire is a ticket',asy
   assert.equal(entry.status,'sent');assert.equal(entry.channel,'email');assert.deepEqual(entry.to,['onhire@example.com']);
   assert.equal(one.calls.chat,0);assert.equal(one.calls.mail.length,1);assert.match(one.calls.mail[0].subject,/^On-Hire LFD Inquiry/);
   // COSCO's On-Hire is a ticket on coscoshippingla.freshdesk.com with all containers in one ticket.
-  const cosco=setup(normalizeCarriers(),{container:'TRHU6630515',mbl:'COSU6466276490',row:2,carrier:'COS'});
+  const cosco=setup(normalizeCarriers().map(p=>p.id==='cosco'?{...p,portal:{...p.portal,reference:'AHIA'}}:p),{container:'TRHU6630515',mbl:'COSU6466276490',row:2,carrier:'COS'});
   const coscoIdentified=await cosco.run('TRHU6630515','identify',{inquiryType:'on-hire'});
   assert.equal(coscoIdentified.inquiryType,'on-hire');assert.equal(coscoIdentified.channel,'cosco-portal');assert.deepEqual(coscoIdentified.configurationMissing,[]);
   await cosco.run('TRHU6630515','send',{inquiryType:'on-hire'});

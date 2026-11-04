@@ -34,7 +34,7 @@ function service(records,carriers,hooks={}){
 test('COSCO tickets wait in line: the second ticket starts only after the first is done',async()=>{
   const records=[{container:'TRHU6630515',mbl:'COSU6466276490',row:1,carrier:'COS'},{container:'OOCU8526498',mbl:'COSU6466276590',row:2,carrier:'COS'}];
   const order=[];let release;const first=new Promise(resolve=>{release=resolve;});
-  const s=service(records,normalizeCarriers(),{prepareTicket:async p=>{order.push('start '+p.fields.at(-1)?.value);if(order.length===1)await first;order.push('end');return {tabId:9};}});
+  const s=service(records,normalizeCarriers().map(p=>p.id==='cosco'?{...p,portal:{...p.portal,reference:'AHIA'}}:p),{prepareTicket:async p=>{order.push('start '+p.fields.find(f=>f.label==='Container #')?.value);if(order.length===1)await first;order.push('end');return {tabId:9};}});
   await assert.rejects(s.run('TRHU6630515','send',{inquiryType:'detention',more:[{container:'OOCU8526498',mbl:'COSU6466276590'}]}),/一次只能查询一个柜号/);
   const a=await s.run('TRHU6630515','send',{inquiryType:'detention'}),b=await s.run('OOCU8526498','send',{inquiryType:'detention'});
   await new Promise(resolve=>setTimeout(resolve,30));

@@ -106,7 +106,6 @@ Everything migrates on read, in `normalizeCarriers` and `validateSettings`, so n
 | `{{greeting}}` in templates | `{{steam shipping line}}` |
 | `mailClient: 'system'` | `foxmail` |
 | Type on `cosco-portal` or `one-chat` for any carrier other than `cosco` or `one` | `email` |
-| `portal.reference` exactly `AHIA` | Empty |
 | Generic On-Hire text on an old COSCO entry | COSCO's own wording |
 
 A version 1 file does not mention terminals, mode, Auto CC or language, so those keep their current values on import.
@@ -117,7 +116,7 @@ A version 1 file does not mention terminals, mode, Auto CC or language, so those
 
 **email.** Gmail web by default. The worker opens `/mail/u/N/?view=cm&fs=1&to=&cc=&su=`, which Gmail rewrites to `?fs=1&…`, then injects `gmailPage`. Send is confirmed only by Gmail's notice and then Gmail closing the tab; anything less is recorded as `uncertain`. Foxmail and Outlook use `mailto:`; the user sends and clicks 我已发送.
 
-**cosco-portal.** Detention goes to support.cosco-usa.com, On-Hire to coscoshippingla.freshdesk.com. The user solves the captcha in a small window and the plugin clicks Submit. COSCO has no Demurrage type: `resolveType` turns a Demurrage request into Detention. `portal.reference` is optional and is skipped when empty; the owner confirmed it is not required.
+**cosco-portal.** Detention goes to support.cosco-usa.com, On-Hire to coscoshippingla.freshdesk.com. The user solves the captcha in a small window and the plugin clicks Submit. COSCO has no Demurrage type: `resolveType` turns a Demurrage request into Detention. `portal.reference` (PD INV /BL /BKG /HOU # /SCAC Code) is required for Detention since v0.9.3: `missingConfiguration` reports `reference`, the query page blocks the group and its 配置 button opens the config page on that field, highlighted. On-Hire's SCAC Code stays optional and is skipped when empty.
 
 **one-chat.** Runs on one-line.com: form, menus, transfer to agent, one message per container, done when each shows Read. ONE allows one chat per browser, so tasks queue and append to a live chat. On-Hire for ONE is email.
 
@@ -246,6 +245,8 @@ Debugging: a reinstalled unpacked extension kept running its old service worker 
 **v0.9.1.** KDocs signed out: a shared sheet still opens, as a guest, without the script editor, so the read and 查柜 steps failed with "未找到 AirScript 编辑器". Both injected KDocs functions now check `window.__WPSENV__.user_id` first (a guest's starts with `fake_`; signed in it is the account number) and say "金山文档未登录" instead. Found by the owner in a private window, 11/4.
 
 **v0.9.2.** 按预览写入: under a finished preview with changes, a button writes that preview's plan as it is (steps apply, verify, save; no new list, no Draydog). TH_Apply still checks each cell against the value the preview read, and a preview older than 30 minutes is refused. Owner's request, 11/4.
+
+**v0.9.3.** COSCO reference: the v0.6.1 rule that cleared a saved `AHIA` also wiped the owner's own SCAC (AHIA) every time it was typed in, so the field looked unsaved. The rule is gone; the value is kept as typed. Detention now needs the reference: without it the query page shows it as missing and the 配置 button jumps to the field and highlights it; the worker refuses too. Owner's request, 11/4.
 
 ## Known limitations
 

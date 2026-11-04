@@ -227,10 +227,26 @@ export async function resendLocked(row){
   try{await rpc({type:'release',key:row.lock.key});await refreshState();status('已解除该条记录的锁定。');}catch(error){status(error.message,'error');}
 }
 export function moveGroup(group,carrierId){for(const row of group.rows)row.entry.override=carrierId===row.entry.carrierId?'':carrierId;}
+// The config field for each missing item; the first one missing is scrolled to, focused and highlighted.
+const MISSING_FIELDS={to:'carrierTo',requester:'portalRequester',reference:'portalReference',bodyTemplate:'bodyTemplate',subjectTemplate:'subjectTemplate'};
+export function highlightField(id){
+  nextTick(()=>{
+    const input=document.getElementById(id);if(!input)return;
+    // The field's own wrapper: Naive rewrites the input's class list on focus, which would drop the highlight.
+    const box=input.closest('.n-input')?.parentElement||input;
+    input.scrollIntoView({block:'center'});input.focus({preventScroll:true});
+    box.classList.remove('field-highlight');void (box as HTMLElement).offsetWidth;box.classList.add('field-highlight');
+    // Stays until the user starts typing there, or 15 seconds.
+    const clear=()=>{box.classList.remove('field-highlight');input.removeEventListener('input',clear);};
+    input.addEventListener('input',clear);setTimeout(clear,15000);
+  });
+}
 export function configureCarrier(group){
   if(!group.profile){openAddProfile(group.name);return;}
   showPage('config');flushSave();if(group.type)ui.type[group.id]=group.type;renderProfile(group.id);
-  nextTick(()=>{document.getElementById('page-config').scrollTop=0;focusField('carrierTo');});
+  const target=(group.missing||[]).map(key=>MISSING_FIELDS[key]).find(Boolean);
+  if(target==='portalReference'||target==='portalRequester')setOpen('advanced',true);
+  nextTick(()=>{document.getElementById('page-config').scrollTop=0;if(target)highlightField(target);else focusField('carrierTo');});
 }
 function setLedger(next={}){
   ledger.value=next;

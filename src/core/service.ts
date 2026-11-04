@@ -67,6 +67,7 @@ export function createService({storage, readSheet, prepareMail, sendMail, prepar
       if(!id)throw new Error(`${profile.name} 没有配置这个查询类型，请在配置页添加。`);
       const missing=missingConfiguration(profile,id),label=findType(profile,id).label;
       if(missing.includes('requester'))throw new Error('请先配置 COSCO 工单的 Requester 邮箱。');
+      if(missing.includes('reference'))throw new Error('COSCO Detention 工单需要 PD INV /BL /BKG /HOU # /SCAC Code，请先在配置页填写。');
       if(missing.includes('to'))throw new Error(`请先在 ${profile.name} 的配置中填写 ${label} 收件邮箱。`);
       if(missing.length)throw new Error(`首次使用该类型，请先配置 ${profile.name} 的 ${label} 正文模板和主题模板。`);
     };

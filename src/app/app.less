@@ -54,6 +54,9 @@ footer{display:flex;align-items:center;gap:8px;padding:9px 18px;min-height:43px;
 .group-preview{margin-top:8px;border-top:1px dashed #d4dfd6;padding-top:6px;summary{font-size:11px;font-weight:600;cursor:pointer;color:#5b7468}
   dl{display:grid;grid-template-columns:34px 1fr;gap:6px;margin:8px 0;font-size:11px}dt{color:#85948c}dd{margin:0;overflow-wrap:anywhere}.subject{font-weight:600}}
 .notice.missing{display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-top:8px;strong{font-weight:600}}
+// A config field the query page sent the user to fill in.
+@keyframes field-flash{0%,100%{box-shadow:0 0 0 4px rgba(214,84,61,.12)}50%{box-shadow:0 0 0 4px rgba(214,84,61,.45)}}
+.field-highlight{border-radius:6px;background:rgba(214,84,61,.06);box-shadow:0 0 0 4px rgba(214,84,61,.12);animation:field-flash 1s ease-in-out 3;.field-label{color:#b8432f}.n-input{--n-border:1px solid #d6543d!important;--n-border-focus:1px solid #d6543d!important;--n-box-shadow-focus:0 0 0 2px rgba(214,84,61,.25)!important}}
 .group-actions{display:flex;gap:8px;margin-top:8px;justify-content:flex-end}
 .mail-body{font-family:Arial,sans-serif;font-size:12px;line-height:1.6;overflow-wrap:anywhere;p{margin:0 0 10px}table{border-collapse:collapse;font-size:11px!important;width:100%}td,th{border:1px solid #b3c6bb;padding:6px;text-align:left}th{background:#eaf0e9}}
 .empty-preview{text-align:center;color:#8ca094;padding:40px 8px}

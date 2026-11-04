@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {DEFAULT_CARRIERS,COSCO_PORTAL,normalizeCarriers,messageTemplate,portalTemplate,recognizeCarrier} from '../src/core/core.ts';
+import {DEFAULT_CARRIERS,COSCO_PORTAL,normalizeCarriers,messageTemplate,portalTemplate,recognizeCarrier,missingConfiguration} from '../src/core/core.ts';
 import {validateSettings,createConfig,parseConfig} from '../src/core/config.ts';
 import {createService} from '../src/core/service.ts';
 
@@ -8,8 +8,10 @@ const record={container:'MSMU7504817',mbl:'COSU6123456780',row:12,carrier:'COS'}
 const COSCO_DEFAULT=DEFAULT_CARRIERS.find(p=>p.id==='cosco');
 const cosco=()=>normalizeCarriers().find(profile=>profile.id==='cosco');
 
-function setup(overrides={}){
-  let db={settings:{gmailIndex:0},ledger:{}};
+// The Detention ticket needs a reference; the company's own SCAC is what gets typed in.
+const withReference=(reference='AHIA')=>DEFAULT_CARRIERS.map(p=>p.id==='cosco'?{...p,portal:{...p.portal,reference}}:p);
+function setup(overrides={},carriers=withReference()){
+  let db={settings:{gmailIndex:0,carriers},ledger:{}};
   const calls={read:0,prepareTicket:[],submitTicket:[],prepareMail:0,sendMail:0};
   const dependencies={
     storage:{get:async()=>structuredClone(db),set:async x=>{db={...db,...structuredClone(x)};}},
@@ -69,7 +71,7 @@ test('draft only fills the ticket in a background tab and never submits',async()
   assert.equal(entry.status,'draft');assert.equal(entry.channel,'cosco-portal');assert.equal(entry.tabId,9);
   assert.equal(t.calls.prepareTicket.length,1);assert.equal(t.calls.prepareTicket[0].submit,false);
   assert.equal(t.calls.submitTicket.length,0);assert.equal(t.calls.prepareMail,0);
-  assert.equal(entry.requester,'service@darwinpacific.com');assert.equal(entry.reference,'');assert.equal('to' in entry,false);
+  assert.equal(entry.requester,'service@darwinpacific.com');assert.equal(entry.reference,'AHIA');assert.equal('to' in entry,false);
 });
 
 test('live send fills, waits for submit and records the ticket; duplicates stay locked',async()=>{
@@ -78,7 +80,7 @@ test('live send fills, waits for submit and records the ticket; duplicates stay 
   assert.equal(entry.status,'sent');assert.equal(entry.ticketId,'123456');assert.equal(entry.inquiryType,'detention');
   assert.equal(t.calls.prepareTicket[0].submit,true);
   const payload=t.calls.submitTicket[0].payload;
-  assert.equal(payload.requestId,'test-request');assert.equal(payload.container,record.container);assert.equal(payload.mbl,record.mbl);assert.equal(payload.reference,'');
+  assert.equal(payload.requestId,'test-request');assert.equal(payload.container,record.container);assert.equal(payload.mbl,record.mbl);assert.equal(payload.reference,'AHIA');
   assert.equal(t.calls.sendMail,0);
   await assert.rejects(t.service.run(record.container,'send'),/已有/);
   assert.equal(t.calls.submitTicket.length,1);
@@ -97,13 +99,26 @@ test('failure after Submit was clicked stays uncertain and locked',async()=>{
   await assert.rejects(t.service.run(record.container,'send'),/已有/);
 });
 
-test('the reference is optional: empty is skipped, the old AHIA value is cleared, any other value stays',async()=>{
+test('the reference is kept as typed, AHIA included; empty leaves the field out of the ticket',async()=>{
   const old={id:'cosco',name:'COSCO',greeting:'Cosco',channel:'cosco-portal',to:[],cc:[],bodyTemplate:'{{type}}\n{{table}}',portal:{...COSCO_PORTAL,reference:'AHIA'}};
-  const [migrated]=normalizeCarriers([old]);assert.equal(migrated.portal.reference,'');
-  assert.equal(portalTemplate(record,{carrier:migrated}).fields.some(field=>/SCAC/.test(field.label)),false);
-  const hire=portalTemplate(record,{carrier:migrated,inquiryType:'on-hire'});
+  const [kept]=normalizeCarriers([old]);assert.equal(kept.portal.reference,'AHIA');
+  assert.deepEqual(portalTemplate(record,{carrier:kept}).fields.at(-1),{label:'PD INV /BL /BKG /HOU # /SCAC Code',value:'AHIA',kind:'input'});
+  const settings=validateSettings({carriers:[old]});
+  assert.equal(parseConfig(JSON.stringify(createConfig(settings))).carriers[0].portal.reference,'AHIA','survives export and import');
+  const [empty]=normalizeCarriers([{...old,portal:{...COSCO_PORTAL,reference:''}}]);
+  assert.equal(portalTemplate(record,{carrier:empty}).fields.some(field=>/SCAC/.test(field.label)),false);
+  const hire=portalTemplate(record,{carrier:empty,inquiryType:'on-hire'});
   assert.deepEqual(hire.fields.map(field=>field.label),['Type','Services','Region','Number of Containers','Container #']);
-  const [kept]=normalizeCarriers([{...old,portal:{...COSCO_PORTAL,reference:'ABCD'}}]);assert.equal(kept.portal.reference,'ABCD');
-  assert.deepEqual(portalTemplate(record,{carrier:kept}).fields.at(-1),{label:'PD INV /BL /BKG /HOU # /SCAC Code',value:'ABCD',kind:'input'});
-  assert.equal(normalizeCarriers([{...old,portal:{...COSCO_PORTAL,reference:'ahia'}}])[0].portal.reference,'ahia','only the exact value');
+});
+
+test('Detention without a reference is not sent; On-Hire still goes without one',async()=>{
+  assert.deepEqual(missingConfiguration(cosco(),'detention'),['reference']);
+  assert.deepEqual(missingConfiguration(cosco(),'on-hire'),[]);
+  const t=setup({},withReference(''));
+  const identified=await t.service.run(record.container,'identify',{inquiryType:'demurrage'});
+  assert.deepEqual(identified.configurationMissing,['reference']);
+  for(const mode of ['send','draft'])await assert.rejects(t.service.run(record.container,mode,{inquiryType:'detention'}),/SCAC Code/);
+  assert.equal(t.calls.prepareTicket.length,0);assert.equal(Object.keys(t.db().ledger).length,0);
+  const hire=await t.service.run(record.container,'draft',{inquiryType:'on-hire'});
+  assert.equal(hire.status,'draft');
 });
