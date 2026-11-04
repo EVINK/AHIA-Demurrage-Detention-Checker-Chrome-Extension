@@ -235,6 +235,8 @@ Debugging: a reinstalled unpacked extension kept running its old service worker 
 
 **v0.9.0, retry (same branch).** A failed step shows 重试: the run starts again from the failed step, reusing a finished ListA_Push line and, when read and cache also finished, the list read back; Dray Dog and later steps always run again. The owner hit "没有选中脚本" in their own Chrome on the read and write steps: the KDocs script list re-renders while loading, so a kept list element can be detached and never turn active. `airScriptPage` now looks the entry up again each time and clicks up to 4 times, and takes the editor's own model rather than the first model.
 
+**v0.9.0, Auto CC moved (same branch).** At the owner's request (11/4) the Auto CC settings moved from 配置 to 实验性功能 (`#autoCcSection` in LabsPage.vue, same form fields and auto-save). The Gmail button and `showAutoCc` open the 实验性功能 page on that section.
+
 ## Known limitations
 
 - Gmail, COSCO, ONE and KDocs are driven through their page structure, so a site redesign can stop any flow. Failures stop with a message rather than guess.

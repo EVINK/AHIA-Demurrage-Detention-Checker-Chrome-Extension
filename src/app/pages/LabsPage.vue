@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import {computed,onMounted} from 'vue';
-import {NButton,NInput} from 'naive-ui';
-import {t} from '../store.ts';
+import {NButton,NCheckbox,NInput} from 'naive-ui';
+import {flushSave,form,isOpen,setOpen,t} from '../store.ts';
 import {chagui,downloadAirScript,duration,exportChaguiCache,importChaguiCache,importing,importText,loadChagui,retryChagui,startChagui,starting,timeText,watchChagui} from '../labs.ts';
 
 const running=computed(()=>chagui.run?.status==='running');
@@ -92,6 +92,15 @@ onMounted(()=>{loadChagui();watchChagui();});
         </div>
       </details>
     </div>
+    <details id="autoCcSection" class="labs-card labs-section" :open="isOpen('autoCcSection')" @toggle="setOpen('autoCcSection',($event.target as HTMLDetailsElement).open)">
+      <summary><strong>{{t('Gmail 自动抄送（Auto CC）')}}</strong></summary>
+      <form id="autoCcForm" @submit.prevent="flushSave">
+        <p class="hint">{{t('发件人在名单内时，写信和回复自动加上抄送；其他发件人不受影响。')}}</p>
+        <n-checkbox id="autoCcEnabled" class="check" v-model:checked="form.autoCcEnabled">{{t('开启 Auto CC')}}</n-checkbox>
+        <label class="field-label" for="autoCcSenders">{{t('发件人')}}</label><n-input v-model:value="form.autoCcSenders" :input-props="{id:'autoCcSenders',autocomplete:'off'}" :placeholder="t('多个邮箱用逗号分隔')"/>
+        <label class="field-label" for="autoCcCc">{{t('抄送对象')}}</label><n-input v-model:value="form.autoCcCc" :input-props="{id:'autoCcCc',autocomplete:'off'}" :placeholder="t('多个邮箱用逗号分隔')"/>
+      </form>
+    </details>
     <div class="labs-card">
       <strong>{{t('脚本')}}</strong>
       <p class="hint">{{t('ListA_Push 在提柜表的“文档共享脚本”里运行，插件也存了一份。TH_ReadV2、TH_ReadPickup 只读，TH_Apply 写表，都会自动装进“我的脚本”。')}}</p>

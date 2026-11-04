@@ -244,7 +244,7 @@ export async function refreshState({initial=false}={}){
   // Only the first read: afterwards this page holds the newest settings, possibly with a write still on its way.
   if(initial){
     settings.value=validateSettings(state.settings);applyLanguage(settings.value.language);
-    if(state.openTarget==='autoCc'){ui.page='config';ui.scroll.config=0;if(!isOpen('autoCcSection'))ui.open=[...ui.open,'autoCcSection'];openedAutoCc=true;}
+    if(state.openTarget==='autoCc'){ui.page='labs';ui.scroll.labs=0;if(!isOpen('autoCcSection'))ui.open=[...ui.open,'autoCcSection'];openedAutoCc=true;}
   }
   setLedger(state.ledger);
   if(initial){
@@ -570,7 +570,7 @@ export async function copyScript(){
 export async function downloadScript(){try{download(await scriptText(),'LFD_ReadOnly_v1.js','text/javascript');status('只读脚本已下载。','success');}catch(error){status(error.message,'error');}}
 
 function showAutoCcSection(){
-  showPage('config');setOpen('autoCcSection',true);
+  showPage('labs');setOpen('autoCcSection',true);
   nextTick(()=>document.getElementById('autoCcSection')?.scrollIntoView());
 }
 // Starts everything once the page is mounted, then returns the popup to where the user left off.
