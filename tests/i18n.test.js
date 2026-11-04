@@ -39,7 +39,7 @@ test('values are placed, translated when known and kept when not',()=>{
 const PAGE_LABELS=/高级开发|進階開發|高級開發|AirScript脚本编辑器|AirScript腳本編輯器|我的脚本|我的腳本|文档共享脚本|文檔共享腳本|文件共用腳本|^\^List A 已写入：$/;
 const literal=/'((?:[^'\\\n]|\\.)*)'|`((?:[^`\\]|\\.)*)`/g;
 test('no message in the code stays in Chinese',()=>{
-  for(const file of ['src/app/store.ts','src/app/Shell.vue','src/app/pages/QueryPage.vue','src/app/pages/TasksPage.vue','src/app/pages/HistoryPage.vue','src/app/pages/ConfigPage.vue','src/core/service.ts','src/core/core.ts','src/core/config.ts','src/background/worker.ts','src/injected/gmail.ts','src/injected/cosco.ts','src/injected/one.ts','src/injected/kdocs.ts','src/injected/airscript.ts','src/injected/draydog.ts','src/background/chagui.ts','src/app/labs.ts','src/app/pages/LabsPage.vue']){
+  for(const file of ['src/app/store.ts','src/app/Shell.vue','src/app/pages/QueryPage.vue','src/app/pages/TasksPage.vue','src/app/pages/HistoryPage.vue','src/app/pages/ConfigPage.vue','src/core/service.ts','src/core/core.ts','src/core/config.ts','src/background/worker.ts','src/injected/gmail.ts','src/injected/cosco.ts','src/injected/one.ts','src/injected/kdocs.ts','src/injected/airscript.ts','src/injected/draydog.ts','src/background/chagui.ts','src/core/chagui-rules.ts','src/app/labs.ts','src/app/pages/LabsPage.vue']){
     const source=readFileSync(new URL('../'+file,import.meta.url),'utf8').replace(/^\s*\/\/.*$/gm,'');
     for(const match of source.matchAll(literal)){
       const text=(match[1]??match[2]).replace(/\$\{[^{}]*(\{[^{}]*\}[^{}]*)*\}/g,'X').replaceAll("\\'","'").replaceAll('\\n','\n');

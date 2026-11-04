@@ -37,7 +37,7 @@ test('a cache file from the manual runs imports with its records intact',()=>{
   assert.throws(()=>importCache(null,JSON.stringify({schemaVersion:1,containers:{bad:{}}})),/无效柜号/);
 });
 test('steps and bundled scripts are in place',()=>{
-  assert.deepEqual(STEPS.map(s=>s[0]),['push','read','cache','draydog']);
+  assert.deepEqual(STEPS.map(s=>s[0]),['push','read','cache','draydog','track','status','baseline','plan','apply','verify','save']);
   const read=readFileSync(new URL('../public/airscript/TH_ReadV2.js',import.meta.url),'utf8');
   assert.match(read,/TH build:\s*\d+/);
   assert.doesNotMatch(read,/\.Value2\s*=|ClearContents|\.Delete\(|\.Insert\(|\.Cut\(/,'TH_ReadV2 must only read');

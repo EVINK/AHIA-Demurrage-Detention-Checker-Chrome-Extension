@@ -81,7 +81,8 @@ export async function airScriptPage(job){
   let installed=false;
   if(job.install){
     const current=await waitFor(()=>{const m=model();if(!m)return null;const v=m.getValue();return v.includes('TH build')||!v.trim()?{text:v}:null;},'脚本代码未加载。');
-    if(buildOf(current.text)<job.install.build){
+    // `always`: the script carries this run's data, so it is replaced whenever it differs.
+    if(job.install.always?current.text!==job.install.code:buildOf(current.text)<job.install.build){
       if(current.text.trim()&&!current.text.includes('TH build'))throw new Error(`“${job.title}”的内容不是插件的脚本，已停止以避免覆盖。`);
       model().setValue(job.install.code);
       const save=doc.querySelector('button .kd-icon-save')?.closest('button');

@@ -27,10 +27,10 @@ export function watchChagui(){
   if(demo||listening)return;listening=true;
   chrome.storage.onChanged.addListener((changes,area)=>{if(area==='local'&&(changes.chaguiRun||changes.chaguiCache))loadChagui();});
 }
-export async function startChagui(){
+export async function startChagui(apply=false){
   if(demo){status('演示模式不会运行查柜。');return;}
   starting.value=true;
-  try{await rpc({type:'chaguiStart'});status('查柜已在后台开始。');await loadChagui();}
+  try{await rpc({type:'chaguiStart',apply});status(apply?'查柜已在后台开始。':'预览已在后台开始，不会写表。');await loadChagui();}
   catch(error){status((error as Error).message,'error');}
   finally{starting.value=false;}
 }

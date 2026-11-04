@@ -454,7 +454,7 @@ chrome.runtime.onMessage.addListener((message,sender,respond)=>{
       // ONE chats and COSCO tickets open as small floating windows; Gmail drafts as a normal tab.
       if(/^https:\/\/(www\.one-line\.com|support\.cosco-usa\.com|coscoshippingla\.freshdesk\.com)\//.test(tab.url||''))await showTab(message.tabId);else await focusTab(message.tabId);return true;
     }
-    if(message.type==='chaguiStart')return chagui.start();
+    if(message.type==='chaguiStart')return chagui.start({apply:message.apply===true});
     if(message.type==='chaguiState')return chagui.state();
     if(message.type==='chaguiImport')return chagui.importFile(message.text);
     if(message.type==='chaguiExport')return chagui.exportFile();
