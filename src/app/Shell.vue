@@ -3,6 +3,7 @@ import {computed,h,onMounted} from 'vue';
 import {NButton,NModal,NRadioButton,NRadioGroup,NSelect,useDialog} from 'naive-ui';
 import ConfigPage from './pages/ConfigPage.vue';
 import HistoryPage from './pages/HistoryPage.vue';
+import LabsPage from './pages/LabsPage.vue';
 import QueryPage from './pages/QueryPage.vue';
 import TasksPage from './pages/TasksPage.vue';
 import {boot,duplicateDialog,duplicateForce,duplicateView,historyRows,language,message,rememberScroll,setLanguage,setMode,settings,showPage,t,taskGroups,ui,useAsk} from './store.ts';
@@ -21,7 +22,7 @@ useAsk(text=>new Promise(resolve=>{
   dialog.warning({title:'Trucker Helper',content:()=>h('div',{class:'dialog-text'},t(text)),positiveText:t('确定'),negativeText:t('取消'),maskClosable:false,
     onPositiveClick:()=>answer(true),onNegativeClick:()=>answer(false),onClose:()=>answer(false),onEsc:()=>answer(false)});
 }));
-const tabs=computed(()=>[{page:'query',label:'查询'},{page:'tasks',label:'进行中',count:taskGroups.value.running.length},{page:'config',label:'配置'},{page:'history',label:'记录',count:historyRows.value.length}]);
+const tabs=computed(()=>[{page:'query',label:'查询'},{page:'tasks',label:'进行中',count:taskGroups.value.running.length},{page:'config',label:'配置'},{page:'history',label:'记录',count:historyRows.value.length},{page:'labs',label:'实验性功能'}]);
 const languageOptions=Object.entries(LANGUAGES).map(([value,label])=>({value,label}));
 onMounted(boot);
 </script>
@@ -47,6 +48,7 @@ onMounted(boot);
       <section v-show="ui.page==='tasks'" id="page-tasks" class="page" :aria-label="t('进行中')" @scroll.passive="rememberScroll('tasks',($event.target as HTMLElement).scrollTop)"><TasksPage/></section>
       <section v-show="ui.page==='config'" id="page-config" class="page" :aria-label="t('配置')" @scroll.passive="rememberScroll('config',($event.target as HTMLElement).scrollTop)"><ConfigPage/></section>
       <section v-show="ui.page==='history'" id="page-history" class="page" :aria-label="t('操作记录')" @scroll.passive="rememberScroll('history',($event.target as HTMLElement).scrollTop)"><HistoryPage/></section>
+      <section v-show="ui.page==='labs'" id="page-labs" class="page" :aria-label="t('实验性功能')" @scroll.passive="rememberScroll('labs',($event.target as HTMLElement).scrollTop)"><LabsPage/></section>
     </div>
     <footer>
       <span class="status-dot" :class="message.type"></span>

@@ -1,6 +1,7 @@
 // @ts-nocheck
 import {createService,retryBlankChat,waitForAgent} from '../core/service.ts';
 import {readKdocsPage} from '../injected/kdocs.ts';
+import {createChagui} from './chagui.ts';
 import {gmailPage} from '../injected/gmail.ts';
 import {coscoPage} from '../injected/cosco.ts';
 import {onePage} from '../injected/one.ts';
@@ -351,6 +352,8 @@ const service=createService({storage:store,
 // Popup lifetime is shorter than a lookup. Persist its job so closing/reopening
 // the popup never repeats the query or creates a second draft.
 // Operations run concurrently; only the newest is persisted for a reopened popup to restore.
+// 实验性功能 · 查柜.
+const chagui=createChagui({execute,loaded,notify,focusTab});
 const pendingOperations=new Set();let latestOperation='';
 async function persist(operation){if(operation.id===latestOperation)await chrome.storage.local.set({operation});}
 async function runOperation(message){
@@ -451,6 +454,10 @@ chrome.runtime.onMessage.addListener((message,sender,respond)=>{
       // ONE chats and COSCO tickets open as small floating windows; Gmail drafts as a normal tab.
       if(/^https:\/\/(www\.one-line\.com|support\.cosco-usa\.com|coscoshippingla\.freshdesk\.com)\//.test(tab.url||''))await showTab(message.tabId);else await focusTab(message.tabId);return true;
     }
+    if(message.type==='chaguiStart')return chagui.start();
+    if(message.type==='chaguiState')return chagui.state();
+    if(message.type==='chaguiImport')return chagui.importFile(message.text);
+    if(message.type==='chaguiExport')return chagui.exportFile();
     if(message.type==='settings'){
       // Config auto-saves while lookups run; a running job keeps the settings it started with.
       const settings=validateSettings(message.settings);

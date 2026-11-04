@@ -2,7 +2,9 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
 import {translate,resolveLanguage,LANGUAGES} from '../src/core/i18n.ts';
-import {STRINGS} from '../src/core/i18n-strings.ts';
+import {STRINGS as MAIN_STRINGS} from '../src/core/i18n-strings.ts';
+import {LAB_STRINGS} from '../src/core/i18n-labs.ts';
+const STRINGS=[...MAIN_STRINGS,...LAB_STRINGS];
 import {validateSettings,createConfig,parseConfig} from '../src/core/config.ts';
 
 const CJK=/[\u3400-\u9fff]/;
@@ -34,10 +36,10 @@ test('values are placed, translated when known and kept when not',()=>{
   assert.equal(translate('发送邮件','zh'),'发送邮件');assert.equal(translate('Maersk','en'),'Maersk');assert.equal(translate('',  'es'),'');
 });
 // Label matchers for the KDocs page, in its own languages: never shown.
-const PAGE_LABELS=/高级开发|進階開發|高級開發|AirScript脚本编辑器|AirScript腳本編輯器|我的脚本|我的腳本/;
+const PAGE_LABELS=/高级开发|進階開發|高級開發|AirScript脚本编辑器|AirScript腳本編輯器|我的脚本|我的腳本|文档共享脚本|文檔共享腳本|文件共用腳本|^\^List A 已写入：$/;
 const literal=/'((?:[^'\\\n]|\\.)*)'|`((?:[^`\\]|\\.)*)`/g;
 test('no message in the code stays in Chinese',()=>{
-  for(const file of ['src/app/store.ts','src/app/Shell.vue','src/app/pages/QueryPage.vue','src/app/pages/TasksPage.vue','src/app/pages/HistoryPage.vue','src/app/pages/ConfigPage.vue','src/core/service.ts','src/core/core.ts','src/core/config.ts','src/background/worker.ts','src/injected/gmail.ts','src/injected/cosco.ts','src/injected/one.ts','src/injected/kdocs.ts']){
+  for(const file of ['src/app/store.ts','src/app/Shell.vue','src/app/pages/QueryPage.vue','src/app/pages/TasksPage.vue','src/app/pages/HistoryPage.vue','src/app/pages/ConfigPage.vue','src/core/service.ts','src/core/core.ts','src/core/config.ts','src/background/worker.ts','src/injected/gmail.ts','src/injected/cosco.ts','src/injected/one.ts','src/injected/kdocs.ts','src/injected/airscript.ts','src/injected/draydog.ts','src/background/chagui.ts','src/app/labs.ts','src/app/pages/LabsPage.vue']){
     const source=readFileSync(new URL('../'+file,import.meta.url),'utf8').replace(/^\s*\/\/.*$/gm,'');
     for(const match of source.matchAll(literal)){
       const text=(match[1]??match[2]).replace(/\$\{[^{}]*(\{[^{}]*\}[^{}]*)*\}/g,'X').replaceAll("\\'","'").replaceAll('\\n','\n');
