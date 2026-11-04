@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {observe,statusCell,targets,plan,placeMoves,parseBaseline,serialOf,mmddOf,hhmmOf,laParts,noteLfd,dateText,timeText} from '../src/core/chagui-rules.ts';
+import {observe,statusCell,targets,plan,placeMoves,parseBaseline,unknownHolds,validHoldRules,managedPattern,DEFAULT_HOLD_RULES,serialOf,mmddOf,hhmmOf,laParts,noteLfd,dateText,timeText} from '../src/core/chagui-rules.ts';
 
 const container=(over={})=>({container_number:'TRHU6793446',cycle_state:'import_appt_booked',last_related_terminal:'everport',last_free_date:'2026-11-05',line_last_free_date:null,note_body:null,
   import_status:{terminal:'everport',holds:[],parsed_holds:[],wheeled:false,closed_area:false,ready_for_appointment:true,available_for_pickup:true,location:'In Yard',extra_data:{'Wheeled/Decked':'Decked'}},
@@ -30,6 +30,20 @@ test('Dray Dog data becomes a status: holds, deck evidence in values only, appoi
   const cancelled=observe(container({latest_appointment:{status:'cancelled',window_start:'2026-10-31T05:00:00Z'}}));
   assert.equal(cancelled.appointment,null);
   assert.equal(observe(container({cycle_state:'import_appt_booking'})).category,'Bookable');
+});
+test('hold keywords: text before type, empty word ignores, unknown holds are reported, the owner can add words',()=>{
+  const st=holds=>({...container().import_status,parsed_holds:holds});
+  const s=observe(container({import_status:st([{type:'Line Hold',raw_type:'Hold Placed on the BL by the Lines'},{type:'Customs Hold',raw_type:'Customs Status Unavailable'},{type:'No Return',raw_type:'No Return'},{type:null,raw_type:'Mystery'}])}));
+  assert.deepEqual(s.holds,['Line_H']);
+  assert.deepEqual(s.unknownHolds,[{text:'No Return',type:'No Return'},{text:'Mystery',type:''}]);
+  assert.deepEqual(unknownHolds([s,{...s,container:'OTHER'}]).map(u=>[u.text,u.containers.length]),[['No Return',2],['Mystery',2]]);
+  const rules=validHoldRules([...DEFAULT_HOLD_RULES,{match:'mystery',by:'text',word:'Myst_H'},{match:'No Return',by:'type',word:''}]);
+  const again=observe(container({import_status:st([{type:null,raw_type:'Mystery'},{type:'No Return',raw_type:'No Return'}])}),Date.now(),{holdRules:rules});
+  assert.deepEqual([again.holds,again.unknownHolds],[['Myst_H'],[]]);
+  // An owner word is managed in B like the built-in ones: removed once the hold is gone.
+  assert.equal(statusCell('VSL ETA: 11/01,Myst_H',[],managedPattern(rules)),'VSL ETA: 11/01');
+  assert.throws(()=>validHoldRules([{match:'x',by:'text',word:'bad word!'}]),/B 列写法/);
+  assert.equal(validHoldRules(null).length,DEFAULT_HOLD_RULES.length);
 });
 test('the status cell keeps the team text and only adds or removes hold words',()=>{
   assert.equal(statusCell('VSL ETA: 10/21,Custom_H',[]),'VSL ETA: 10/21');

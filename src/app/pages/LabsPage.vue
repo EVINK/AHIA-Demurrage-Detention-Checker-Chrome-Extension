@@ -1,12 +1,16 @@
 <script setup lang="ts">
 import {computed,onMounted} from 'vue';
-import {NButton,NCheckbox,NInput} from 'naive-ui';
+import {NButton,NCheckbox,NInput,NRadio,NRadioGroup,NSelect} from 'naive-ui';
 import {flushSave,form,isOpen,setOpen,t} from '../store.ts';
-import {chagui,downloadAirScript,duration,exportChaguiCache,importChaguiCache,importing,importText,loadChagui,retryChagui,startChagui,starting,timeText,watchChagui} from '../labs.ts';
+import {addHoldRule,answerHolds,chagui,downloadAirScript,duration,editHoldRule,exportChaguiCache,holdAnswers,holdDraft,holdKey,holdRules,importChaguiCache,importing,importText,loadChagui,loadHoldRules,removeHoldRule,retryChagui,startChagui,starting,stopChagui,suggestWord,timeText,watchChagui} from '../labs.ts';
 
-const running=computed(()=>chagui.run?.status==='running');
+const running=computed(()=>['running','waiting'].includes(chagui.run?.status));
+const pending=computed(()=>chagui.run?.status==='waiting'?chagui.run.pending?.holds||[]:[]);
+// Each new word starts as "a hold", with a suggested B column word the owner can change.
+const answer=(u:any)=>holdAnswers[holdKey(u)]||(holdAnswers[holdKey(u)]={hold:true,word:suggestWord(u)});
+const byOptions=[{value:'text',label:'Draydog 原文'},{value:'type',label:'Draydog 类型'}];
 const stateLabel={waiting:'等待',running:'进行中',done:'完成',error:'失败'};
-const runLabel=computed(()=>({running:'查柜进行中',done:'上次查柜完成',error:'上次查柜失败'}[chagui.run?.status]||''));
+const runLabel=computed(()=>({running:'查柜进行中',waiting:'查柜暂停：等你处理新的 Hold 词',done:'上次查柜完成',error:'上次查柜失败'}[chagui.run?.status]||''));
 // One table entry per container: its cells, plus where its row moves ("285 ↑ 250"). A move with no cell
 // change still gets a line. A move that did not happen in a write run shows only its row.
 const planRows=computed(()=>{
@@ -18,7 +22,7 @@ const planRows=computed(()=>{
   return items;
 });
 const scripts=['ListA_Push.js','TH_ReadV2.js','TH_ReadPickup.js','TH_Apply.js'];
-onMounted(()=>{loadChagui();watchChagui();});
+onMounted(()=>{loadChagui();watchChagui();loadHoldRules();});
 </script>
 
 <template>
@@ -47,6 +51,21 @@ onMounted(()=>{loadChagui();watchChagui();});
             <n-button v-if="step.status==='error'&&chagui.run.status==='error'" class="labs-retry" size="tiny" :disabled="starting||running" @click="retryChagui">{{t('重试')}}</n-button>
           </li>
         </ol>
+        <div v-if="pending.length" id="pendingHolds" class="labs-pending">
+          <strong>{{t('Draydog 出现了关键词列表里没有的 Hold，请选择怎么处理：')}}</strong>
+          <div v-for="u in pending" :key="holdKey(u)" class="labs-pending-row">
+            <div><b>{{u.text||u.type}}</b><span v-if="u.type&&u.text" class="hint"> （{{u.type}}）</span><p class="hint">{{u.containers.join('、')}}</p></div>
+            <n-radio-group size="small" :value="answer(u).hold?'hold':'ignore'" @update:value="v=>answer(u).hold=v==='hold'">
+              <n-radio value="hold">{{t('当作 Hold，B 列写')}}</n-radio>
+              <n-radio value="ignore">{{t('不是 Hold，忽略')}}</n-radio>
+            </n-radio-group>
+            <n-input v-if="answer(u).hold" v-model:value="answer(u).word" size="small" class="labs-word"/>
+          </div>
+          <div class="history-buttons labs-buttons">
+            <n-button id="answerHolds" type="primary" size="small" @click="answerHolds">{{t('保存并继续')}}</n-button>
+            <n-button size="small" @click="stopChagui">{{t('停止查柜')}}</n-button>
+          </div>
+        </div>
         <details v-if="chagui.run.plan" class="labs-plan" :open="!chagui.run.apply">
           <summary>{{t(chagui.run.apply?'本轮改动':'预览：将要做的改动')}}</summary>
           <table v-if="planRows.length">
@@ -92,6 +111,24 @@ onMounted(()=>{loadChagui();watchChagui();});
         </div>
       </details>
     </div>
+    <details id="holdRules" class="labs-card labs-section labs-plan" :open="isOpen('holdRules')" @toggle="setOpen('holdRules',($event.target as HTMLDetailsElement).open)">
+      <summary><strong>{{t('Hold 关键词')}}（{{holdRules.length}}）</strong></summary>
+      <p class="hint">{{t('Draydog 显示的 Hold 先按原文找，再按类型找，对应到提柜表 B 列的写法；B 列留空表示不是 Hold。遇到列表里没有的词，查柜会暂停并通知你。')}}</p>
+      <table>
+        <tr><th>{{t('Draydog 显示')}}</th><th>{{t('匹配方式')}}</th><th>{{t('B 列写法')}}</th><th></th></tr>
+        <tr v-for="(rule,i) in holdRules" :key="rule.by+rule.match">
+          <td>{{rule.match}}</td><td>{{t(rule.by==='type'?'Draydog 类型':'Draydog 原文')}}</td>
+          <td><n-input size="tiny" :value="rule.word" :placeholder="t('不是 Hold')" @change="v=>editHoldRule(i,v)"/></td>
+          <td><n-button size="tiny" quaternary type="error" @click="removeHoldRule(i)">{{t('删除')}}</n-button></td>
+        </tr>
+        <tr>
+          <td><n-input v-model:value="holdDraft.match" size="tiny" :placeholder="t('例如 Hold Placed on the BL')"/></td>
+          <td><n-select v-model:value="holdDraft.by" size="tiny" :options="byOptions.map(o=>({...o,label:t(o.label)}))"/></td>
+          <td><n-input v-model:value="holdDraft.word" size="tiny" :placeholder="t('不是 Hold')"/></td>
+          <td><n-button size="tiny" @click="addHoldRule">{{t('添加')}}</n-button></td>
+        </tr>
+      </table>
+    </details>
     <details id="autoCcSection" class="labs-card labs-section" :open="isOpen('autoCcSection')" @toggle="setOpen('autoCcSection',($event.target as HTMLDetailsElement).open)">
       <summary><strong>{{t('Gmail 自动抄送（Auto CC）')}}</strong></summary>
       <form id="autoCcForm" @submit.prevent="flushSave">

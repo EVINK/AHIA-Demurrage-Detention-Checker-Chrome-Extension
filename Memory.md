@@ -237,6 +237,8 @@ Debugging: a reinstalled unpacked extension kept running its old service worker 
 
 **v0.9.0, Auto CC moved (same branch).** At the owner's request (11/4) the Auto CC settings moved from 配置 to 实验性功能 (`#autoCcSection` in LabsPage.vue, same form fields and auto-save). The Gmail button and `showAutoCc` open the 实验性功能 page on that section.
 
+**v0.9.0, hold keywords (same branch).** At the owner's request (11/4) the hold mapping is an editable list (实验性功能 → Hold 关键词), stored in `chrome.storage.local` `chaguiHoldRules` (defaults `DEFAULT_HOLD_RULES` in core/chagui-rules.ts). Each rule is `{match, by:'text'|'type', word}`: a Dray Dog hold is matched by its raw text first (case-insensitive), then by Dray Dog's hold type; `word` goes in column B, '' means not a hold. Owner words are managed in B like the built-in ones. When an Appointed / Bookable container has a hold no rule knows, the run pauses (`status:'waiting'`, `run.pending.holds`), sends a notification, and the page asks "当作 Hold（B 列写…）/ 不是 Hold"; the answers become text rules and the run continues. While waiting, the worker calls `chrome.runtime.getPlatformInfo` every 20 s to stay alive; it gives up after 30 minutes.
+
 ## Known limitations
 
 - Gmail, COSCO, ONE and KDocs are driven through their page structure, so a site redesign can stop any flow. Failures stop with a message rather than guess.

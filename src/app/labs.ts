@@ -35,6 +35,34 @@ export async function startChagui(apply=false){
   catch(error){status((error as Error).message,'error');}
   finally{starting.value=false;}
 }
+// Hold keywords: Dray Dog hold text or type → the B column word ('' = not a hold).
+export const holdRules=ref<any[]>([]);
+export const holdDraft=reactive({match:'',by:'text',word:''});
+export async function loadHoldRules(){if(demo)return;try{holdRules.value=await rpc({type:'chaguiHoldRules'});}catch(error){status((error as Error).message,'error');}}
+async function storeHoldRules(rules:any[],done=''){
+  try{holdRules.value=await rpc({type:'chaguiHoldRules',rules});if(done)status(done,'success');return true;}
+  catch(error){status((error as Error).message,'error');return false;}
+}
+export async function addHoldRule(){
+  if(!holdDraft.match.trim()){status('请填写 Draydog 显示的词。','error');return;}
+  if(await storeHoldRules([...holdRules.value,{...holdDraft}],'已添加关键词。'))Object.assign(holdDraft,{match:'',by:'text',word:''});
+}
+export async function removeHoldRule(index:number){await storeHoldRules(holdRules.value.filter((_:any,i:number)=>i!==index),'已删除关键词。');}
+export async function editHoldRule(index:number,word:string){await storeHoldRules(holdRules.value.map((r:any,i:number)=>i===index?{...r,word}:r));}
+// Answers for a run paused on new hold words: one per word.
+export const holdAnswers=reactive<Record<string,{hold:boolean,word:string}>>({});
+export const holdKey=(u:any)=>`${u.text}|${u.type}`;
+/** A suggested B column word for a new Dray Dog hold: its type or text, as Xxx_H. */
+export const suggestWord=(u:any)=>{const base=String(u.type||u.text||'').replace(/\s*hold$/i,'').trim().replace(/[^A-Za-z0-9]+/g,'_').replace(/^_+|_+$/g,'');return base?`${base}_H`:'Hold_H';};
+export async function answerHolds(){
+  const pending=chagui.run?.pending?.holds||[];
+  const decisions=pending.map((u:any)=>{const a=holdAnswers[holdKey(u)]||{hold:true,word:suggestWord(u)};return {text:u.text,type:u.type,word:a.hold?a.word.trim():''};});
+  if(decisions.some((d:any,i:number)=>(holdAnswers[holdKey(pending[i])]?.hold??true)&&!d.word)){status('当作 Hold 时请填写 B 列写法。','error');return;}
+  try{await rpc({type:'chaguiResolveHolds',decisions});status('已保存，查柜继续。','success');await loadHoldRules();}
+  catch(error){status((error as Error).message,'error');}
+}
+export async function stopChagui(){try{await rpc({type:'chaguiStop'});}catch(error){status((error as Error).message,'error');}}
+
 /** Start again from the failed step; finished list steps are reused. A run that writes asks again. */
 export async function retryChagui(){
   if(demo){status('演示模式不会运行查柜。');return;}

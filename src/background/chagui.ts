@@ -7,7 +7,7 @@
 // Progress is stored in `chaguiRun`, which the 实验性功能 page follows through storage.onChanged.
 import {airScriptPage} from '../injected/airscript.ts';
 import {draydogPage} from '../injected/draydog.ts';
-import {observe,parseBaseline,plan,statusWords,SHOWN} from '../core/chagui-rules.ts';
+import {observe,parseBaseline,plan,statusWords,SHOWN,unknownHolds,validHoldRules} from '../core/chagui-rules.ts';
 
 export const PICKUP_URL='https://www.kdocs.cn/l/ce3LmgRtHK2F';
 export const TEMPLATE_URL='https://www.kdocs.cn/l/cl7RhcdagjJs';
@@ -88,8 +88,8 @@ export function createChagui({execute,loaded,notify,focusTab}){
     const {chaguiRun:run=null,chaguiCache:cache=null}=await chrome.storage.local.get(['chaguiRun','chaguiCache']);
     // The worker stopped (browser closed, extension reloaded) in the middle of a run.
     // A run lives only in this worker's memory: one this worker is not running is dead.
-    if(run?.status==='running'&&active!==run.id){
-      const stopped={...run,status:'error',error:'查柜被中断（浏览器或插件重启），请重新运行。',steps:run.steps.map(s=>s.status==='running'?{...s,status:'error'}:s)};
+    if(['running','waiting'].includes(run?.status)&&active!==run.id){
+      const stopped={...run,status:'error',error:'查柜被中断（浏览器或插件重启），请重新运行。',steps:run.steps.map(s=>s.status==='running'?{...s,status:'error'}:s),pending:undefined};
       await save(stopped);return {run:stopped,cache:summary(cache)};
     }
     return {run,cache:summary(cache)};
@@ -142,6 +142,36 @@ export function createChagui({execute,loaded,notify,focusTab}){
     execute1(run).finally(()=>{active=null;});
     return run;
   }
+
+  // Hold keywords (core/chagui-rules.ts DEFAULT_HOLD_RULES until the owner edits them).
+  const loadHoldRules=async()=>validHoldRules((await chrome.storage.local.get('chaguiHoldRules')).chaguiHoldRules);
+  async function saveHoldRules(rules){const clean=validHoldRules(rules);await chrome.storage.local.set({chaguiHoldRules:clean});return clean;}
+  let waiting=null;
+  /** Pauses the run on holds no keyword knows, until the owner answers each one on the page (resolveHolds). */
+  async function askHolds(run,step,unknown){
+    run.status='waiting';run.pending={holds:unknown};
+    await step('status','running',`发现 ${unknown.length} 个新的 Hold 词，请在插件里选择怎么处理`);
+    notify('lfd-chagui-holds',-1,'查柜发现新的 Hold 词',`${unknown.map(u=>u.text||u.type).join('、')}：请打开插件「实验性功能」选择当作 Hold 还是忽略，选完后查柜自动继续。`,true);
+    // An idle service worker stops after 30 seconds; extension API calls keep it alive while the owner decides.
+    const keep=setInterval(()=>chrome.runtime.getPlatformInfo().catch(()=>{}),20000);
+    let timer;
+    try{
+      return await new Promise((resolve,reject)=>{waiting={resolve,reject,run,unknown};timer=setTimeout(()=>reject(new Error('等待处理新的 Hold 词超时（30 分钟），查柜停止。')),30*60000);});
+    }finally{
+      clearInterval(keep);clearTimeout(timer);waiting=null;delete run.pending;run.status='running';
+      chrome.notifications.clear('lfd-chagui-holds').catch(()=>{});await save(run);
+    }
+  }
+  /** decisions: one per pending hold, {text, type, word} (word '' = not a hold). Adds them as keywords and goes on. */
+  async function resolveHolds(decisions){
+    if(!waiting)throw new Error('没有在等待处理的 Hold 词。');
+    if(!Array.isArray(decisions)||waiting.unknown.some(u=>!decisions.some(d=>d.text===u.text&&d.type===u.type)))throw new Error('请为每个新的 Hold 词选择处理方式。');
+    const rules=await loadHoldRules();
+    for(const d of decisions)rules.push(d.text?{match:d.text,by:'text',word:d.word||''}:{match:d.type,by:'type',word:d.word||''});
+    const saved=await saveHoldRules(rules);
+    waiting.resolve(saved);return saved;
+  }
+  function stopWaiting(){if(waiting)waiting.reject(new Error('已停止：新的 Hold 词没有处理。'));return true;}
 
   async function bundled(file){
     const code=await (await fetch(chrome.runtime.getURL('airscript/'+file))).text();
@@ -204,10 +234,19 @@ export function createChagui({execute,loaded,notify,focusTab}){
       current='status';await step('status','running');
       const observedAt=new Date().toISOString();
       const lineCheck=new Set(status.lineCheck||[]);
-      const statuses=status.containers.map(c=>observe(c,Date.now(),{lineCheck:lineCheck.has(c.container_number)}));
+      let holdRules=await loadHoldRules();
+      const observeAll=()=>status.containers.map(c=>observe(c,Date.now(),{lineCheck:lineCheck.has(c.container_number),holdRules}));
+      let statuses=observeAll();
+      // A hold no keyword knows: stop, tell the owner, and go on once each one has an answer.
+      const unknown=unknownHolds(statuses);
+      if(unknown.length){
+        if(draydogTab)await chrome.tabs.remove(draydogTab).catch(()=>{});draydogTab=null;
+        holdRules=await askHolds(run,step,unknown);
+        statuses=observeAll();
+      }
       const appointed=statuses.filter(s=>s.category==='Appointed').map(s=>s.container),bookable=statuses.filter(s=>s.category==='Bookable').map(s=>s.container);
       await step('status','done',`${statuses.length} 个有数据；Appointed ${appointed.length}，Bookable ${bookable.length}${status.unwatched.length&&!run.apply?`；${status.unwatched.length} 个未追踪`:''}`);
-      await chrome.tabs.remove(draydogTab).catch(()=>{});draydogTab=null;
+      if(draydogTab)await chrome.tabs.remove(draydogTab).catch(()=>{});draydogTab=null;
       cache=recordObserved(cache,statuses,observedAt);await chrome.storage.local.set({chaguiCache:cache});
       // 6. 提柜表 baseline.
       current='baseline';await step('baseline','running');
@@ -217,7 +256,7 @@ export function createChagui({execute,loaded,notify,focusTab}){
       await step('baseline','done',`${baseline.rows.length} 行`);
       // 7–13. Plan.
       current='plan';await step('plan','running');
-      const planned=plan(statuses,baseline);
+      const planned=plan(statuses,baseline,{holdRules});
       run.plan={changes:planned.changes,moves:planned.moves,skipped:planned.skipped,appointed,bookable};
       const cellCount=planned.changes.reduce((n,c)=>n+c.cells.length,0);
       await step('plan','done',`${planned.changes.length} 个柜子 ${cellCount} 个格子要改，${planned.moves.length} 行要移动${planned.skipped.length?`，${planned.skipped.length} 个需人工`:''}`);
@@ -283,7 +322,7 @@ export function createChagui({execute,loaded,notify,focusTab}){
       if(!ok)await chrome.tabs.remove(tab.id).catch(()=>{});
     }
   }
-  return {start,state,importFile,exportFile};
+  return {start,state,importFile,exportFile,resolveHolds,stopWaiting,holdRules:loadHoldRules,setHoldRules:saveHoldRules};
 }
 
 /** Step 14: every planned cell that was written now shows its target, and every move landed. */

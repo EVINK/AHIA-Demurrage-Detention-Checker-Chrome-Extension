@@ -9,14 +9,44 @@
 export const COLUMNS={A:1,B:2,G:7,H:8,K:11,M:13,N:14};
 const TZ='America/Los_Angeles';
 
-// Dray Dog hold types → the B column words the sheet already uses.
-const HOLD_WORDS={'Customs Hold':'Custom_H','Line Hold':'Line_H','Freight Hold':'Freight_H','TMF Hold':'TMF_H','CTF Hold':'CTF_H',
-  'USDA Hold':'USDA_H','Terminal Hold':'Terminal_H','Demurrage Hold':'Demurrage_H','FDA Hold':'FDA_H','Customs Exam Hold':'CEX'};
-// Words the plugin adds and removes in B. Anything else in B (ETA, 卸船, CEX-1A, 倉儲 …) is the team's and stays.
-const MANAGED=/(^|[^A-Za-z])(Customs?_H|Line_H|Freight_H|TMF_H|CTF_H|USDA_H|Terminal_H|Demurrage_H|FDA_H|Closed_Area)(?![A-Za-z])/gi;
-// A customs status nobody knows yet is not a hold. (LBCT's "Customs BL General Release" stays one: LBCT reports the
-// container as "NO (HOLD)", and the team marks it Custom_H.)
-const NOT_A_HOLD=/status unavailable/i;
+// Hold keywords, editable by the owner (11/4) on the 实验性功能 page. Each Dray Dog hold is matched first by its
+// text (`by:'text'`, the terminal's own wording, case-insensitive), then by Dray Dog's hold type (`by:'type'`).
+// `word` is what goes in column B; an empty word means "not a hold". A hold matching nothing is unknown: the run
+// pauses and asks the owner, and the answer is added here.
+// (LBCT's "Customs BL Genereal Release" is a Customs Hold: LBCT reports the container as "NO (HOLD)", and the team
+// marks it Custom_H. "Customs Status Unavailable" is a status nobody knows yet, not a hold.)
+export const DEFAULT_HOLD_RULES=Object.freeze([
+  ...[['Customs Hold','Custom_H'],['Line Hold','Line_H'],['Freight Hold','Freight_H'],['TMF Hold','TMF_H'],['CTF Hold','CTF_H'],
+    ['USDA Hold','USDA_H'],['Terminal Hold','Terminal_H'],['Demurrage Hold','Demurrage_H'],['FDA Hold','FDA_H'],['Customs Exam Hold','CEX']]
+    .map(([match,word])=>({match,by:'type',word})),
+  {match:'Customs Status Unavailable',by:'text',word:''}
+]);
+const lower=text=>String(text||'').trim().toLowerCase();
+/** Checks and cleans a rule list from storage or the page. */
+export function validHoldRules(rules){
+  if(!Array.isArray(rules))return DEFAULT_HOLD_RULES.map(r=>({...r}));
+  const out=[],seen=new Set();
+  for(const r of rules){
+    const match=String(r?.match||'').trim().slice(0,200),by=r?.by==='type'?'type':'text',word=String(r?.word||'').trim().slice(0,40);
+    if(!match)continue;
+    if(word&&!/^[A-Za-z][A-Za-z0-9_\-]*$/.test(word))throw new Error(`B 列写法只能用字母、数字、_ 和 -：${word}`);
+    const key=by+':'+lower(match);if(seen.has(key))continue;seen.add(key);
+    out.push({match,by,word});
+  }
+  return out;
+}
+/** A Dray Dog hold → {word} (word '' = not a hold), or null when no rule knows it. */
+export function holdRuleFor(hold,rules){
+  const text=lower(hold.raw_type),type=lower(hold.type);
+  return rules.find(r=>r.by==='text'&&lower(r.match)===text)||(type?rules.find(r=>r.by==='type'&&lower(r.match)===type):null)||null;
+}
+/** Words the plugin adds and removes in B: every rule's word and Closed_Area. Anything else in B (ETA, 卸船,
+ * CEX-1A, 倉儲 …) is the team's and stays. */
+export function managedPattern(rules=DEFAULT_HOLD_RULES){
+  const words=[...new Set([...rules.map(r=>r.word).filter(w=>w&&w!=='CEX'),'Closed_Area'])];
+  const quoted=words.map(w=>w.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')).map(w=>/^Custom_H$/i.test(w)?'Customs?_H':w);
+  return new RegExp(`(^|[^A-Za-z])(${quoted.join('|')})(?![A-Za-z])`,'gi');
+}
 
 const pad=n=>String(n).padStart(2,'0');
 /** 'YYYY-MM-DD' → Excel serial. */
@@ -54,13 +84,14 @@ export function noteLfd(note,near){
 const strings=value=>{const out=[];const walk=v=>{if(v==null)return;if(typeof v==='string')out.push(v);else if(Array.isArray(v))v.forEach(walk);else if(typeof v==='object')Object.values(v).forEach(walk);};walk(value);return out;};
 
 /** One Dray Dog container → the status the rules and the cache use. Unknown stays null. */
-export function observe(c,now=Date.now(),{lineCheck=false}={}){
+export function observe(c,now=Date.now(),{lineCheck=false,holdRules=DEFAULT_HOLD_RULES}={}){
   const status=c.import_status||null,statuses=c.import_statuses||[];
-  const holds=[];
-  for(const hold of status?.parsed_holds||[]){
-    if(NOT_A_HOLD.test(hold.raw_type||''))continue;
-    const word=HOLD_WORDS[hold.type]||(hold.type?hold.type.replace(/\s*Hold$/,'').replace(/\s+/g,'_')+'_H':null);
-    if(word&&!holds.includes(word))holds.push(word);
+  const holds=[],unknownHolds=[];
+  const parsed=status?.parsed_holds?.length?status.parsed_holds:(status?.holds||[]).map(raw=>({type:null,raw_type:raw}));
+  for(const hold of parsed){
+    const rule=holdRuleFor(hold,holdRules);
+    if(!rule){if(!unknownHolds.some(u=>lower(u.text)===lower(hold.raw_type)))unknownHolds.push({text:String(hold.raw_type||'').trim(),type:hold.type||''});continue;}
+    if(rule.word&&!holds.includes(rule.word))holds.push(rule.word);
   }
   const appointment=c.latest_appointment&&['scheduled','in_progress'].includes(c.latest_appointment.status)&&c.latest_appointment.window_start?c.latest_appointment:null;
   // Deck / wheel evidence: values only (a key is literally named "Wheeled/Decked"), from every source.
@@ -72,7 +103,7 @@ export function observe(c,now=Date.now(),{lineCheck=false}={}){
   return {
     container:c.container_number,state:c.cycle_state||null,category,
     terminal:String(c.last_related_terminal||status?.terminal||'').toUpperCase(),
-    holds,closedArea:status?.closed_area??null,ready:status?.ready_for_appointment??null,available:status?.available_for_pickup??null,
+    holds,unknownHolds,closedArea:status?.closed_area??null,ready:status?.ready_for_appointment??null,available:status?.available_for_pickup??null,
     // "Check Line for LFD": the terminal date is not the line's, so only the line's own date or a note counts.
     lfd:lineCheck?null:c.last_free_date||status?.last_free_date||null,lineCheck,lineLfd:c.line_last_free_date||status?.line_last_free_date||null,
     note:c.note_body||'',noteLfd:noteLfd(c.note_body,c.last_free_date?Date.parse(c.last_free_date):now),
@@ -82,11 +113,12 @@ export function observe(c,now=Date.now(),{lineCheck=false}={}){
 }
 
 /** Status cell: remove words for holds that are gone, add new ones; the team's other text stays as it is. */
-export function statusCell(current,words){
+export function statusCell(current,words,managed=managedPattern()){
   let text=String(current||'');
   const want=new Set(words.map(w=>w.toLowerCase()));
   const have=new Set();
-  text=text.replace(MANAGED,(all,lead,word)=>{
+  managed.lastIndex=0;
+  text=text.replace(managed,(all,lead,word)=>{
     const key=word.toLowerCase().replace(/^customs_h$/,'custom_h');
     if(want.has(key)&&!have.has(key)){have.add(key);return all;}
     return lead;
@@ -102,7 +134,7 @@ export function statusCell(current,words){
 export const statusWords=s=>[...s.holds,...(s.closedArea===true?['Closed_Area']:[])];
 
 /** Target values for one container (steps 7–10). `undefined` = do not touch. */
-export function targets(s,row){
+export function targets(s,row,{managed=managedPattern()}={}){
   const out={};
   if(!['Appointed','Bookable'].includes(s.category))return out;
   // 7. Pick-up and holds.
@@ -111,7 +143,7 @@ export function targets(s,row){
   // the B column words). Dray Dog's "available for pickup" is not used: FMS does not report it, and a Bookable
   // container is often "not available" only because it has no appointment yet.
   if(row.A===''||row.A==='✔')out.A=words.length?'':'✔';
-  out.B=statusCell(row.B,words);
+  out.B=statusCell(row.B,words,managed);
   // 8. Position, only over the standard words (RENT and other manual chassis notes stay).
   if(s.position){
     const [g,h]={Deck:['Deck','OWN'],Wheeled:['Wheeled','POOL'],Ground:['Ground','OWN']}[s.position];
@@ -141,9 +173,20 @@ export function parseBaseline(rows){
   return {rows:list,markers};
 }
 
+/** Unknown Dray Dog holds of the containers that will be written, once each, with the containers they hold. */
+export function unknownHolds(statuses){
+  const out=new Map();
+  for(const s of statuses){
+    if(!['Appointed','Bookable'].includes(s.category))continue;
+    for(const u of s.unknownHolds||[]){const key=lower(u.text)+'|'+lower(u.type);const seen=out.get(key)||{...u,containers:[]};seen.containers.push(s.container);out.set(key,seen);}
+  }
+  return [...out.values()];
+}
+
 /** Steps 7–13: the cells to change and the rows to move. Every skip carries a reason for the report. */
-export function plan(statuses,baseline){
+export function plan(statuses,baseline,{holdRules=DEFAULT_HOLD_RULES}={}){
   const {rows,markers}=baseline;
+  const managed=managedPattern(holdRules);
   const byId=new Map();
   for(const r of rows)if(/^[A-Z]{4}\d{7}$/.test(r.D))byId.set(r.D,[...(byId.get(r.D)||[]),r]);
   const one=list=>list?.length===1?list[0]:null;
@@ -155,7 +198,7 @@ export function plan(statuses,baseline){
     if(found.length!==1){skipped.push({container:s.container,reason:found.length?`提柜表里有 ${found.length} 行这个柜号，请人工确认`:'提柜表里找不到这个柜号'});continue;}
     const row=found[0];
     if(section.cancelled&&row.row>section.cancelled)continue; // 取消DO and below are not checked
-    const goal=targets(s,row);
+    const goal=targets(s,row,{managed});
     const cells=[];
     for(const [col,target] of Object.entries(goal)){
       if(target===undefined)continue;

@@ -456,6 +456,9 @@ chrome.runtime.onMessage.addListener((message,sender,respond)=>{
     }
     if(message.type==='chaguiStart')return chagui.start({apply:message.apply===true,retry:message.retry===true});
     if(message.type==='chaguiState')return chagui.state();
+    if(message.type==='chaguiResolveHolds')return chagui.resolveHolds(message.decisions);
+    if(message.type==='chaguiStop')return chagui.stopWaiting();
+    if(message.type==='chaguiHoldRules')return message.rules?chagui.setHoldRules(message.rules):chagui.holdRules();
     if(message.type==='chaguiImport')return chagui.importFile(message.text);
     if(message.type==='chaguiExport')return chagui.exportFile();
     if(message.type==='settings'){
