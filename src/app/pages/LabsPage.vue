@@ -29,10 +29,11 @@ onMounted(()=>{loadChagui();watchChagui();loadHoldRules();});
 <template>
   <div class="section-top"><h2>{{t('实验性功能')}}</h2></div>
   <div id="labs" class="labs">
-    <div class="labs-card">
-      <div class="section-top">
+    <!-- Feature 1: 查柜. Everything that belongs to it (cache, keywords, scripts) sits inside this card. -->
+    <section id="chaguiFeature" class="labs-feature">
+      <div class="section-top labs-feature-head">
         <div>
-          <strong>{{t('查柜')}}</strong>
+          <h3>{{t('查柜')}}</h3>
           <p class="hint">{{t('更新名单，从 Draydog 读取状态，列出 Appointed / Bookable，按规则更新提柜表并复核。预览只计算要改什么，不写表。')}}</p>
         </div>
         <div class="history-buttons">
@@ -67,7 +68,7 @@ onMounted(()=>{loadChagui();watchChagui();loadHoldRules();});
             <n-button size="small" @click="stopChagui">{{t('暂停任务')}}</n-button>
           </div>
         </div>
-        <details v-if="chagui.run.plan" class="labs-plan" :open="!chagui.run.apply">
+        <details v-if="chagui.run.plan" class="labs-sub labs-plan" :open="!chagui.run.apply">
           <summary>{{t(chagui.run.apply?'本轮改动':'预览：将要做的改动')}}</summary>
           <table v-if="planRows.length">
             <tr><th>{{t('柜号')}}</th><th>{{t('行')}}</th><th>{{t('列')}}</th><th>{{t('原值')}}</th><th>{{t('新值')}}</th></tr>
@@ -75,35 +76,51 @@ onMounted(()=>{loadChagui();watchChagui();loadHoldRules();});
               <tr v-for="(cell,i) in item.cells" :key="cell.col"><td>{{i?'':item.container}}</td><td class="labs-row" :title="i||!item.move?'':t(`移到按码头排（${item.move.terminal}）`)">{{i?'':item.rowText}}</td><td>{{cell.col}}</td><td>{{cell.beforeText}}</td><td>{{cell.afterText}}</td></tr>
             </template>
           </table>
+          <p v-else class="hint">{{t('没有需要修改的')}}</p>
           <p v-for="item in chagui.run.plan.skipped" :key="item.container+item.reason" class="hint labs-skip">{{item.container}}：{{t(item.reason)}}</p>
         </details>
       </template>
-    </div>
-    <div v-if="chagui.cache?.ready?.length" class="labs-card labs-plan">
-      <strong>{{t('Appointed / Bookable')}}（{{chagui.cache.ready.length}}）</strong>
-      <table>
-        <tr><th>{{t('柜号')}}</th><th>{{t('状态')}}</th><th>{{t('码头')}}</th><th>Hold</th><th>LFD</th><th>{{t('预约')}}</th><th>{{t('摆置')}}</th></tr>
-        <tr v-for="item in chagui.cache.ready" :key="item.container">
-          <td>{{item.container}}</td><td>{{item.category}}</td><td>{{item.terminal}}</td><td>{{item.holds}}</td>
-          <td>{{item.lfd}}<template v-if="item.lineLfd"> / SSL {{item.lineLfd}}</template></td><td>{{item.appointment}}</td><td>{{item.position}}</td>
-        </tr>
-      </table>
-    </div>
-    <div class="labs-card">
-      <div class="section-top"><strong>{{t('缓存')}}</strong><span v-if="chagui.cache" class="hint">{{timeText(chagui.cache.readAt)}}</span></div>
-      <template v-if="chagui.cache">
-      <p class="hint">{{t(chagui.cache.stamp)}}</p>
-      <p class="hint">{{t(`本次名单 ${chagui.cache.count} 柜，历史记录 ${chagui.cache.known} 柜（已核验 ${chagui.cache.verified}），${chagui.cache.runs} 轮记录`)}}</p>
-      <div class="labs-terminals">
-        <span v-for="[terminal,count] in chagui.cache.byTerminal" :key="terminal">{{terminal}} <b>{{count}}</b></span>
-      </div>
-      <details>
-        <summary>{{t('柜号列表')}}（{{chagui.cache.count}}）</summary>
-        <pre class="labs-list">{{chagui.cache.containers.map(c=>c.container+'  '+c.terminal).join('\n')}}</pre>
+      <details v-if="chagui.cache?.ready?.length" class="labs-sub labs-plan" open>
+        <summary>{{t('Appointed / Bookable')}}（{{chagui.cache.ready.length}}）</summary>
+        <table>
+          <tr><th>{{t('柜号')}}</th><th>{{t('状态')}}</th><th>{{t('码头')}}</th><th>Hold</th><th>LFD</th><th>{{t('预约')}}</th><th>{{t('摆置')}}</th></tr>
+          <tr v-for="item in chagui.cache.ready" :key="item.container">
+            <td>{{item.container}}</td><td>{{item.category}}</td><td>{{item.terminal}}</td><td>{{item.holds}}</td>
+            <td>{{item.lfd}}<template v-if="item.lineLfd"> / SSL {{item.lineLfd}}</template></td><td>{{item.appointment}}</td><td>{{item.position}}</td>
+          </tr>
+        </table>
       </details>
-      </template>
-      <details class="labs-import">
-        <summary>{{t('导入 / 导出缓存')}}</summary>
+      <details id="holdRules" class="labs-sub labs-plan" :open="isOpen('holdRules')" @toggle="setOpen('holdRules',($event.target as HTMLDetailsElement).open)">
+        <summary>{{t('Hold 关键词')}}（{{holdRules.length}}）</summary>
+        <p class="hint">{{t('Draydog 显示的 Hold 先按原文找，再按类型找，对应到提柜表 B 列的写法；B 列留空表示不是 Hold。遇到列表里没有的词，查柜会暂停并通知你。')}}</p>
+        <table>
+          <tr><th>{{t('Draydog 显示')}}</th><th>{{t('匹配方式')}}</th><th>{{t('B 列写法')}}</th><th></th></tr>
+          <tr v-for="(rule,i) in holdRules" :key="rule.by+rule.match">
+            <td>{{rule.match}}</td><td>{{t(byLabel(rule.by))}}</td>
+            <td><n-input size="tiny" :value="rule.word" :placeholder="t('不是 Hold')" @change="v=>editHoldRule(i,v)"/></td>
+            <td><n-button size="tiny" quaternary type="error" @click="removeHoldRule(i)">{{t('删除')}}</n-button></td>
+          </tr>
+          <tr>
+            <td><n-input v-model:value="holdDraft.match" size="tiny" :placeholder="t('例如 Hold Placed on the BL')"/></td>
+            <td><n-select v-model:value="holdDraft.by" size="tiny" :options="byOptions.map(o=>({...o,label:t(o.label)}))"/></td>
+            <td><n-input v-model:value="holdDraft.word" size="tiny" :placeholder="t('不是 Hold')"/></td>
+            <td><n-button size="tiny" @click="addHoldRule">{{t('添加')}}</n-button></td>
+          </tr>
+        </table>
+      </details>
+      <details class="labs-sub">
+        <summary>{{t('缓存')}}<template v-if="chagui.cache"> · {{timeText(chagui.cache.readAt)}}</template></summary>
+        <template v-if="chagui.cache">
+          <p class="hint">{{t(chagui.cache.stamp)}}</p>
+          <p class="hint">{{t(`本次名单 ${chagui.cache.count} 柜，历史记录 ${chagui.cache.known} 柜（已核验 ${chagui.cache.verified}），${chagui.cache.runs} 轮记录`)}}</p>
+          <div class="labs-terminals">
+            <span v-for="[terminal,count] in chagui.cache.byTerminal" :key="terminal">{{terminal}} <b>{{count}}</b></span>
+          </div>
+          <details>
+            <summary>{{t('柜号列表')}}（{{chagui.cache.count}}）</summary>
+            <pre class="labs-list">{{chagui.cache.containers.map(c=>c.container+'  '+c.terminal).join('\n')}}</pre>
+          </details>
+        </template>
         <p class="hint">{{t('粘贴之前查柜留下的缓存 JSON（schemaVersion 1），每柜的状态、核验记录和审计记录会一起接过来。')}}</p>
         <n-input v-model:value="importText" type="textarea" size="small" :rows="3" :placeholder="t('粘贴缓存 JSON')"/>
         <div class="history-buttons labs-buttons">
@@ -111,40 +128,25 @@ onMounted(()=>{loadChagui();watchChagui();loadHoldRules();});
           <n-button size="small" @click="exportChaguiCache">{{t('导出缓存')}}</n-button>
         </div>
       </details>
-    </div>
-    <details id="holdRules" class="labs-card labs-section labs-plan" :open="isOpen('holdRules')" @toggle="setOpen('holdRules',($event.target as HTMLDetailsElement).open)">
-      <summary><strong>{{t('Hold 关键词')}}（{{holdRules.length}}）</strong></summary>
-      <p class="hint">{{t('Draydog 显示的 Hold 先按原文找，再按类型找，对应到提柜表 B 列的写法；B 列留空表示不是 Hold。遇到列表里没有的词，查柜会暂停并通知你。')}}</p>
-      <table>
-        <tr><th>{{t('Draydog 显示')}}</th><th>{{t('匹配方式')}}</th><th>{{t('B 列写法')}}</th><th></th></tr>
-        <tr v-for="(rule,i) in holdRules" :key="rule.by+rule.match">
-          <td>{{rule.match}}</td><td>{{t(byLabel(rule.by))}}</td>
-          <td><n-input size="tiny" :value="rule.word" :placeholder="t('不是 Hold')" @change="v=>editHoldRule(i,v)"/></td>
-          <td><n-button size="tiny" quaternary type="error" @click="removeHoldRule(i)">{{t('删除')}}</n-button></td>
-        </tr>
-        <tr>
-          <td><n-input v-model:value="holdDraft.match" size="tiny" :placeholder="t('例如 Hold Placed on the BL')"/></td>
-          <td><n-select v-model:value="holdDraft.by" size="tiny" :options="byOptions.map(o=>({...o,label:t(o.label)}))"/></td>
-          <td><n-input v-model:value="holdDraft.word" size="tiny" :placeholder="t('不是 Hold')"/></td>
-          <td><n-button size="tiny" @click="addHoldRule">{{t('添加')}}</n-button></td>
-        </tr>
-      </table>
-    </details>
-    <details id="autoCcSection" class="labs-card labs-section" :open="isOpen('autoCcSection')" @toggle="setOpen('autoCcSection',($event.target as HTMLDetailsElement).open)">
-      <summary><strong>{{t('Gmail 自动抄送（Auto CC）')}}</strong></summary>
-      <form id="autoCcForm" @submit.prevent="flushSave">
+      <details class="labs-sub">
+        <summary>{{t('脚本')}}</summary>
+        <p class="hint">{{t('ListA_Push 在提柜表的“文档共享脚本”里运行，插件也存了一份。TH_ReadV2、TH_ReadPickup 只读，TH_Apply 写表，都会自动装进“我的脚本”。')}}</p>
+        <div class="history-buttons labs-buttons">
+          <n-button v-for="file in scripts" :key="file" size="small" @click="downloadAirScript(file)">{{t('下载')}} {{file.replace('.js','')}}</n-button>
+        </div>
+      </details>
+    </section>
+    <!-- Feature 2: Auto CC. -->
+    <section id="autoCcSection" class="labs-feature">
+      <div class="labs-feature-head">
+        <h3>{{t('Gmail 自动抄送（Auto CC）')}}</h3>
         <p class="hint">{{t('发件人在名单内时，写信和回复自动加上抄送；其他发件人不受影响。')}}</p>
+      </div>
+      <form id="autoCcForm" @submit.prevent="flushSave">
         <n-checkbox id="autoCcEnabled" class="check" v-model:checked="form.autoCcEnabled">{{t('开启 Auto CC')}}</n-checkbox>
         <label class="field-label" for="autoCcSenders">{{t('发件人')}}</label><n-input v-model:value="form.autoCcSenders" :input-props="{id:'autoCcSenders',autocomplete:'off'}" :placeholder="t('多个邮箱用逗号分隔')"/>
         <label class="field-label" for="autoCcCc">{{t('抄送对象')}}</label><n-input v-model:value="form.autoCcCc" :input-props="{id:'autoCcCc',autocomplete:'off'}" :placeholder="t('多个邮箱用逗号分隔')"/>
       </form>
-    </details>
-    <div class="labs-card">
-      <strong>{{t('脚本')}}</strong>
-      <p class="hint">{{t('ListA_Push 在提柜表的“文档共享脚本”里运行，插件也存了一份。TH_ReadV2、TH_ReadPickup 只读，TH_Apply 写表，都会自动装进“我的脚本”。')}}</p>
-      <div class="history-buttons labs-buttons">
-        <n-button v-for="file in scripts" :key="file" size="small" @click="downloadAirScript(file)">{{t('下载')}} {{file.replace('.js','')}}</n-button>
-      </div>
-    </div>
+    </section>
   </div>
 </template>
