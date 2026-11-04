@@ -245,6 +245,8 @@ Debugging: a reinstalled unpacked extension kept running its old service worker 
 
 **v0.9.1.** KDocs signed out: a shared sheet still opens, as a guest, without the script editor, so the read and 查柜 steps failed with "未找到 AirScript 编辑器". Both injected KDocs functions now check `window.__WPSENV__.user_id` first (a guest's starts with `fake_`; signed in it is the account number) and say "金山文档未登录" instead. Found by the owner in a private window, 11/4.
 
+**v0.9.2.** 按预览写入: under a finished preview with changes, a button writes that preview's plan as it is (steps apply, verify, save; no new list, no Draydog). TH_Apply still checks each cell against the value the preview read, and a preview older than 30 minutes is refused. Owner's request, 11/4.
+
 ## Known limitations
 
 - Gmail, COSCO, ONE and KDocs are driven through their page structure, so a site redesign can stop any flow. Failures stop with a message rather than guess.

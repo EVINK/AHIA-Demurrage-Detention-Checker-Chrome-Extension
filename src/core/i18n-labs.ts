@@ -20,7 +20,7 @@ export const LAB_STRINGS=[
 ['重试','Retry','Reintentar'],
 ['按预览写入','Write this preview','Escribir esta vista previa'],
 ['写入 {} 个格子','{0} cells written','{0} celdas escritas'],
-['直接写入上面这些改动，不再重新查询。','Writes the changes above as they are, without checking again.','Escribe los cambios de arriba tal cual, sin volver a consultar.'],
+['直接写入上面这些改动，不再重新查询。','Writes the changes above without querying Draydog again.','Escribe los cambios de arriba sin volver a consultar Draydog.'],
 ['按这次预览写入提柜表？写之前会核对每个格子没被人改过，改过的会跳过。','Write this preview to the pickup sheet? Each cell is checked first; cells someone changed are skipped.','¿Escribir esta vista previa en la hoja de retiro? Cada celda se comprueba antes; las que alguien cambió se omiten.'],
 ['正在按预览写入。','Writing the preview.','Escribiendo la vista previa.'],
 ['没有可写入的预览，请先点「预览」。','There is no preview to write. Click Preview first.','No hay vista previa para escribir. Pulse Vista previa primero.'],
