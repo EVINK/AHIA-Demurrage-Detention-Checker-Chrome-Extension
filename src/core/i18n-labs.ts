@@ -18,6 +18,7 @@ export const LAB_STRINGS=[
 ['{} 秒','{0} s','{0} s'],
 ['重试会从失败的步骤继续，并写入提柜表。继续？','Retrying continues from the failed step and writes the pickup sheet. Continue?','El reintento sigue desde el paso fallido y escribe la hoja de retiro. ¿Continuar?'],
 ['重试','Retry','Reintentar'],
+['金山文档未登录：请先在这个浏览器登录金山文档，再重试。','KDocs is not signed in: sign in to KDocs in this browser, then try again.','KDocs no tiene sesión iniciada: inicie sesión en KDocs en este navegador e inténtelo de nuevo.'],
 ['查柜暂停：等你处理新的 Hold 词','Check paused: new hold words need your answer','Revisión en pausa: hay palabras de retención nuevas'],
 ['Draydog 出现了关键词列表里没有的 Hold，请选择怎么处理：','Draydog shows holds that are not in the keyword list. Choose what to do:','Draydog muestra retenciones que no están en la lista. Elija qué hacer:'],
 ['当作 Hold，B 列写','A hold, column B gets','Retención; la columna B lleva'],

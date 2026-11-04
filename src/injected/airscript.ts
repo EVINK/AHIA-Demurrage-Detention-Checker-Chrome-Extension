@@ -27,6 +27,10 @@ export async function airScriptPage(job){
   };
   const label=(doc,selector,key)=>{for(const text of LABELS[key]){const found=exact(doc,selector,text);if(found)return found;}return null;};
   const buildOf=code=>Number(String(code||'').match(/TH build:\s*(\d+)/)?.[1]||0);
+  // Signed out, KDocs still opens a shared sheet but as a guest: __WPSENV__.user_id is "fake_…" and the editor
+  // entry is missing. Say so plainly instead of "AirScript 编辑器 not found".
+  const env=await waitFor(()=>window.__WPSENV__?.user_id&&window.__WPSENV__,'金山文档尚未加载，或当前不是表格页面。');
+  if(/^fake_/i.test(String(env.user_id)))throw new Error('金山文档未登录：请先在这个浏览器登录金山文档，再重试。');
   let frame=document.querySelector('#excelIde');
   if(!frame||!visible(frame)){
     const tools=await waitFor(()=>document.querySelector('#ToolsTab'),'金山文档尚未加载，或当前不是表格页面。');

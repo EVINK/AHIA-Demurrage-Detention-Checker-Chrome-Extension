@@ -61,6 +61,15 @@ await test('rejects mismatched custom body text before inserting',async()=>{
   let blocked=false;try{await gmailPage('prepare',{...custom,bodyText:custom.bodyText.replace('detention','demurrage')});}catch(e){blocked=/正文/.test(e.message);}
   assert(blocked&&!fixture.querySelector('table')&&sendClicks===0,'mismatched body accepted');
 },custom);
+// A signed-in KDocs page: __WPSENV__.user_id is the account's number (a guest gets "fake_…").
+window.__WPSENV__={user_id:'123456789'};
+await test('KDocs adapter says when KDocs is signed out',async()=>{
+  window.__WPSENV__={user_id:'fake_790759016'};
+  fixture.innerHTML='<iframe id="excelIde"></iframe>';
+  let message='';try{await readKdocsPage();}catch(e){message=e.message;}
+  window.__WPSENV__={user_id:'123456789'};
+  assert(/金山文档未登录/.test(message),'signed-out page not reported: '+message);
+});
 await test('KDocs adapter requires a fresh, complete set of result chunks',async()=>{
   fixture.innerHTML='<iframe id="excelIde"></iframe>';
   const frame=fixture.querySelector('iframe'),doc=frame.contentDocument;

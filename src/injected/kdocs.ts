@@ -25,6 +25,9 @@ export async function readKdocsPage(script) {
     myScripts:['我的脚本','My Scripts','我的腳本']
   };
   const label=(doc,selector,key)=>{for(const text of LABELS[key]){const found=exact(doc,selector,text);if(found)return found;}return null;};
+  // Signed out, KDocs opens a shared sheet as a guest (__WPSENV__.user_id "fake_…") without the script editor.
+  const env=await waitFor(()=>window.__WPSENV__?.user_id&&window.__WPSENV__,'金山文档尚未加载，或当前不是表格页面。');
+  if(/^fake_/i.test(String(env.user_id)))throw new Error('金山文档未登录：请先在这个浏览器登录金山文档，再重试。');
   let frame=document.querySelector('#excelIde');
   if(!frame||!visible(frame)){
     const tools=await waitFor(()=>document.querySelector('#ToolsTab'),'金山文档尚未加载，或当前不是表格页面。');
