@@ -18,12 +18,10 @@ onMounted(()=>{loadChagui();watchChagui();});
       <div class="section-top">
         <div>
           <strong>{{t('查柜')}}</strong>
-          <p class="hint">{{t('更新名单，从 Draydog 读取状态，按规则更新提柜表并复核。全程在后台标签页运行。预览只计算要改什么，不写表。')}}</p>
+          <p class="hint">{{t('更新名单，从 Draydog 读取状态，列出 Appointed / Bookable，并算出提柜表要改的格子和要移的行。现在只预览，不写表。')}}</p>
         </div>
-        <div class="history-buttons">
-          <n-button id="chaguiPreview" :disabled="starting||running" @click="startChagui(false)">{{t('预览')}}</n-button>
-          <n-button id="chaguiStart" type="primary" :loading="starting||running" :disabled="starting||running" @click="startChagui(true)">{{t('查柜')}}</n-button>
-        </div>
+        <!-- Writing the sheet stays off until the owner has checked the previews (11/3). The worker supports it. -->
+        <n-button id="chaguiPreview" type="primary" :loading="starting||running" :disabled="starting||running" @click="startChagui(false)">{{t('查柜（预览）')}}</n-button>
       </div>
       <template v-if="chagui.run">
         <div class="labs-run" :class="chagui.run.status">
@@ -48,6 +46,16 @@ onMounted(()=>{loadChagui();watchChagui();});
           <p v-for="item in chagui.run.plan.skipped" :key="item.container+item.reason" class="hint labs-skip">{{item.container}}：{{t(item.reason)}}</p>
         </details>
       </template>
+    </div>
+    <div v-if="chagui.cache?.ready?.length" class="labs-card labs-plan">
+      <strong>{{t('Appointed / Bookable')}}（{{chagui.cache.ready.length}}）</strong>
+      <table>
+        <tr><th>{{t('柜号')}}</th><th>{{t('状态')}}</th><th>{{t('码头')}}</th><th>Hold</th><th>LFD</th><th>{{t('预约')}}</th><th>{{t('摆置')}}</th></tr>
+        <tr v-for="item in chagui.cache.ready" :key="item.container">
+          <td>{{item.container}}</td><td>{{item.category}}</td><td>{{item.terminal}}</td><td>{{item.holds}}</td>
+          <td>{{item.lfd}}<template v-if="item.lineLfd"> / SSL {{item.lineLfd}}</template></td><td>{{item.appointment}}</td><td>{{item.position}}</td>
+        </tr>
+      </table>
     </div>
     <div class="labs-card">
       <div class="section-top"><strong>{{t('缓存')}}</strong><span v-if="chagui.cache" class="hint">{{timeText(chagui.cache.readAt)}}</span></div>

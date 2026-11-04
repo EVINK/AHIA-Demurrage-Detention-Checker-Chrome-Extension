@@ -29,7 +29,8 @@ export const STEPS=[
   ['verify','重新读取并复核'],
   ['save','保存缓存和本轮记录']
 ];
-export const PREVIEW_STEPS=['push','read','cache','draydog','status','baseline','plan','save'];
+// The owner approved Start Tracking (11/3), so a preview tracks too; it never writes the sheet.
+export const PREVIEW_STEPS=['push','read','cache','draydog','track','status','baseline','plan','save'];
 const pause=ms=>new Promise(r=>setTimeout(r,ms));
 
 // The cache follows the owner's existing 查柜 cache (schemaVersion 1, built by the manual agent runs), so that file
@@ -99,7 +100,10 @@ export function createChagui({execute,loaded,notify,focusTab}){
     const listed=cache.list?.containers||Object.entries(cache.containers).filter(([,e])=>e?.inLatestTemplate).map(([container,e])=>({container,terminal:e.templateTerminal||e.lastObservedStatus?.terminal||'Other'}));
     return {readAt:cache.list?.readAt||Date.parse(cache.updatedAt)||0,stamp:cache.list?.stamp||'',count:listed.length,
       byTerminal:Object.entries(listed.reduce((acc,c)=>(acc[c.terminal]=(acc[c.terminal]||0)+1,acc),{})),containers:listed,
-      known:records.length,verified:records.filter(e=>e?.lastVerifiedApplied).length,observed:records.filter(e=>e?.lastObservedStatus).length,runs:cache.runs.length};
+      known:records.length,verified:records.filter(e=>e?.lastVerifiedApplied).length,observed:records.filter(e=>e?.lastObservedStatus).length,runs:cache.runs.length,
+      // Read-only view: this list's Appointed and Bookable containers as Dray Dog last showed them.
+      ready:listed.map(({container})=>({container,status:cache.containers[container]?.lastObservedStatus})).filter(e=>['Appointed','Bookable'].includes(e.status?.category))
+        .map(({container,status:s})=>({container,category:s.category,terminal:s.terminal,holds:s.holds,lfd:s.lineCheck?'':(s.lfd||''),lineLfd:s.lineLfd||s.noteLfd||'',appointment:s.appointmentDateTime||'',position:s.position||'',available:s.availableForPickup,observedRun:s.observedRun}))};
   };
   async function importFile(text){
     if(active)throw new Error('查柜进行中，请完成后再导入。');
@@ -165,7 +169,7 @@ export function createChagui({execute,loaded,notify,focusTab}){
       // 4. Start Tracking for containers Dray Dog does not track yet (apply runs only).
       let status=await execute(draydogTab,draydogPage,['containers',{numbers}],'MAIN');
       let newlyTracked=[];
-      if(run.apply){
+      if(run.steps.some(s=>s.key==='track')){
         current='track';await step('track','running');
         if(status.unwatched.length){
           const watched=await execute(draydogTab,draydogPage,['watch',{numbers:status.unwatched}],'MAIN');
@@ -284,7 +288,7 @@ export function recordObserved(cache,statuses,observedAt){
   for(const s of statuses){
     containers[s.container]={...(containers[s.container]||{lastVerifiedApplied:null}),lastObservedStatus:{
       category:s.category,rawState:String(s.state||'').replace(/_/g,' ').toUpperCase(),availableForPickup:s.available,readyForAppointment:s.ready,
-      rawLocation:s.location,location:s.location,source:'api',holds:statusWords(s).join(','),lfd:s.lfd,lineLfd:s.lineLfd,noteLfd:s.noteLfd,note:s.note,
+      rawLocation:s.location,location:s.location,source:'api',lineCheck:s.lineCheck,holds:statusWords(s).join(','),lfd:s.lfd,lineLfd:s.lineLfd,noteLfd:s.noteLfd,note:s.note,
       appointmentDateTime:s.appointment?`${s.appointment.date} ${s.appointment.time}`:null,terminal:s.terminal,position:s.position,eta:s.eta,observedRun:observedAt,tags:s.tags}};
   }
   return {...cache,containers,updatedAt:observedAt};
