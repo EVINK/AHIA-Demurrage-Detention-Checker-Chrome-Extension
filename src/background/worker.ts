@@ -88,6 +88,8 @@ async function showTab(tabId){
 chrome.notifications.onClicked.addListener(id=>{
   // Config page 「发送测试通知」: confirm that clicks on system notifications reach this browser.
   if(id==='lfd-test'){chrome.notifications.clear(id).catch(()=>{});notify('lfd-test-ok',-1,'插件已收到点击','通知点击正常，COSCO 人机验证和 ONE 客服回复的通知点击后会打开对应小窗。');return;}
+  // 查柜 notices (finished, failed, waiting for an answer on a new hold word) open the 实验性功能 page.
+  if(id.startsWith('lfd-chagui')&&id!=='lfd-chagui-login'){chrome.notifications.clear(id).catch(()=>{});openPlugin('labs').catch(()=>{});return;}
   // The worker may have restarted since the notification was shown, so the tab id is also part of the id.
   const tabId=noticeTabs.get(id)??Number(id.match(/^lfd-.*-(\d+)$/)?.[1]);if(!Number.isInteger(tabId))return;
   showTab(tabId).catch(()=>{});chrome.notifications.clear(id).catch(()=>{});
@@ -388,15 +390,17 @@ const GMAIL_MESSAGES=['autoCcConfig','autoCcOpen'];
 async function autoCcConfig(){return (await store.get(['settings'])).settings.autoCc;}
 // The Gmail button shows the Auto CC section: in a plugin page that is already open, otherwise in the toolbar
 // popup, or a small window where Chrome cannot open it. Requests while one is under way share its result.
-async function showAutoCc(){
+async function showAutoCc(){return openPlugin('autoCc');}
+// Shows a plugin page on 	arget ('autoCc' or 'labs'): an open plugin page is brought forward, else the popup.
+async function openPlugin(target){
   const contexts=await chrome.runtime.getContexts({contextTypes:['POPUP','TAB'],documentUrls:[chrome.runtime.getURL('app.html')]});
   if(contexts.length){
     const open=contexts.find(context=>context.tabId>=0);
     if(open){await chrome.windows.update(open.windowId,{focused:true});await chrome.tabs.update(open.tabId,{active:true});}
-    await chrome.runtime.sendMessage({type:'showAutoCc'}).catch(()=>{});
+    await chrome.runtime.sendMessage({type:target==='labs'?'showLabs':'showAutoCc'}).catch(()=>{});
     return true;
   }
-  await chrome.storage.session.set({openTarget:'autoCc'});
+  await chrome.storage.session.set({openTarget:target});
   try{await chrome.action.openPopup();}
   catch{await chrome.windows.create({url:chrome.runtime.getURL('app.html'),type:'popup',width:800,height:660});}
   return true;

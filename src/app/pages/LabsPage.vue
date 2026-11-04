@@ -53,18 +53,18 @@ onMounted(()=>{loadChagui();watchChagui();loadHoldRules();});
           </li>
         </ol>
         <div v-if="pending.length" id="pendingHolds" class="labs-pending">
-          <strong>{{t('Draydog 出现了关键词列表里没有的 Hold，请选择怎么处理：')}}</strong>
+          <strong>{{t('Draydog 出现了关键词里没有的词，请选择怎么处理：')}}</strong>
           <div v-for="u in pending" :key="holdKey(u)" class="labs-pending-row">
             <div><b>{{u.text||u.type}}</b><span v-if="u.source==='tag'" class="hint"> （{{t('Draydog 标签')}}）</span><span v-else-if="u.type&&u.text" class="hint"> （{{u.type}}）</span><p class="hint">{{u.containers.join('、')}}</p></div>
             <n-radio-group size="small" :value="answer(u).hold?'hold':'ignore'" @update:value="v=>answer(u).hold=v==='hold'">
-              <n-radio value="hold">{{t('当作 Hold，B 列写')}}</n-radio>
-              <n-radio value="ignore">{{t('不是 Hold，忽略')}}</n-radio>
+              <n-radio value="hold">{{t('不可提（添加关键词），B 列写')}}</n-radio>
+              <n-radio value="ignore">{{t('可提（忽略）')}}</n-radio>
             </n-radio-group>
             <n-input v-if="answer(u).hold" v-model:value="answer(u).word" size="small" class="labs-word"/>
           </div>
           <div class="history-buttons labs-buttons">
             <n-button id="answerHolds" type="primary" size="small" @click="answerHolds">{{t('保存并继续')}}</n-button>
-            <n-button size="small" @click="stopChagui">{{t('停止查柜')}}</n-button>
+            <n-button size="small" @click="stopChagui">{{t('暂停任务')}}</n-button>
           </div>
         </div>
         <details v-if="chagui.run.plan" class="labs-plan" :open="!chagui.run.apply">

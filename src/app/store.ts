@@ -244,6 +244,7 @@ export async function refreshState({initial=false}={}){
   // Only the first read: afterwards this page holds the newest settings, possibly with a write still on its way.
   if(initial){
     settings.value=validateSettings(state.settings);applyLanguage(settings.value.language);
+    if(state.openTarget==='labs'){ui.page='labs';ui.scroll.labs=0;}
     if(state.openTarget==='autoCc'){ui.page='labs';ui.scroll.labs=0;if(!isOpen('autoCcSection'))ui.open=[...ui.open,'autoCcSection'];openedAutoCc=true;}
   }
   setLedger(state.ledger);
@@ -584,7 +585,7 @@ export async function boot(){
   document.addEventListener('visibilitychange',()=>{if(document.hidden)flushSave();});
   if(demo)return;
   // The Gmail button asks a page that is already open to show the section.
-  chrome.runtime.onMessage.addListener(request=>{if(request?.type==='showAutoCc')showAutoCcSection();});
+  chrome.runtime.onMessage.addListener(request=>{if(request?.type==='showAutoCc')showAutoCcSection();if(request?.type==='showLabs')showPage('labs');});
   // Another window of the plugin changed something. The field being typed in is left alone.
   chrome.storage.onChanged.addListener((changes,area)=>{
     if(area!=='local'||!changes.settings?.newValue||saveTimer||pendingWrites)return;

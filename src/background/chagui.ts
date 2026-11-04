@@ -151,7 +151,7 @@ export function createChagui({execute,loaded,notify,focusTab}){
   async function askHolds(run,step,unknown){
     run.status='waiting';run.pending={holds:unknown};
     await step('status','running',`发现 ${unknown.length} 个新的 Hold 词，请在插件里选择怎么处理`);
-    notify('lfd-chagui-holds',-1,'查柜发现新的 Hold 词',`${unknown.map(u=>u.text||u.type).join('、')}：请打开插件「实验性功能」选择当作 Hold 还是忽略，选完后查柜自动继续。`,true);
+    notify('lfd-chagui-holds',-1,'查柜发现关键词里没有的词',`${unknown.map(u=>u.text||u.type).join('、')}。点此打开插件选择：1 不可提（添加关键词）；2 可提（忽略）；3 暂停任务。`,true);
     // An idle service worker stops after 30 seconds; extension API calls keep it alive while the owner decides.
     const keep=setInterval(()=>chrome.runtime.getPlatformInfo().catch(()=>{}),20000);
     let timer;
@@ -172,7 +172,7 @@ export function createChagui({execute,loaded,notify,focusTab}){
     const saved=await saveHoldRules(rules);
     waiting.resolve(saved);return saved;
   }
-  function stopWaiting(){if(waiting)waiting.reject(new Error('已停止：新的 Hold 词没有处理。'));return true;}
+  function stopWaiting(){if(waiting)waiting.reject(new Error('已暂停：新的词还没处理。处理好后点「重试」继续。'));return true;}
 
   async function bundled(file){
     const code=await (await fetch(chrome.runtime.getURL('airscript/'+file))).text();
