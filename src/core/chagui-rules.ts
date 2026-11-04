@@ -107,10 +107,10 @@ export function targets(s,row){
   if(!['Appointed','Bookable'].includes(s.category))return out;
   // 7. Pick-up and holds.
   const words=statusWords(s);
-  const blocked=words.length>0||s.available===false;
-  // ✔ unless something blocks the pickup. Some terminals (FMS) do not report availability at all: unknown is
-  // not "Not Ready For Pickup", so it does not block (owner, 11/4: ECMU5452398 Bookable, no hold → ✔).
-  if(row.A===''||row.A==='✔')out.A=blocked?'':'✔';
+  // Owner, 11/4: every Appointed / Bookable container without a hold gets ✔ (Closed Area still blocks: it is in
+  // the B column words). Dray Dog's "available for pickup" is not used: FMS does not report it, and a Bookable
+  // container is often "not available" only because it has no appointment yet.
+  if(row.A===''||row.A==='✔')out.A=words.length?'':'✔';
   out.B=statusCell(row.B,words);
   // 8. Position, only over the standard words (RENT and other manual chassis notes stay).
   if(s.position){
