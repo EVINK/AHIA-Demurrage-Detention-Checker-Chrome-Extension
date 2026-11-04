@@ -8,7 +8,8 @@ const running=computed(()=>['running','waiting'].includes(chagui.run?.status));
 const pending=computed(()=>chagui.run?.status==='waiting'?chagui.run.pending?.holds||[]:[]);
 // Each new word starts as "a hold", with a suggested B column word the owner can change.
 const answer=(u:any)=>holdAnswers[holdKey(u)]||(holdAnswers[holdKey(u)]={hold:true,word:suggestWord(u)});
-const byOptions=[{value:'text',label:'Draydog 原文'},{value:'type',label:'Draydog 类型'}];
+const byOptions=[{value:'text',label:'Draydog 原文'},{value:'type',label:'Draydog 类型'},{value:'tag',label:'Draydog 标签'}];
+const byLabel=(by:string)=>({type:'Draydog 类型',tag:'Draydog 标签'} as any)[by]||'Draydog 原文';
 const stateLabel={waiting:'等待',running:'进行中',done:'完成',error:'失败'};
 const runLabel=computed(()=>({running:'查柜进行中',waiting:'查柜暂停：等你处理新的 Hold 词',done:'上次查柜完成',error:'上次查柜失败'}[chagui.run?.status]||''));
 // One table entry per container: its cells, plus where its row moves ("285 ↑ 250"). A move with no cell
@@ -54,7 +55,7 @@ onMounted(()=>{loadChagui();watchChagui();loadHoldRules();});
         <div v-if="pending.length" id="pendingHolds" class="labs-pending">
           <strong>{{t('Draydog 出现了关键词列表里没有的 Hold，请选择怎么处理：')}}</strong>
           <div v-for="u in pending" :key="holdKey(u)" class="labs-pending-row">
-            <div><b>{{u.text||u.type}}</b><span v-if="u.type&&u.text" class="hint"> （{{u.type}}）</span><p class="hint">{{u.containers.join('、')}}</p></div>
+            <div><b>{{u.text||u.type}}</b><span v-if="u.source==='tag'" class="hint"> （{{t('Draydog 标签')}}）</span><span v-else-if="u.type&&u.text" class="hint"> （{{u.type}}）</span><p class="hint">{{u.containers.join('、')}}</p></div>
             <n-radio-group size="small" :value="answer(u).hold?'hold':'ignore'" @update:value="v=>answer(u).hold=v==='hold'">
               <n-radio value="hold">{{t('当作 Hold，B 列写')}}</n-radio>
               <n-radio value="ignore">{{t('不是 Hold，忽略')}}</n-radio>
@@ -117,7 +118,7 @@ onMounted(()=>{loadChagui();watchChagui();loadHoldRules();});
       <table>
         <tr><th>{{t('Draydog 显示')}}</th><th>{{t('匹配方式')}}</th><th>{{t('B 列写法')}}</th><th></th></tr>
         <tr v-for="(rule,i) in holdRules" :key="rule.by+rule.match">
-          <td>{{rule.match}}</td><td>{{t(rule.by==='type'?'Draydog 类型':'Draydog 原文')}}</td>
+          <td>{{rule.match}}</td><td>{{t(byLabel(rule.by))}}</td>
           <td><n-input size="tiny" :value="rule.word" :placeholder="t('不是 Hold')" @change="v=>editHoldRule(i,v)"/></td>
           <td><n-button size="tiny" quaternary type="error" @click="removeHoldRule(i)">{{t('删除')}}</n-button></td>
         </tr>

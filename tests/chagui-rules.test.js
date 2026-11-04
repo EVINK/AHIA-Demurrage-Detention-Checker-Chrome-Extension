@@ -44,6 +44,13 @@ test('hold keywords: text before type, empty word ignores, unknown holds are rep
   assert.equal(statusCell('VSL ETA: 11/01,Myst_H',[],managedPattern(rules)),'VSL ETA: 11/01');
   assert.throws(()=>validHoldRules([{match:'x',by:'text',word:'bad word!'}]),/B 列写法/);
   assert.equal(validHoldRules(null).length,DEFAULT_HOLD_RULES.length);
+  // Dray Dog tags: unknown ones are asked about; a tag rule can hold the container or be ignored.
+  const tagged=observe(container({tags:['TEST','1H']}));
+  assert.deepEqual(tagged.unknownHolds,[{text:'TEST',type:'',source:'tag'},{text:'1H',type:'',source:'tag'}]);
+  const tagRules=validHoldRules([...DEFAULT_HOLD_RULES,{match:'test',by:'tag',word:''},{match:'1H',by:'tag',word:'CEX'}]);
+  const known=observe(container({tags:['TEST','1H']}),Date.now(),{holdRules:tagRules});
+  assert.deepEqual([known.holds,known.unknownHolds],[['CEX'],[]]);
+  assert.equal(targets(known,row()).A,'','a tag that holds blocks the tick');
 });
 test('the status cell keeps the team text and only adds or removes hold words',()=>{
   assert.equal(statusCell('VSL ETA: 10/21,Custom_H',[]),'VSL ETA: 10/21');

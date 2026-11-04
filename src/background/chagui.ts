@@ -165,9 +165,10 @@ export function createChagui({execute,loaded,notify,focusTab}){
   /** decisions: one per pending hold, {text, type, word} (word '' = not a hold). Adds them as keywords and goes on. */
   async function resolveHolds(decisions){
     if(!waiting)throw new Error('没有在等待处理的 Hold 词。');
-    if(!Array.isArray(decisions)||waiting.unknown.some(u=>!decisions.some(d=>d.text===u.text&&d.type===u.type)))throw new Error('请为每个新的 Hold 词选择处理方式。');
+    const same=(d,u)=>d.text===u.text&&d.type===u.type&&(d.source||'')===(u.source||'');
+    if(!Array.isArray(decisions)||waiting.unknown.some(u=>!decisions.some(d=>same(d,u))))throw new Error('请为每个新的 Hold 词选择处理方式。');
     const rules=await loadHoldRules();
-    for(const d of decisions)rules.push(d.text?{match:d.text,by:'text',word:d.word||''}:{match:d.type,by:'type',word:d.word||''});
+    for(const d of decisions)rules.push(d.source==='tag'?{match:d.text,by:'tag',word:d.word||''}:d.text?{match:d.text,by:'text',word:d.word||''}:{match:d.type,by:'type',word:d.word||''});
     const saved=await saveHoldRules(rules);
     waiting.resolve(saved);return saved;
   }

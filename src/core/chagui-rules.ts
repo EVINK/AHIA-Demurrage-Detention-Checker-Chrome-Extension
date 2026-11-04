@@ -27,7 +27,7 @@ export function validHoldRules(rules){
   if(!Array.isArray(rules))return DEFAULT_HOLD_RULES.map(r=>({...r}));
   const out=[],seen=new Set();
   for(const r of rules){
-    const match=String(r?.match||'').trim().slice(0,200),by=r?.by==='type'?'type':'text',word=String(r?.word||'').trim().slice(0,40);
+    const match=String(r?.match||'').trim().slice(0,200),by=['type','tag'].includes(r?.by)?r.by:'text',word=String(r?.word||'').trim().slice(0,40);
     if(!match)continue;
     if(word&&!/^[A-Za-z][A-Za-z0-9_\-]*$/.test(word))throw new Error(`B 列写法只能用字母、数字、_ 和 -：${word}`);
     const key=by+':'+lower(match);if(seen.has(key))continue;seen.add(key);
@@ -91,6 +91,13 @@ export function observe(c,now=Date.now(),{lineCheck=false,holdRules=DEFAULT_HOLD
   for(const hold of parsed){
     const rule=holdRuleFor(hold,holdRules);
     if(!rule){if(!unknownHolds.some(u=>lower(u.text)===lower(hold.raw_type)))unknownHolds.push({text:String(hold.raw_type||'').trim(),type:hold.type||''});continue;}
+    if(rule.word&&!holds.includes(rule.word))holds.push(rule.word);
+  }
+  // The team's own Dray Dog tags (e.g. "1H", "TEST") go through the same list (`by:'tag'`): an unknown tag pauses
+  // the run too, and the answer says whether it holds the container.
+  for(const tag of c.tags||[]){
+    const rule=holdRules.find(r=>r.by==='tag'&&lower(r.match)===lower(tag));
+    if(!rule){if(!unknownHolds.some(u=>u.source==='tag'&&lower(u.text)===lower(tag)))unknownHolds.push({text:String(tag).trim(),type:'',source:'tag'});continue;}
     if(rule.word&&!holds.includes(rule.word))holds.push(rule.word);
   }
   const appointment=c.latest_appointment&&['scheduled','in_progress'].includes(c.latest_appointment.status)&&c.latest_appointment.window_start?c.latest_appointment:null;
@@ -178,7 +185,7 @@ export function unknownHolds(statuses){
   const out=new Map();
   for(const s of statuses){
     if(!['Appointed','Bookable'].includes(s.category))continue;
-    for(const u of s.unknownHolds||[]){const key=lower(u.text)+'|'+lower(u.type);const seen=out.get(key)||{...u,containers:[]};seen.containers.push(s.container);out.set(key,seen);}
+    for(const u of s.unknownHolds||[]){const key=(u.source||'hold')+'|'+lower(u.text)+'|'+lower(u.type);const seen=out.get(key)||{...u,containers:[]};seen.containers.push(s.container);out.set(key,seen);}
   }
   return [...out.values()];
 }

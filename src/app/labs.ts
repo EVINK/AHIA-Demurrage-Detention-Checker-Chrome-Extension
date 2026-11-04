@@ -51,12 +51,12 @@ export async function removeHoldRule(index:number){await storeHoldRules(holdRule
 export async function editHoldRule(index:number,word:string){await storeHoldRules(holdRules.value.map((r:any,i:number)=>i===index?{...r,word}:r));}
 // Answers for a run paused on new hold words: one per word.
 export const holdAnswers=reactive<Record<string,{hold:boolean,word:string}>>({});
-export const holdKey=(u:any)=>`${u.text}|${u.type}`;
+export const holdKey=(u:any)=>`${u.source||'hold'}|${u.text}|${u.type}`;
 /** A suggested B column word for a new Dray Dog hold: its type or text, as Xxx_H. */
 export const suggestWord=(u:any)=>{const base=String(u.type||u.text||'').replace(/\s*hold$/i,'').trim().replace(/[^A-Za-z0-9]+/g,'_').replace(/^_+|_+$/g,'');return base?`${base}_H`:'Hold_H';};
 export async function answerHolds(){
   const pending=chagui.run?.pending?.holds||[];
-  const decisions=pending.map((u:any)=>{const a=holdAnswers[holdKey(u)]||{hold:true,word:suggestWord(u)};return {text:u.text,type:u.type,word:a.hold?a.word.trim():''};});
+  const decisions=pending.map((u:any)=>{const a=holdAnswers[holdKey(u)]||{hold:true,word:suggestWord(u)};return {text:u.text,type:u.type,source:u.source||'',word:a.hold?a.word.trim():''};});
   if(decisions.some((d:any,i:number)=>(holdAnswers[holdKey(pending[i])]?.hold??true)&&!d.word)){status('当作 Hold 时请填写 B 列写法。','error');return;}
   try{await rpc({type:'chaguiResolveHolds',decisions});status('已保存，查柜继续。','success');await loadHoldRules();}
   catch(error){status((error as Error).message,'error');}

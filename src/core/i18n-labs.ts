@@ -31,6 +31,7 @@ export const LAB_STRINGS=[
 ['B 列写法','Column B','Columna B'],
 ['Draydog 原文','Draydog text','Texto de Draydog'],
 ['Draydog 类型','Draydog type','Tipo de Draydog'],
+['Draydog 标签','Draydog tag','Etiqueta de Draydog'],
 ['不是 Hold','Not a hold','No es retención'],
 ['例如 Hold Placed on the BL','e.g. Hold Placed on the BL','p. ej. Hold Placed on the BL'],
 ['请填写 Draydog 显示的词。','Enter the word Draydog shows.','Escriba la palabra que muestra Draydog.'],
