@@ -12,12 +12,13 @@ const byOptions=[{value:'text',label:'Draydog 原文'},{value:'type',label:'Dray
 const byLabel=(by:string)=>({type:'Draydog 类型',tag:'Draydog 标签'} as any)[by]||'Draydog 原文';
 const stateLabel={waiting:'等待',running:'进行中',done:'完成',error:'失败'};
 const runLabel=computed(()=>({running:'查柜进行中',waiting:'查柜暂停：等你处理新的 Hold 词',done:'上次查柜完成',error:'上次查柜失败'}[chagui.run?.status]||''));
-// One table entry per container: its cells, plus where its row moves ("285 ↑ 250"). A move with no cell
-// change still gets a line. A move that did not happen in a write run shows only its row.
+// One table entry per container: its cells, plus where its row moves: old row, ↓, new row on three lines (the A move with no cell
+// arrow always points down, whichever way the row goes). A move with no cell change still gets a line; a move that
+// did not happen in a write run shows only its row.
 const planRows=computed(()=>{
   const plan=chagui.run?.plan;if(!plan)return [];
   const moves=new Map(plan.moves.map((m:any)=>[m.container,m]));
-  const rowText=(container:string,row:number)=>{const m:any=moves.get(container);return m?.to?`${m.from} ${m.to<m.from?'↑':'↓'} ${m.to}`:String(row);};
+  const rowText=(container:string,row:number)=>{const m:any=moves.get(container);return m?.to?`${m.from}\n↓\n${m.to}`:String(row);};
   const items=plan.changes.map((c:any)=>({container:c.container,cells:c.cells,move:moves.get(c.container),rowText:rowText(c.container,c.row)}));
   for(const m of plan.moves)if(!plan.changes.some((c:any)=>c.container===m.container))items.push({container:m.container,cells:[{col:'—',beforeText:'',afterText:''}],move:m,rowText:rowText(m.container,m.from)});
   return items;
@@ -73,7 +74,7 @@ onMounted(()=>{loadChagui();watchChagui();loadHoldRules();});
           <table v-if="planRows.length">
             <tr><th>{{t('柜号')}}</th><th>{{t('行')}}</th><th>{{t('列')}}</th><th>{{t('原值')}}</th><th>{{t('新值')}}</th></tr>
             <template v-for="item in planRows" :key="item.container">
-              <tr v-for="(cell,i) in item.cells" :key="cell.col"><td>{{i?'':item.container}}</td><td class="labs-row" :title="i||!item.move?'':t(`移到按码头排（${item.move.terminal}）`)">{{i?'':item.rowText}}</td><td>{{cell.col}}</td><td>{{cell.beforeText}}</td><td>{{cell.afterText}}</td></tr>
+              <tr v-for="(cell,i) in item.cells" :key="cell.col"><td>{{i?'':item.container}}</td><td class="labs-row labs-moved" :title="i||!item.move?'':t(`移到按码头排（${item.move.terminal}）`)">{{i?'':item.rowText}}</td><td>{{cell.col}}</td><td>{{cell.beforeText}}</td><td>{{cell.afterText}}</td></tr>
             </template>
           </table>
           <p v-else class="hint">{{t('没有需要修改的')}}</p>
