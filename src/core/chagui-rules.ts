@@ -108,10 +108,9 @@ export function targets(s,row){
   // 7. Pick-up and holds.
   const words=statusWords(s);
   const blocked=words.length>0||s.available===false;
-  if(row.A===''||row.A==='✔'){
-    if(blocked)out.A='';
-    else if(s.available===true)out.A='✔';
-  }
+  // ✔ unless something blocks the pickup. Some terminals (FMS) do not report availability at all: unknown is
+  // not "Not Ready For Pickup", so it does not block (owner, 11/4: ECMU5452398 Bookable, no hold → ✔).
+  if(row.A===''||row.A==='✔')out.A=blocked?'':'✔';
   out.B=statusCell(row.B,words);
   // 8. Position, only over the standard words (RENT and other manual chassis notes stay).
   if(s.position){

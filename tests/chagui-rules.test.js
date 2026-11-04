@@ -51,6 +51,10 @@ test('targets follow the owner rules',()=>{
   assert.equal(closed.A,'');assert.equal(closed.B,'Closed_Area');
   const note=targets(observe(container({note_body:'SSL LFD 11/03'})),row());
   assert.equal(note.K,'2026-11-03','the earlier of the note and Dray Dog');
+  const unknown=targets(observe(container({cycle_state:'import_appt_booking',import_status:{...container().import_status,available_for_pickup:null}})),row());
+  assert.equal(unknown.A,'✔','a terminal that does not report availability does not block');
+  const notReady=targets(observe(container({import_status:{...container().import_status,available_for_pickup:false}})),row());
+  assert.equal(notReady.A,'');
   const lineOnly=targets(observe(container(),Date.now(),{lineCheck:true}),row({K:46330}));
   assert.equal(lineOnly.K,'','"Check Line for LFD" without a line date is blank');
   assert.equal(targets(observe(container({note_body:'SSL LFD 11/04'}),Date.now(),{lineCheck:true}),row()).K,'2026-11-04');
