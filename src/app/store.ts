@@ -24,7 +24,7 @@ try{applyLanguage(localStorage.getItem('lfd-language')||'');}catch{applyLanguage
 // from creating additional dialogs".
 let askDialog=async text=>false;
 export function useAsk(ask){askDialog=ask;}
-const ask=text=>askDialog(text);
+export const ask=text=>askDialog(text);
 
 // ---- Shared state
 const sources={sheet:'提柜表航司列','mbl-prefix':'MBL 前缀',manual:'手动选择'};

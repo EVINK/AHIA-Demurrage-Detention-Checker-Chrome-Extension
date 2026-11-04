@@ -1,6 +1,6 @@
 // 实验性功能 page state: the 查柜 run and its cache, both owned by the worker (src/background/chagui.ts).
 import {reactive,ref} from 'vue';
-import {demo,status} from './store.ts';
+import {ask,demo,status} from './store.ts';
 
 export const chagui=reactive<{run:any,cache:any,loaded:boolean}>({run:null,cache:null,loaded:false});
 export const starting=ref(false);
@@ -29,6 +29,7 @@ export function watchChagui(){
 }
 export async function startChagui(apply=false){
   if(demo){status('演示模式不会运行查柜。');return;}
+  if(apply&&!await ask('查柜并写入提柜表：按规则只改有变化的格子，并把未放行下面的 Appointed / Bookable 整行移到按码头排。写之前会核对每个格子没被人改过。继续？'))return;
   starting.value=true;
   try{await rpc({type:'chaguiStart',apply});status(apply?'查柜已在后台开始。':'预览已在后台开始，不会写表。');await loadChagui();}
   catch(error){status((error as Error).message,'error');}

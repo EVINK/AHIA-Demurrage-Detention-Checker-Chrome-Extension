@@ -18,10 +18,12 @@ onMounted(()=>{loadChagui();watchChagui();});
       <div class="section-top">
         <div>
           <strong>{{t('查柜')}}</strong>
-          <p class="hint">{{t('更新名单，从 Draydog 读取状态，列出 Appointed / Bookable，并算出提柜表要改的格子和要移的行。现在只预览，不写表。')}}</p>
+          <p class="hint">{{t('更新名单，从 Draydog 读取状态，列出 Appointed / Bookable，按规则更新提柜表并复核。预览只计算要改什么，不写表。')}}</p>
         </div>
-        <!-- Writing the sheet stays off until the owner has checked the previews (11/3). The worker supports it. -->
-        <n-button id="chaguiPreview" type="primary" :loading="starting||running" :disabled="starting||running" @click="startChagui(false)">{{t('查柜（预览）')}}</n-button>
+        <div class="history-buttons">
+          <n-button id="chaguiPreview" :loading="(starting||running)&&!chagui.run?.apply" :disabled="starting||running" @click="startChagui(false)">{{t('预览')}}</n-button>
+          <n-button id="chaguiApply" type="primary" :loading="(starting||running)&&chagui.run?.apply" :disabled="starting||running" @click="startChagui(true)">{{t('查柜并写表')}}</n-button>
+        </div>
       </div>
       <template v-if="chagui.run">
         <div class="labs-run" :class="chagui.run.status">
