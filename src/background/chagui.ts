@@ -169,7 +169,7 @@ export function createChagui({execute,loaded,notify,focusTab}){
     const same=(d,u)=>d.text===u.text&&d.type===u.type&&(d.source||'')===(u.source||'');
     if(!Array.isArray(decisions)||waiting.unknown.some(u=>!decisions.some(d=>same(d,u))))throw new Error('请为每个新的 Hold 词选择处理方式。');
     const rules=await loadHoldRules();
-    for(const d of decisions)rules.push(d.source==='tag'?{match:d.text,by:'tag',word:d.word||''}:d.text?{match:d.text,by:'text',word:d.word||''}:{match:d.type,by:'type',word:d.word||''});
+    for(const d of decisions)rules.push(['tag','label'].includes(d.source)?{match:d.text,by:d.source,word:d.word||''}:d.text?{match:d.text,by:'text',word:d.word||''}:{match:d.type,by:'type',word:d.word||''});
     const saved=await saveHoldRules(rules);
     waiting.resolve(saved);return saved;
   }

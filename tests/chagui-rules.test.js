@@ -51,6 +51,12 @@ test('hold keywords: text before type, empty word ignores, unknown holds are rep
   const known=observe(container({tags:['TEST','1H']}),Date.now(),{holdRules:tagRules});
   assert.deepEqual([known.holds,known.unknownHolds],[['CEX'],[]]);
   assert.equal(targets(known,row()).A,'','a tag that holds blocks the tick');
+  // Pier Pass / CTF badges: each state is its own keyword.
+  const badged=container({pier_pass:{has_hold:false,fee_paid:true},clean_truck_fee:{has_hold:true,fee_paid:false}});
+  assert.deepEqual(observe(badged).unknownHolds.map(u=>[u.source,u.text]),[['label','TMF (Pier Pass): no hold, fee paid'],['label','PortCheck: CTF: hold, fee unpaid']]);
+  const badgeRules=validHoldRules([...DEFAULT_HOLD_RULES,{match:'TMF (Pier Pass): no hold, fee paid',by:'label',word:''},{match:'PortCheck: CTF: hold, fee unpaid',by:'label',word:'CTF_H'}]);
+  const badgedKnown=observe(badged,Date.now(),{holdRules:badgeRules});
+  assert.deepEqual([badgedKnown.holds,badgedKnown.unknownHolds],[['CTF_H'],[]]);
 });
 test('the status cell keeps the team text and only adds or removes hold words',()=>{
   assert.equal(statusCell('VSL ETA: 10/21,Custom_H',[]),'VSL ETA: 10/21');

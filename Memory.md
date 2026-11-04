@@ -248,6 +248,8 @@ Debugging: a reinstalled unpacked extension kept running its old service worker 
 
 **v0.9.3.** COSCO reference: the v0.6.1 rule that cleared a saved `AHIA` also wiped the owner's own SCAC (AHIA) every time it was typed in, so the field looked unsaved. The rule is gone; the value is kept as typed. Detention now needs the reference: without it the query page shows it as missing and the 配置 button jumps to the field and highlights it; the worker refuses too. Owner's request, 11/4.
 
+**v0.9.5.** Dray Dog badges as keywords (`by:'label'`): the "TMF (Pier Pass)" and "PortCheck: CTF" badges on a container card are not tags but the `pier_pass` and `clean_truck_fee` records. Each state becomes a keyword text such as `TMF (Pier Pass): no hold, fee paid` or `PortCheck: CTF: hold, fee unpaid`; a state never answered pauses the run like a new tag (owner: "遇到新的就弹窗", 11/4). Also: rows where only column D has a value are skipped by ListA_Push (plugin copy and list_a backup; the live shared script in KDocs is updated by the owner).
+
 ## Known limitations
 
 - Gmail, COSCO, ONE and KDocs are driven through their page structure, so a site redesign can stop any flow. Failures stop with a message rather than guess.

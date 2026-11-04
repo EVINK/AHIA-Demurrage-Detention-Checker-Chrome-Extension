@@ -27,7 +27,7 @@ export function validHoldRules(rules){
   if(!Array.isArray(rules))return DEFAULT_HOLD_RULES.map(r=>({...r}));
   const out=[],seen=new Set();
   for(const r of rules){
-    const match=String(r?.match||'').trim().slice(0,200),by=['type','tag'].includes(r?.by)?r.by:'text',word=String(r?.word||'').trim().slice(0,40);
+    const match=String(r?.match||'').trim().slice(0,200),by=['type','tag','label'].includes(r?.by)?r.by:'text',word=String(r?.word||'').trim().slice(0,40);
     if(!match)continue;
     if(word&&!/^[A-Za-z][A-Za-z0-9_\-]*$/.test(word))throw new Error(`B 列写法只能用字母、数字、_ 和 -：${word}`);
     const key=by+':'+lower(match);if(seen.has(key))continue;seen.add(key);
@@ -95,9 +95,14 @@ export function observe(c,now=Date.now(),{lineCheck=false,holdRules=DEFAULT_HOLD
   }
   // The team's own Dray Dog tags (e.g. "1H", "TEST") go through the same list (`by:'tag'`): an unknown tag pauses
   // the run too, and the answer says whether it holds the container.
-  for(const tag of c.tags||[]){
-    const rule=holdRules.find(r=>r.by==='tag'&&lower(r.match)===lower(tag));
-    if(!rule){if(!unknownHolds.some(u=>u.source==='tag'&&lower(u.text)===lower(tag)))unknownHolds.push({text:String(tag).trim(),type:'',source:'tag'});continue;}
+  // Dray Dog's own markers (`by:'label'`, owner 11/4): the "TMF (Pier Pass)" and "PortCheck: CTF" badges come from
+  // the pier_pass and clean_truck_fee records, not from tags. Each state ("hold / no hold, fee paid / unpaid") is
+  // its own keyword, so a state never answered before pauses the run like a new tag.
+  const labels=[['TMF (Pier Pass)',c.pier_pass],['PortCheck: CTF',c.clean_truck_fee]].filter(([,record])=>record&&typeof record==='object')
+    .map(([name,record])=>`${name}: ${record.has_hold?'hold':'no hold'}, fee ${record.fee_paid?'paid':'unpaid'}`);
+  for(const [source,list] of [['tag',c.tags||[]],['label',labels]])for(const text of list){
+    const rule=holdRules.find(r=>r.by===source&&lower(r.match)===lower(text));
+    if(!rule){if(!unknownHolds.some(u=>u.source===source&&lower(u.text)===lower(text)))unknownHolds.push({text:String(text).trim(),type:'',source});continue;}
     if(rule.word&&!holds.includes(rule.word))holds.push(rule.word);
   }
   const appointment=c.latest_appointment&&['scheduled','in_progress'].includes(c.latest_appointment.status)&&c.latest_appointment.window_start?c.latest_appointment:null;
