@@ -230,6 +230,9 @@ export function createChagui({execute,loaded,notify,focusTab}){
         const code=template.code.replace('const PAYLOAD = null;',`const PAYLOAD = ${JSON.stringify(payload)};`);
         const result=await withTab(PICKUP_URL,'https://www.kdocs.cn/',tabId=>execute(tabId,airScriptPage,[{title:'TH_Apply',group:'mine',install:{code,build:template.build,always:true},expect:{type:'chunks'},timeout:300000}],'MAIN'));
         applied=result.rows.map(r=>JSON.parse(r));
+        // Show where rows really landed (the plan's `to` is a forecast); a move that did not happen loses its arrow.
+        for(const move of run.plan.moves){const real=applied.find(r=>r.container===move.container&&r.move)?.move;move.to=real?.to||null;move.done=Boolean(real?.to);}
+        await save(run);
         const done=applied.reduce((n,r)=>n+(r.applied?.length||0),0),skippedCells=applied.reduce((n,r)=>n+(r.skipped?.length||0),0),moved=applied.filter(r=>r.move?.to).length;
         await step('apply','done',`写入 ${done} 个格子，移动 ${moved} 行${skippedCells?`，跳过 ${skippedCells} 个`:''}`);
         // 14. Read back and compare.

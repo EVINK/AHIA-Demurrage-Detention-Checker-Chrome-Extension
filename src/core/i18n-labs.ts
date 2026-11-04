@@ -18,6 +18,7 @@ export const LAB_STRINGS=[
 ['{} 秒','{0} s','{0} s'],
 ['重试会从失败的步骤继续，并写入提柜表。继续？','Retrying continues from the failed step and writes the pickup sheet. Continue?','El reintento sigue desde el paso fallido y escribe la hoja de retiro. ¿Continuar?'],
 ['重试','Retry','Reintentar'],
+['移到按码头排（{}）','Moves to By terminal ({0})','Se mueve a By terminal ({0})'],
 ['已从失败的步骤重试。','Retrying from the failed step.','Reintentando desde el paso fallido.'],
 ['没有可重试的失败步骤。','There is no failed step to retry.','No hay ningún paso fallido que reintentar.'],
 ['查柜并写表','Check and update sheet','Revisar y actualizar hoja'],

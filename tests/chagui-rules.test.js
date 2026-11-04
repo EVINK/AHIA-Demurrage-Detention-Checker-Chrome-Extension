@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {observe,statusCell,targets,plan,parseBaseline,serialOf,mmddOf,hhmmOf,laParts,noteLfd,dateText,timeText} from '../src/core/chagui-rules.ts';
+import {observe,statusCell,targets,plan,placeMoves,parseBaseline,serialOf,mmddOf,hhmmOf,laParts,noteLfd,dateText,timeText} from '../src/core/chagui-rules.ts';
 
 const container=(over={})=>({container_number:'TRHU6793446',cycle_state:'import_appt_booked',last_related_terminal:'everport',last_free_date:'2026-11-05',line_last_free_date:null,note_body:null,
   import_status:{terminal:'everport',holds:[],parsed_holds:[],wheeled:false,closed_area:false,ready_for_appointment:true,available_for_pickup:true,location:'In Yard',extra_data:{'Wheeled/Decked':'Decked'}},
@@ -88,7 +88,11 @@ test('the plan lists only changed cells, moves rows below 未放行 and skips wh
   const first=result.changes.find(c=>c.container==='TRHU6793446');
   assert.deepEqual(first.cells.map(c=>c.col),['A','G','H','K','M','N'],'B already right: the ETA text stays untouched');
   assert.equal(first.cells.find(c=>c.col==='K').after,46331);
-  assert.deepEqual(result.moves.map(m=>[m.container,m.from,m.terminal]),[['TRHU6793446',300,'ETS']]);
+  assert.deepEqual(result.moves.map(m=>[m.container,m.from,m.terminal,m.to]),[['TRHU6793446',300,'ETS',223]],'lands under the ETS row 222');
+  // Two moves in order: the first pushes the section down by one.
+  const two=[{container:'XXXU0000001',from:300,terminal:'PCT'},{container:'YYYU0000002',from:310,terminal:'ETS'}];
+  placeMoves(two,[{row:222,D:'EGSU0000001',P:'ETS'},{row:300,D:'XXXU0000001',P:'PCT'},{row:310,D:'YYYU0000002',P:'ETS'}],{byTerminal:221,unreleased:274});
+  assert.deepEqual(two.map(m=>m.to),[274,223],'no PCT group: end of the section; then ETS still at 223');
   assert.ok(result.skipped.some(s=>s.container==='OOCU0000003'&&/附属行/.test(s.reason)));
   assert.ok(result.skipped.some(s=>s.container==='ZZZU0000000'&&/找不到/.test(s.reason)));
   assert.ok(!result.changes.some(c=>c.container==='CCCU0000009'),'rows under 取消DO are left alone');

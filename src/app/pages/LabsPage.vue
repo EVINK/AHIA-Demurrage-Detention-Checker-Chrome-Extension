@@ -7,6 +7,16 @@ import {chagui,downloadAirScript,duration,exportChaguiCache,importChaguiCache,im
 const running=computed(()=>chagui.run?.status==='running');
 const stateLabel={waiting:'等待',running:'进行中',done:'完成',error:'失败'};
 const runLabel=computed(()=>({running:'查柜进行中',done:'上次查柜完成',error:'上次查柜失败'}[chagui.run?.status]||''));
+// One table entry per container: its cells, plus where its row moves ("285 ↑ 250"). A move with no cell
+// change still gets a line. A move that did not happen in a write run shows only its row.
+const planRows=computed(()=>{
+  const plan=chagui.run?.plan;if(!plan)return [];
+  const moves=new Map(plan.moves.map((m:any)=>[m.container,m]));
+  const rowText=(container:string,row:number)=>{const m:any=moves.get(container);return m?.to?`${m.from} ${m.to<m.from?'↑':'↓'} ${m.to}`:String(row);};
+  const items=plan.changes.map((c:any)=>({container:c.container,cells:c.cells,move:moves.get(c.container),rowText:rowText(c.container,c.row)}));
+  for(const m of plan.moves)if(!plan.changes.some((c:any)=>c.container===m.container))items.push({container:m.container,cells:[{col:'—',beforeText:'',afterText:''}],move:m,rowText:rowText(m.container,m.from)});
+  return items;
+});
 const scripts=['ListA_Push.js','TH_ReadV2.js','TH_ReadPickup.js','TH_Apply.js'];
 onMounted(()=>{loadChagui();watchChagui();});
 </script>
@@ -39,13 +49,12 @@ onMounted(()=>{loadChagui();watchChagui();});
         </ol>
         <details v-if="chagui.run.plan" class="labs-plan" :open="!chagui.run.apply">
           <summary>{{t(chagui.run.apply?'本轮改动':'预览：将要做的改动')}}</summary>
-          <table v-if="chagui.run.plan.changes.length">
+          <table v-if="planRows.length">
             <tr><th>{{t('柜号')}}</th><th>{{t('行')}}</th><th>{{t('列')}}</th><th>{{t('原值')}}</th><th>{{t('新值')}}</th></tr>
-            <template v-for="change in chagui.run.plan.changes" :key="change.container">
-              <tr v-for="(cell,i) in change.cells" :key="cell.col"><td>{{i?'':change.container}}</td><td>{{i?'':change.row}}</td><td>{{cell.col}}</td><td>{{cell.beforeText}}</td><td>{{cell.afterText}}</td></tr>
+            <template v-for="item in planRows" :key="item.container">
+              <tr v-for="(cell,i) in item.cells" :key="cell.col"><td>{{i?'':item.container}}</td><td class="labs-row" :title="i||!item.move?'':t(`移到按码头排（${item.move.terminal}）`)">{{i?'':item.rowText}}</td><td>{{cell.col}}</td><td>{{cell.beforeText}}</td><td>{{cell.afterText}}</td></tr>
             </template>
           </table>
-          <p v-for="move in chagui.run.plan.moves" :key="move.container" class="hint">{{t(`移动 ${move.container}：第 ${move.from} 行 → 按码头排（${move.terminal}）`)}}</p>
           <p v-for="item in chagui.run.plan.skipped" :key="item.container+item.reason" class="hint labs-skip">{{item.container}}：{{t(item.reason)}}</p>
         </details>
       </template>

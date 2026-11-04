@@ -172,5 +172,24 @@ export function plan(statuses,baseline){
       moves.push({container:s.container,mbl:row.C,from:row.row,terminal:row.P});
     }
   }
+  placeMoves(moves,rows,section);
   return {changes,moves,skipped,section};
+}
+
+/** Where each move lands, done in order the way TH_Apply does it: after the last row of the same terminal under
+ * 按码头排, else at the end of that section; rows from there down shift by one. Sets `to` on each move. */
+export function placeMoves(moves,rows,section){
+  if(!moves.length||!section.byTerminal||!section.unreleased)return;
+  let sheet=rows.map(r=>({row:r.row,D:r.D,P:r.P}));
+  let unreleased=section.unreleased;
+  for(const move of moves){
+    const source=sheet.find(r=>r.D===move.container);if(!source)continue;
+    const from=source.row;
+    const group=sheet.filter(r=>r.row>section.byTerminal&&r.row<unreleased&&/^[A-Z]{4}\d{7}$/.test(r.D)&&r.P.toUpperCase()===String(move.terminal).toUpperCase());
+    const dest=group.length?Math.max(...group.map(r=>r.row))+1:unreleased;
+    move.to=dest;
+    // Cut `from`, insert at `dest` (dest is above from): rows dest..from-1 move down one.
+    sheet=sheet.map(r=>r===source?{...r,row:dest}:(r.row>=dest&&r.row<from?{...r,row:r.row+1}:r));
+    unreleased+=unreleased>=dest&&unreleased<from?1:0;
+  }
 }
