@@ -2,7 +2,7 @@
 import {computed,onMounted} from 'vue';
 import {NButton,NInput} from 'naive-ui';
 import {t} from '../store.ts';
-import {chagui,downloadAirScript,duration,exportChaguiCache,importChaguiCache,importing,importText,loadChagui,startChagui,starting,timeText,watchChagui} from '../labs.ts';
+import {chagui,downloadAirScript,duration,exportChaguiCache,importChaguiCache,importing,importText,loadChagui,retryChagui,startChagui,starting,timeText,watchChagui} from '../labs.ts';
 
 const running=computed(()=>chagui.run?.status==='running');
 const stateLabel={waiting:'等待',running:'进行中',done:'完成',error:'失败'};
@@ -34,6 +34,7 @@ onMounted(()=>{loadChagui();watchChagui();});
             <span class="labs-state">{{t(stateLabel[step.status]||step.status)}}</span>
             <span>{{t(step.label)}}</span>
             <p v-if="step.detail">{{t(step.detail)}}</p>
+            <n-button v-if="step.status==='error'&&chagui.run.status==='error'" class="labs-retry" size="tiny" :disabled="starting||running" @click="retryChagui">{{t('重试')}}</n-button>
           </li>
         </ol>
         <details v-if="chagui.run.plan" class="labs-plan" :open="!chagui.run.apply">

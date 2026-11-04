@@ -233,6 +233,8 @@ Rules decided from the owner's text and the Codex cache: only Appointed (`import
 Safety in TH_Apply: rows found again by D and checked by C (MBL); a duplicate container is skipped; each cell is written only if it still holds the value read; the move is checked after it lands. Tested against an in-memory sheet (tests/th-apply.test.js). First real write 11/3 16:46 with the owner's go-ahead: FFAU8773083, 4 cells and a move under 按码头排 LBCT, verified; the next preview found nothing left to change. The page has 预览 and 查柜并写表 (with an in-app confirm), added at the owner's request on 11/3.
 Debugging: a reinstalled unpacked extension kept running its old service worker even after unregistering; loading the build from a fresh folder (new id) each time avoids it.
 
+**v0.9.0, retry (same branch).** A failed step shows 重试: the run starts again from the failed step, reusing a finished ListA_Push line and, when read and cache also finished, the list read back; Dray Dog and later steps always run again. The owner hit "没有选中脚本" in their own Chrome on the read and write steps: the KDocs script list re-renders while loading, so a kept list element can be detached and never turn active. `airScriptPage` now looks the entry up again each time and clicks up to 4 times, and takes the editor's own model rather than the first model.
+
 ## Known limitations
 
 - Gmail, COSCO, ONE and KDocs are driven through their page structure, so a site redesign can stop any flow. Failures stop with a message rather than guess.

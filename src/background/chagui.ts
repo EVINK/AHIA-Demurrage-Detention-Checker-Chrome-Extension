@@ -121,10 +121,23 @@ export function createChagui({execute,loaded,notify,focusTab}){
   }
 
   /** apply=false: preview — everything up to the plan, no sheet writes and no Start Tracking. */
-  async function start({apply=false}={}){
+  // retry: after a failed run, start again from the failed step. Finished steps 1–2 are reused (the list
+  // pushed and read back); everything from Dray Dog on runs again, since it is quick and must be fresh.
+  async function start({apply=false,retry=false}={}){
     if(active)throw new Error('查柜正在进行中。');
+    let resume=null;
+    if(retry){
+      const {chaguiRun:previous,chaguiCache:cache}=await chrome.storage.local.get(['chaguiRun','chaguiCache']);
+      if(previous?.status!=='error')throw new Error('没有可重试的失败步骤。');
+      apply=Boolean(previous.apply);
+      const stepOf=key=>previous.steps.find(s=>s.key===key);
+      const done=key=>stepOf(key)?.status==='done';
+      if(done('push'))resume={push:stepOf('push')};
+      if(done('push')&&done('read')&&done('cache')&&cache?.list?.readAt>=previous.startedAt)resume={...resume,read:stepOf('read'),cache:stepOf('cache'),list:cache.list};
+    }
     const keys=apply?STEPS.map(s=>s[0]):PREVIEW_STEPS;
-    const run={id:Date.now().toString(36),status:'running',apply,startedAt:Date.now(),steps:STEPS.filter(([key])=>keys.includes(key)).map(([key,label])=>({key,label,status:'waiting',detail:''}))};
+    const run={id:Date.now().toString(36),status:'running',apply,retry,startedAt:Date.now(),steps:STEPS.filter(([key])=>keys.includes(key)).map(([key,label])=>({key,label,status:resume?.[key]?'done':'waiting',detail:resume?.[key]?resume[key].detail:''}))};
+    run.resume=resume;
     active=run.id;await save(run);
     execute1(run).finally(()=>{active=null;});
     return run;
@@ -143,24 +156,32 @@ export function createChagui({execute,loaded,notify,focusTab}){
     let current='push',draydogTab=null;
     try{
       // 1a. Run the document's own ListA_Push (it carries the authorized 云文档 API service).
-      await step('push','running');
-      const pushed=await withTab(PICKUP_URL,'https://www.kdocs.cn/',tabId=>execute(tabId,airScriptPage,[{title:PUSH_TITLE,prefix:true,group:'shared',expect:{type:'line',pattern:'^List A 已写入：'},timeout:180000}],'MAIN'));
-      const line=pushed.line.replace(/^List A 已写入：/,'');
-      await step('push','done',line);
+      const resume=run.resume||{};delete run.resume;
+      let line,containers,cache;
+      if(resume.push)line=resume.push.detail;
+      else{
+        await step('push','running');
+        const pushed=await withTab(PICKUP_URL,'https://www.kdocs.cn/',tabId=>execute(tabId,airScriptPage,[{title:PUSH_TITLE,prefix:true,group:'shared',expect:{type:'line',pattern:'^List A 已写入：'},timeout:180000}],'MAIN'));
+        line=pushed.line.replace(/^List A 已写入：/,'');
+        await step('push','done',line);
+      }
+      if(resume.list){containers=resume.list.containers;({chaguiCache:cache}=await chrome.storage.local.get('chaguiCache'));}
+      else{
       // 1b. Read Available V2 back with the plugin's read-only script.
       current='read';await step('read','running');
       const read=await withTab(TEMPLATE_URL,'https://www.kdocs.cn/',async tabId=>execute(tabId,airScriptPage,[{title:READ_TITLE,group:'mine',install:await bundled('TH_ReadV2.js'),expect:{type:'chunks'},timeout:90000}],'MAIN'));
-      const containers=read.rows.filter(r=>Array.isArray(r)&&/^[A-Z]{4}\d{7}$/.test(r[0])).map(([container,terminal])=>({container,terminal:String(terminal||'Other')}));
+      containers=read.rows.filter(r=>Array.isArray(r)&&/^[A-Z]{4}\d{7}$/.test(r[0])).map(([container,terminal])=>({container,terminal:String(terminal||'Other')}));
       const expected=pushedCount(line);
       if(expected!==null&&expected!==containers.length)throw new Error(`Available V2 有 ${containers.length} 个柜号，与 ListA_Push 写入的 ${expected} 个不一致，可能有人同时在改表，请稍后重试。`);
       if(read.meta.stamp&&!String(read.meta.stamp).startsWith(line.split(' | ')[0]))throw new Error('Available V2 的更新记录不是刚才这一次，可能被其他运行覆盖，请稍后重试。');
       await step('read','done',`${containers.length} 个柜号`);
       // 2. Cache: this run's list.
       current='cache';await step('cache','running');
-      let {chaguiCache:cache}=await chrome.storage.local.get('chaguiCache');
+      ({chaguiCache:cache}=await chrome.storage.local.get('chaguiCache'));
       const merged=mergeCache(cache,{readAt:Date.now(),stamp:read.meta.stamp||line,pushLine:line,containers});
       cache=merged.cache;await chrome.storage.local.set({chaguiCache:cache});
       await step('cache','done',`新增 ${merged.added.length}，移出 ${merged.removed.length}`);
+      }
       // 3. Dray Dog sign-in; the tab stays open for steps 4–5.
       current='draydog';await step('draydog','running');
       const signIn=await draydog(run,step);draydogTab=signIn.tabId;

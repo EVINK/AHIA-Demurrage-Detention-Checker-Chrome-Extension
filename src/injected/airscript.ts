@@ -70,14 +70,24 @@ export async function airScriptPage(job){
       items=await waitFor(()=>{const list=found();return list.length?list:null;},'自动安装脚本时命名失败。');}
   }
   if(items.length!==1)throw new Error(`存在多个“${job.title}”脚本，请只保留一个。`);
-  const item=items[0];
-  // The chosen entry itself must be the active one; other panels can hold their own .active items.
-  const activeTitle=()=>item.isConnected&&item.classList.contains('active')?item.querySelector('.ks-title')?.textContent.trim()||'':'';
-  if(!item.classList.contains('active'))item.querySelector('.ks-title').click();
-  await waitFor(()=>item.classList.contains('active'),'没有选中脚本。');
+  // The list re-renders while it loads, so the entry is looked up again each time rather than kept: a kept
+  // element can be detached and never turn active. The chosen entry itself must be the active one.
+  const entry=()=>found()[0]||null;
+  const isActive=()=>Boolean(entry()?.classList.contains('active'));
+  const activeTitle=()=>isActive()?entry().querySelector('.ks-title')?.textContent.trim()||'':'';
+  for(let attempt=0;attempt<4&&!isActive();attempt++){
+    entry()?.querySelector('.ks-title')?.click();
+    if(await waitFor(isActive,'',5000).catch(()=>false))break;
+    // Open the group again in case it collapsed while loading.
+    const again=groupOf(job.group);if(again&&!again.box?.classList.contains('open'))again.title.click();
+    await pause(500);
+  }
+  if(!isActive())throw new Error('没有选中脚本。');
   await pause(400);
   if(!titleMatches(activeTitle()))throw new Error('选中的脚本发生变化，已停止。');
-  const model=()=>frame.contentWindow.monaco?.editor?.getModels().find(m=>!/^var Context/.test(m.getLineContent(1)));
+  // The model shown in the editor; with several scripts opened earlier there are several models.
+  const own=x=>x&&!/^var Context/.test(x.getLineContent(1));
+  const model=()=>{const m=frame.contentWindow.monaco?.editor;return m?.getEditors?.().map(e=>e.getModel()).find(own)||m?.getModels().find(own);};
   let installed=false;
   if(job.install){
     const current=await waitFor(()=>{const m=model();if(!m)return null;const v=m.getValue();return v.includes('TH build')||!v.trim()?{text:v}:null;},'脚本代码未加载。');

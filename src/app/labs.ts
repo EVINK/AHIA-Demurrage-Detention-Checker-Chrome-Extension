@@ -35,6 +35,15 @@ export async function startChagui(apply=false){
   catch(error){status((error as Error).message,'error');}
   finally{starting.value=false;}
 }
+/** Start again from the failed step; finished list steps are reused. A run that writes asks again. */
+export async function retryChagui(){
+  if(demo){status('演示模式不会运行查柜。');return;}
+  if(chagui.run?.apply&&!await ask('重试会从失败的步骤继续，并写入提柜表。继续？'))return;
+  starting.value=true;
+  try{await rpc({type:'chaguiStart',retry:true});status('已从失败的步骤重试。');await loadChagui();}
+  catch(error){status((error as Error).message,'error');}
+  finally{starting.value=false;}
+}
 export async function downloadAirScript(file:string){
   try{
     const response=await fetch(`./airscript/${file}`);
