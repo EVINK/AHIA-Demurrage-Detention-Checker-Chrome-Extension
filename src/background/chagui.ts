@@ -264,7 +264,7 @@ export function createChagui({execute,loaded,notify,focusTab}){
 
 /** Step 14: every planned cell that was written now shows its target, and every move landed. */
 export function verify(planned,applied,after){
-  const ok=[],problems=[];
+  const ok=new Set(),problems=[];
   const rows=new Map();for(const r of after.rows)if(/^[A-Z]{4}\d{7}$/.test(r.D))rows.set(r.D,[...(rows.get(r.D)||[]),r]);
   for(const result of applied){
     const change=planned.changes.find(c=>c.container===result.container);
@@ -277,9 +277,9 @@ export function verify(planned,applied,after){
       if(cell&&SHOWN[col](row[col])!==cell.afterText){good=false;problems.push(`${result.container} ${col} 列是“${SHOWN[col](row[col])}”，应为“${cell.afterText}”`);}
     }
     if(result.move?.error){good=false;problems.push(`${result.container} 移动失败`);}
-    if(good&&(result.applied?.length||result.move?.to))ok.push(result.container);
+    if(good&&(result.applied?.length||result.move?.to))ok.add(result.container);
   }
-  return {ok,problems};
+  return {ok:[...ok],problems};
 }
 
 /** Step 5 into the cache, in the owner's field names. */
@@ -300,7 +300,10 @@ export function recordRun(cache,{run,statuses,appointed,bookable,newlyTracked,pl
   const containers={...cache.containers};
   const verifiedSet=new Set(verified?.ok||[]);
   const rowOf=new Map(baseline.rows.map(r=>[r.D,r]));
-  for(const result of applied||[]){
+  // TH_Apply reports cells and moves separately: one entry per container here.
+  const byContainer=new Map();
+  for(const r of applied||[]){const seen=byContainer.get(r.container)||{container:r.container,applied:[]};byContainer.set(r.container,{...seen,...r,applied:[...seen.applied,...(r.applied||[])],move:r.move||seen.move,row:r.row||seen.row});}
+  for(const result of byContainer.values()){
     if(!verifiedSet.has(result.container))continue;
     const change=planned.changes.find(c=>c.container===result.container);
     const base=rowOf.get(result.container)||{};

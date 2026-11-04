@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
-import {mergeCache,importCache,emptyCache,pushedCount,STEPS} from '../src/background/chagui.ts';
+import {mergeCache,importCache,emptyCache,pushedCount,STEPS,verify,recordRun} from '../src/background/chagui.ts';
 
 const list=(readAt,...pairs)=>({readAt,stamp:'s'+readAt,containers:pairs.map(([container,terminal])=>({container,terminal}))});
 test('the ListA_Push log line gives the pushed count',()=>{
@@ -45,4 +45,17 @@ test('steps and bundled scripts are in place',()=>{
   assert.match(push,/List A 已写入：/);
   const manifest=JSON.parse(readFileSync(new URL('../public/manifest.json',import.meta.url),'utf8'));
   assert.ok(manifest.host_permissions.includes('https://app.draydog.com/*'));
+});
+
+test('a written and moved container is verified once and recorded with its new values',()=>{
+  const planned={changes:[{container:'FFAU8773083',mbl:'M4',row:369,cells:[{col:'G',column:7,beforeText:'',afterText:'Ground'},{col:'M',column:13,beforeText:'',afterText:'11/06'}]}],moves:[{container:'FFAU8773083',from:369,terminal:'LBCT'}],skipped:[]};
+  const applied=[{container:'FFAU8773083',row:369,applied:['G','M'],skipped:[]},{container:'FFAU8773083',move:{from:369,to:250}}];
+  const after={rows:[{row:250,A:'',B:'',C:'M4',D:'FFAU8773083',G:'Ground',H:'OWN',K:'',M:46332,N:0.25,P:'LBCT'}]};
+  const checked=verify(planned,applied,after);
+  assert.deepEqual(checked,{ok:['FFAU8773083'],problems:[]});
+  const baseline={rows:[{row:369,A:'',B:'VSL ETA: 11/01',C:'M4',D:'FFAU8773083',G:'',H:'OWN',K:'',M:'',N:'',P:'LBCT'}]};
+  const cache=recordRun(emptyCache(),{run:{apply:true},statuses:[],appointed:['FFAU8773083'],bookable:[],newlyTracked:[],planned,applied,verified:checked,baseline});
+  const v=cache.containers.FFAU8773083.lastVerifiedApplied;
+  assert.equal(v.rowHint,250);assert.equal(v.g,'Ground');assert.equal(v.h,'OWN');assert.equal(v.appointmentDate,'11/06');assert.equal(v.statusCell,'VSL ETA: 11/01');
+  assert.deepEqual(cache.runs.at(-1).moved,['FFAU8773083']);assert.equal(cache.runs.at(-1).changedCellCount,2);
 });
