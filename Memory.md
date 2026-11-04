@@ -250,6 +250,8 @@ Debugging: a reinstalled unpacked extension kept running its old service worker 
 
 **v0.9.5.** Dray Dog badges as keywords (`by:'label'`): the "TMF (Pier Pass)" and "PortCheck: CTF" badges on a container card are not tags but the `pier_pass` and `clean_truck_fee` records. Each state becomes a keyword text such as `TMF (Pier Pass): no hold, fee paid` or `PortCheck: CTF: hold, fee unpaid`; a state never answered pauses the run like a new tag (owner: "遇到新的就弹窗", 11/4). Also: rows where only column D has a value are skipped by ListA_Push (plugin copy and list_a backup; the live shared script in KDocs is updated by the owner).
 
+**v0.9.6.** Owner, 11/4: every new tag-like signal is asked about. `draydogSignals` (core/chagui-rules.ts) turns a container's other signals into `by:'label'` keyword texts: Pier Pass / CTF badges by state; holds from the other sources (eModal, Port Optimizer; the main source's copy is skipped), as `<source> hold: <text>`; status words and remarks in each source's extra data, as `<source> <key>: <value>`; fees owed (`<source> <key>: owed`); and "Appointment: no truck plate". The first preview asked about 10 such texts; the pause panel has 全部选可提 for that.
+
 ## Known limitations
 
 - Gmail, COSCO, ONE and KDocs are driven through their page structure, so a site redesign can stop any flow. Failures stop with a message rather than guess.

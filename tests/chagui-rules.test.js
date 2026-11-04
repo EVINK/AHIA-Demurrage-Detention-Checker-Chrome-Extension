@@ -1,10 +1,10 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {observe,statusCell,targets,plan,placeMoves,parseBaseline,unknownHolds,validHoldRules,managedPattern,DEFAULT_HOLD_RULES,serialOf,mmddOf,hhmmOf,laParts,noteLfd,dateText,timeText} from '../src/core/chagui-rules.ts';
+import {observe,draydogSignals,statusCell,targets,plan,placeMoves,parseBaseline,unknownHolds,validHoldRules,managedPattern,DEFAULT_HOLD_RULES,serialOf,mmddOf,hhmmOf,laParts,noteLfd,dateText,timeText} from '../src/core/chagui-rules.ts';
 
 const container=(over={})=>({container_number:'TRHU6793446',cycle_state:'import_appt_booked',last_related_terminal:'everport',last_free_date:'2026-11-05',line_last_free_date:null,note_body:null,
   import_status:{terminal:'everport',holds:[],parsed_holds:[],wheeled:false,closed_area:false,ready_for_appointment:true,available_for_pickup:true,location:'In Yard',extra_data:{'Wheeled/Decked':'Decked'}},
-  import_statuses:[],latest_appointment:{status:'scheduled',window_start:'2026-11-05T15:00:00Z',window_end:'2026-11-05T16:00:00Z'},...over});
+  import_statuses:[],latest_appointment:{status:'scheduled',window_start:'2026-11-05T15:00:00Z',window_end:'2026-11-05T16:00:00Z',truck_license_plate_number:'8ABC123'},...over});
 const row=(over={})=>({row:300,A:'',B:'',C:'MBL1',D:'TRHU6793446',G:'',H:'',K:'',M:'',N:'',P:'ETS',...over});
 
 test('dates and times round-trip the sheet formats',()=>{
@@ -51,6 +51,12 @@ test('hold keywords: text before type, empty word ignores, unknown holds are rep
   const known=observe(container({tags:['TEST','1H']}),Date.now(),{holdRules:tagRules});
   assert.deepEqual([known.holds,known.unknownHolds],[['CEX'],[]]);
   assert.equal(targets(known,row()).A,'','a tag that holds blocks the tick');
+  // Other sources' holds, status words, fees owed and a missing plate are asked about too.
+  assert.deepEqual(draydogSignals({
+    import_status:{source:'lbct_api',holds:['Customs'],extra_data:{available:'NO (HOLD | FEES OWED)',terminal_demurrage_owed:45,gross_weight:17000,vessel:'X'}},
+    import_statuses:[{source:'lbct_api',holds:['Customs'],extra_data:{}},{source:'emodal_asb',holds:['CTF HOLD'],extra_data:{customs_status:'CLEARED',carrier_remarks:null}}],
+    latest_appointment:{status:'scheduled',truck_license_plate_number:''}
+  }),['lbct_api available: NO (HOLD | FEES OWED)','lbct_api terminal_demurrage_owed: owed','emodal_asb hold: CTF HOLD','emodal_asb customs_status: CLEARED','Appointment: no truck plate']);
   // Pier Pass / CTF badges: each state is its own keyword.
   const badged=container({pier_pass:{has_hold:false,fee_paid:true},clean_truck_fee:{has_hold:true,fee_paid:false}});
   assert.deepEqual(observe(badged).unknownHolds.map(u=>[u.source,u.text]),[['label','TMF (Pier Pass): no hold, fee paid'],['label','PortCheck: CTF: hold, fee unpaid']]);

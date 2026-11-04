@@ -83,6 +83,35 @@ export function noteLfd(note,near){
 }
 const strings=value=>{const out=[];const walk=v=>{if(v==null)return;if(typeof v==='string')out.push(v);else if(Array.isArray(v))v.forEach(walk);else if(typeof v==='object')Object.values(v).forEach(walk);};walk(value);return out;};
 
+/** Tag-like signals of a Dray Dog container besides its own tags and main hold list, as keyword texts. Each
+ * distinct text is asked about once (`by:'label'`), so a new kind of status never passes unnoticed:
+ * - the "TMF (Pier Pass)" / "PortCheck: CTF" badges (pier_pass, clean_truck_fee records), by state;
+ * - holds reported by the other sources (eModal, Port Optimizer …), which the main hold list may not include;
+ * - status words and remarks in each source's extra data (customs, freight, line release, delivery order, "available" …);
+ * - fees owed at the terminal or line;
+ * - an appointment without a truck plate ("No Plate"). */
+export function draydogSignals(c){
+  const out=[];
+  const add=text=>{text=String(text).replace(/\s+/g,' ').trim().slice(0,120);if(text&&!out.some(t=>lower(t)===lower(text)))out.push(text);};
+  for(const [name,record] of [['TMF (Pier Pass)',c.pier_pass],['PortCheck: CTF',c.clean_truck_fee]])
+    if(record&&typeof record==='object')add(`${name}: ${record.has_hold?'hold':'no hold'}, fee ${record.fee_paid?'paid':'unpaid'}`);
+  const main=c.import_status||null;
+  for(const s of [main,...(c.import_statuses||[])].filter(Boolean)){
+    const source=String(s.source||s.terminal||'source');
+    // The main source's holds are the hold list itself; its copy in import_statuses is skipped.
+    if(s!==main&&source!==String(main?.source||''))for(const hold of s.holds||[])add(`${source} hold: ${hold}`);
+    for(const [key,value] of Object.entries(s.extra_data||{})){
+      if(/owed|fees?$/i.test(key)&&typeof value==='number'){if(value>0)add(`${source} ${key}: owed`);continue;}
+      if(!/status|available|release|hold|order|customs|freight|remark/i.test(key))continue;
+      if(typeof value==='string'&&value.trim())add(`${source} ${key}: ${value}`);
+      else if(typeof value==='boolean')add(`${source} ${key}: ${value?'yes':'no'}`);
+    }
+  }
+  const appointment=c.latest_appointment;
+  if(appointment&&['scheduled','in_progress'].includes(appointment.status)&&!String(appointment.truck_license_plate_number||'').trim())add('Appointment: no truck plate');
+  return out;
+}
+
 /** One Dray Dog container → the status the rules and the cache use. Unknown stays null. */
 export function observe(c,now=Date.now(),{lineCheck=false,holdRules=DEFAULT_HOLD_RULES}={}){
   const status=c.import_status||null,statuses=c.import_statuses||[];
@@ -98,8 +127,9 @@ export function observe(c,now=Date.now(),{lineCheck=false,holdRules=DEFAULT_HOLD
   // Dray Dog's own markers (`by:'label'`, owner 11/4): the "TMF (Pier Pass)" and "PortCheck: CTF" badges come from
   // the pier_pass and clean_truck_fee records, not from tags. Each state ("hold / no hold, fee paid / unpaid") is
   // its own keyword, so a state never answered before pauses the run like a new tag.
-  const labels=[['TMF (Pier Pass)',c.pier_pass],['PortCheck: CTF',c.clean_truck_fee]].filter(([,record])=>record&&typeof record==='object')
-    .map(([name,record])=>`${name}: ${record.has_hold?'hold':'no hold'}, fee ${record.fee_paid?'paid':'unpaid'}`);
+  // Owner, 11/4: every other tag-like signal Dray Dog has is asked about the first time it appears, too
+  // (see draydogSignals).
+  const labels=draydogSignals(c);
   for(const [source,list] of [['tag',c.tags||[]],['label',labels]])for(const text of list){
     const rule=holdRules.find(r=>r.by===source&&lower(r.match)===lower(text));
     if(!rule){if(!unknownHolds.some(u=>u.source===source&&lower(u.text)===lower(text)))unknownHolds.push({text:String(text).trim(),type:'',source});continue;}

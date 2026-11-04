@@ -2,7 +2,7 @@
 import {computed,onMounted} from 'vue';
 import {NButton,NCheckbox,NInput,NRadio,NRadioGroup,NSelect} from 'naive-ui';
 import {flushSave,form,isOpen,setOpen,t} from '../store.ts';
-import {addHoldRule,answerHolds,applyPreviewChagui,chagui,downloadAirScript,duration,editHoldRule,exportChaguiCache,holdAnswers,holdDraft,holdKey,holdRules,importChaguiCache,importing,importText,loadChagui,loadHoldRules,removeHoldRule,retryChagui,startChagui,starting,stopChagui,suggestWord,timeText,watchChagui} from '../labs.ts';
+import {addHoldRule,answerHolds,markAllPickable,applyPreviewChagui,chagui,downloadAirScript,duration,editHoldRule,exportChaguiCache,holdAnswers,holdDraft,holdKey,holdRules,importChaguiCache,importing,importText,loadChagui,loadHoldRules,removeHoldRule,retryChagui,startChagui,starting,stopChagui,suggestWord,timeText,watchChagui} from '../labs.ts';
 
 const running=computed(()=>['running','waiting'].includes(chagui.run?.status));
 // The write button under a finished preview that has changes (the worker also refuses a stale one).
@@ -68,6 +68,7 @@ onMounted(()=>{loadChagui();watchChagui();loadHoldRules();});
           </div>
           <div class="history-buttons labs-buttons">
             <n-button id="answerHolds" type="primary" size="small" @click="answerHolds">{{t('保存并继续')}}</n-button>
+            <n-button v-if="pending.length>1" size="small" @click="markAllPickable">{{t('全部选可提')}}</n-button>
             <n-button size="small" @click="stopChagui">{{t('暂停任务')}}</n-button>
           </div>
         </div>

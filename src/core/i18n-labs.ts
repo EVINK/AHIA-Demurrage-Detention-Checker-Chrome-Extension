@@ -43,6 +43,7 @@ export const LAB_STRINGS=[
 ['Draydog 类型','Draydog type','Tipo de Draydog'],
 ['Draydog 标签','Draydog tag','Etiqueta de Draydog'],
 ['Draydog 标记','Draydog badge','Distintivo de Draydog'],
+['全部选可提','Mark all pickable','Marcar todo retirable'],
 ['查柜发现关键词里没有的词','The check found a word not in the keywords','La revisión encontró una palabra que no está en la lista'],
 ['{}。点此打开插件选择：1 不可提（添加关键词）；2 可提（忽略）；3 暂停任务。','{0}. Click to open the plugin and choose: 1 not pickable (add keyword); 2 pickable (ignore); 3 pause the task.','{0}. Haga clic para abrir el complemento y elegir: 1 no retirable (añadir palabra); 2 retirable (ignorar); 3 pausar la tarea.'],
 ['已暂停：新的词还没处理。处理好后点「重试」继续。','Paused: the new words are not handled yet. Click Retry to continue once they are.','En pausa: las palabras nuevas aún no se resolvieron. Pulse Reintentar para seguir.'],

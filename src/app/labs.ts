@@ -54,6 +54,8 @@ export const holdAnswers=reactive<Record<string,{hold:boolean,word:string}>>({})
 export const holdKey=(u:any)=>`${u.source||'hold'}|${u.text}|${u.type}`;
 /** A suggested B column word for a new Dray Dog hold: its type or text, as Xxx_H. */
 export const suggestWord=(u:any)=>{const base=String(u.type||u.text||'').replace(/\s*hold$/i,'').trim().replace(/[^A-Za-z0-9]+/g,'_').replace(/^_+|_+$/g,'');return base?`${base}_H`:'Hold_H';};
+/** Marks every pending word 可提 at once (a long first list is mostly statuses that do not hold anything). */
+export function markAllPickable(){for(const u of chagui.run?.pending?.holds||[])holdAnswers[holdKey(u)]={hold:false,word:holdAnswers[holdKey(u)]?.word||suggestWord(u)};}
 export async function answerHolds(){
   const pending=chagui.run?.pending?.holds||[];
   const decisions=pending.map((u:any)=>{const a=holdAnswers[holdKey(u)]||{hold:true,word:suggestWord(u)};return {text:u.text,type:u.type,source:u.source||'',word:a.hold?a.word.trim():''};});
