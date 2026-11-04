@@ -1,5 +1,6 @@
 // ListA_Push_v2 — 放在提柜表（ce3LmgRtHK2F）的文档共享脚本里，由自动化流程每 10 分钟运行。
 // 读：提柜表“提柜”中 B列为“取消DO”那一行之前的所有柜号，只取 A列留空的柜号，去重，按 P列码头分组（空 → Other）。
+//     只有 D列有值、A–P 其他列全空的行跳过（2026-11-04）。
 // 写：模板表（cl7RhcdagjJs）的 Available V2，第一行码头名，下面逐列柜号；只写纯数值，不留公式。
 // 前提：编辑器“服务”菜单里添加“云文档 API”（KSDrive）；运行者对模板表有编辑权限。
 const TARGET_URL = 'https://www.kdocs.cn/l/cl7RhcdagjJs';
@@ -15,8 +16,12 @@ function readListA() {
   const lastRow = used.Row + used.Rows.Count - 1;
   if (lastRow > 30000) throw new Error('表格范围异常，停止读取。');
   const clean = v => String(v == null ? '' : v).trim();
-  const col = c => sheet.Range(c + '1:' + c + lastRow).Value2.map(r => clean(r[0]));
-  const A = col('A'), B = col('B'), D = col('D'), P = col('P');
+  // A–P 一次读出；按列取用
+  const grid = sheet.Range('A1:P' + lastRow).Value2.map(r => r.map(clean));
+  const col = i => grid.map(r => r[i]);
+  const A = col(0), B = col(1), D = col(3), P = col(15);
+  // 只有 D列有柜号、其他列（A–P）全空的行不是业务行（例如随手贴的柜号），不算查柜对象
+  const onlyD = grid.map(r => r.every((v, i) => i === 3 || v === ''));
 
   const rowsWhere = (arr, test) => arr.reduce((acc, v, i) => (test(v) ? acc.concat(i + 1) : acc), []);
   const ends = rowsWhere(B, v => /^取消\s*D\s*\/?\s*O$/i.test(v));
@@ -36,7 +41,7 @@ function readListA() {
   let count = 0;
   for (let r = 1; r < end; r++) {
     const container = D[r - 1].toUpperCase();
-    if (!/^[A-Z]{4}\d{7}$/.test(container) || seen[container] || excluded[container]) continue;
+    if (!/^[A-Z]{4}\d{7}$/.test(container) || seen[container] || excluded[container] || onlyD[r - 1]) continue;
     seen[container] = true;
     const i = known.indexOf(P[r - 1].toUpperCase());
     const terminal = i >= 0 ? TERMINALS[i] : 'Other';
