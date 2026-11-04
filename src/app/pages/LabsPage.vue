@@ -2,9 +2,11 @@
 import {computed,onMounted} from 'vue';
 import {NButton,NCheckbox,NInput,NRadio,NRadioGroup,NSelect} from 'naive-ui';
 import {flushSave,form,isOpen,setOpen,t} from '../store.ts';
-import {addHoldRule,answerHolds,chagui,downloadAirScript,duration,editHoldRule,exportChaguiCache,holdAnswers,holdDraft,holdKey,holdRules,importChaguiCache,importing,importText,loadChagui,loadHoldRules,removeHoldRule,retryChagui,startChagui,starting,stopChagui,suggestWord,timeText,watchChagui} from '../labs.ts';
+import {addHoldRule,answerHolds,applyPreviewChagui,chagui,downloadAirScript,duration,editHoldRule,exportChaguiCache,holdAnswers,holdDraft,holdKey,holdRules,importChaguiCache,importing,importText,loadChagui,loadHoldRules,removeHoldRule,retryChagui,startChagui,starting,stopChagui,suggestWord,timeText,watchChagui} from '../labs.ts';
 
 const running=computed(()=>['running','waiting'].includes(chagui.run?.status));
+// The write button under a finished preview that has changes (the worker also refuses a stale one).
+const canWritePreview=computed(()=>{const r=chagui.run;return Boolean(r&&r.status==='done'&&!r.apply&&r.plan&&(r.plan.changes.length||r.plan.moves.length));});
 const pending=computed(()=>chagui.run?.status==='waiting'?chagui.run.pending?.holds||[]:[]);
 // Each new word starts as "a hold", with a suggested B column word the owner can change.
 const answer=(u:any)=>holdAnswers[holdKey(u)]||(holdAnswers[holdKey(u)]={hold:true,word:suggestWord(u)});
@@ -79,6 +81,10 @@ onMounted(()=>{loadChagui();watchChagui();loadHoldRules();});
           </table>
           <p v-else class="hint">{{t('没有需要修改的')}}</p>
           <p v-for="item in chagui.run.plan.skipped" :key="item.container+item.reason" class="hint labs-skip">{{item.container}}：{{t(item.reason)}}</p>
+          <div v-if="canWritePreview" class="history-buttons labs-buttons">
+            <n-button id="applyPreview" type="primary" size="small" :disabled="starting||running" @click="applyPreviewChagui">{{t('按预览写入')}}</n-button>
+            <span class="hint">{{t('直接写入上面这些改动，不再重新查询。')}}</span>
+          </div>
         </details>
       </template>
       <details v-if="chagui.cache?.ready?.length" class="labs-sub labs-plan" open>

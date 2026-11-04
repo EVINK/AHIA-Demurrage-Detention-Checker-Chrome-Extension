@@ -15,6 +15,7 @@ export const DRAYDOG_URL='https://app.draydog.com/';
 const PUSH_TITLE='ListA_Push';
 const READ_TITLE='TH_ReadV2';
 const LOGIN_WAIT=10*60000;      // how long the Dray Dog login page waits for the user
+const PREVIEW_FRESH=30*60000;   // a preview older than this is not written as it is
 
 export const STEPS=[
   ['push','运行 ListA_Push，更新 Available V2'],
@@ -297,6 +298,53 @@ export function createChagui({execute,loaded,notify,focusTab}){
     }
   }
 
+  /** Writes the last preview's plan as it is: no new list, no Dray Dog. TH_Apply still finds each row again and
+   * skips any cell no longer holding the value the preview read, so a stale preview cannot overwrite an edit. */
+  async function applyPreview(){
+    if(active)throw new Error('查柜正在进行中。');
+    const {chaguiRun:preview}=await chrome.storage.local.get('chaguiRun');
+    if(!preview||preview.status!=='done'||preview.apply||!preview.plan)throw new Error('没有可写入的预览，请先点「预览」。');
+    if(Date.now()-(preview.finishedAt||0)>PREVIEW_FRESH)throw new Error('预览已超过 30 分钟，表格可能有变化，请重新预览。');
+    if(!preview.plan.changes.length&&!preview.plan.moves.length)throw new Error('预览里没有需要修改的。');
+    const keys=['apply','verify','save'];
+    const run={id:Date.now().toString(36),status:'running',apply:true,fromPreview:preview.id,startedAt:Date.now(),plan:preview.plan,
+      steps:STEPS.filter(([key])=>keys.includes(key)).map(([key,label])=>({key,label,status:'waiting',detail:''}))};
+    active=run.id;await save(run);
+    writePreview(run).finally(()=>{active=null;});
+    return run;
+  }
+  async function writePreview(run){
+    const step=async(key,status,detail='')=>{run.steps=run.steps.map(s=>s.key===key?{...s,status,detail}:s);await save(run);};
+    let current='apply';
+    try{
+      const planned=run.plan;
+      await step('apply','running');
+      const template=await bundled('TH_Apply.js');
+      const payload={id:run.id+'a',changes:planned.changes.map(({container,mbl,cells})=>({container,mbl,cells:cells.map(({col,column,before,after})=>({col,column,before,after}))})),moves:planned.moves.map(({container,mbl,from,terminal})=>({container,mbl,from,terminal}))};
+      const code=template.code.replace('const PAYLOAD = null;',`const PAYLOAD = ${JSON.stringify(payload)};`);
+      const result=await withTab(PICKUP_URL,'https://www.kdocs.cn/',tabId=>execute(tabId,airScriptPage,[{title:'TH_Apply',group:'mine',install:{code,build:template.build,always:true},expect:{type:'chunks'},timeout:300000}],'MAIN'));
+      const applied=result.rows.map(r=>JSON.parse(r));
+      for(const move of planned.moves){const real=applied.find(r=>r.container===move.container&&r.move)?.move;move.to=real?.to||null;move.done=Boolean(real?.to);}
+      const done=applied.reduce((n,r)=>n+(r.applied?.length||0),0),skippedCells=applied.reduce((n,r)=>n+(r.skipped?.length||0),0),moved=applied.filter(r=>r.move?.to).length;
+      await step('apply','done',`写入 ${done} 个格子，移动 ${moved} 行${skippedCells?`，跳过 ${skippedCells} 个`:''}`);
+      current='verify';await step('verify','running');
+      const after=await readPickup(await bundled('TH_ReadPickup.js'));
+      const verified=verify(planned,applied,after);
+      await step('verify',verified.problems.length?'error':'done',verified.problems.length?`${verified.problems.length} 处与预期不符：${verified.problems.slice(0,3).join('；')}`:`${verified.ok.length} 个柜子核对无误`);
+      current='save';await step('save','running');
+      let {chaguiCache:cache}=await chrome.storage.local.get('chaguiCache');
+      cache=recordRun(isCache(cache)?cache:emptyCache(),{run,statuses:[],appointed:planned.appointed||[],bookable:planned.bookable||[],newlyTracked:[],planned,applied,verified,baseline:after});
+      await chrome.storage.local.set({chaguiCache:cache});
+      await step('save','done',`写入 ${done} 个格子`);
+      run.status=verified.problems.length?'error':'done';run.error=verified.problems.length?'写表后复核有不符，请查看。':undefined;run.finishedAt=Date.now();await save(run);
+      notify('lfd-chagui',-1,'查柜完成',`按预览写入 ${done} 个格子，移动 ${moved} 行。`);
+    }catch(error){
+      run.steps=run.steps.map(s=>s.key===current?{...s,status:'error',detail:error.message}:s);
+      run.status='error';run.error=error.message;run.finishedAt=Date.now();await save(run);
+      notify('lfd-chagui',-1,'查柜失败',error.message);
+    }
+  }
+
   async function draydog(run,step){
     const tab=await chrome.tabs.create({url:DRAYDOG_URL,active:false});
     const who=auth=>`${auth.user}${auth.organization?' · '+auth.organization:''}`;
@@ -323,7 +371,7 @@ export function createChagui({execute,loaded,notify,focusTab}){
       if(!ok)await chrome.tabs.remove(tab.id).catch(()=>{});
     }
   }
-  return {start,state,importFile,exportFile,resolveHolds,stopWaiting,holdRules:loadHoldRules,setHoldRules:saveHoldRules};
+  return {start,applyPreview,state,importFile,exportFile,resolveHolds,stopWaiting,holdRules:loadHoldRules,setHoldRules:saveHoldRules};
 }
 
 /** Step 14: every planned cell that was written now shows its target, and every move landed. */

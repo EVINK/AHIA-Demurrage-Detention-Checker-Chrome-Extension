@@ -63,6 +63,15 @@ export async function answerHolds(){
 }
 export async function stopChagui(){try{await rpc({type:'chaguiStop'});}catch(error){status((error as Error).message,'error');}}
 
+/** Writes the last preview's changes as they are (each cell is still checked before it is written). */
+export async function applyPreviewChagui(){
+  if(demo){status('演示模式不会运行查柜。');return;}
+  if(!await ask('按这次预览写入提柜表？写之前会核对每个格子没被人改过，改过的会跳过。'))return;
+  starting.value=true;
+  try{await rpc({type:'chaguiApplyPreview'});status('正在按预览写入。');await loadChagui();}
+  catch(error){status((error as Error).message,'error');}
+  finally{starting.value=false;}
+}
 /** Start again from the failed step; finished list steps are reused. A run that writes asks again. */
 export async function retryChagui(){
   if(demo){status('演示模式不会运行查柜。');return;}
