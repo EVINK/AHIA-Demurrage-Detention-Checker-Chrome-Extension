@@ -24,7 +24,7 @@ try{applyLanguage(localStorage.getItem('lfd-language')||'');}catch{applyLanguage
 // from creating additional dialogs".
 let askDialog=async text=>false;
 export function useAsk(ask){askDialog=ask;}
-const ask=text=>askDialog(text);
+export const ask=text=>askDialog(text);
 
 // ---- Shared state
 const sources={sheet:'提柜表航司列','mbl-prefix':'MBL 前缀',manual:'手动选择'};
@@ -244,7 +244,8 @@ export async function refreshState({initial=false}={}){
   // Only the first read: afterwards this page holds the newest settings, possibly with a write still on its way.
   if(initial){
     settings.value=validateSettings(state.settings);applyLanguage(settings.value.language);
-    if(state.openTarget==='autoCc'){ui.page='config';ui.scroll.config=0;if(!isOpen('autoCcSection'))ui.open=[...ui.open,'autoCcSection'];openedAutoCc=true;}
+    if(state.openTarget==='labs'){ui.page='labs';ui.scroll.labs=0;}
+    if(state.openTarget==='autoCc'){ui.page='labs';ui.scroll.labs=0;if(!isOpen('autoCcSection'))ui.open=[...ui.open,'autoCcSection'];openedAutoCc=true;}
   }
   setLedger(state.ledger);
   if(initial){
@@ -570,7 +571,7 @@ export async function copyScript(){
 export async function downloadScript(){try{download(await scriptText(),'LFD_ReadOnly_v1.js','text/javascript');status('只读脚本已下载。','success');}catch(error){status(error.message,'error');}}
 
 function showAutoCcSection(){
-  showPage('config');setOpen('autoCcSection',true);
+  showPage('labs');setOpen('autoCcSection',true);
   nextTick(()=>document.getElementById('autoCcSection')?.scrollIntoView());
 }
 // Starts everything once the page is mounted, then returns the popup to where the user left off.
@@ -584,7 +585,7 @@ export async function boot(){
   document.addEventListener('visibilitychange',()=>{if(document.hidden)flushSave();});
   if(demo)return;
   // The Gmail button asks a page that is already open to show the section.
-  chrome.runtime.onMessage.addListener(request=>{if(request?.type==='showAutoCc')showAutoCcSection();});
+  chrome.runtime.onMessage.addListener(request=>{if(request?.type==='showAutoCc')showAutoCcSection();if(request?.type==='showLabs')showPage('labs');});
   // Another window of the plugin changed something. The field being typed in is left alone.
   chrome.storage.onChanged.addListener((changes,area)=>{
     if(area!=='local'||!changes.settings?.newValue||saveTimer||pendingWrites)return;

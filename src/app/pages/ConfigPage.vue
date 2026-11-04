@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import {NButton,NCheckbox,NInput,NInputNumber,NSelect} from 'naive-ui';
+import {NButton,NInput,NInputNumber,NSelect} from 'naive-ui';
 import {addProfile,addType,adding,channelChanged,channelOptions,channelVisible,clearCache,closeAddProfile,closeAddType,copyScript,currentProfile,currentType,customType,defaultCarrierOptions,defaultTypeOptions,deleteDisabled,deleteProfile,deleteType,downloadScript,editChannel,editTypeOptions,editingId,editingType,exportConfig,flushSave,form,importInput,importText,isOpen,kind,openAddProfile,openAddType,openDefaultApps,profileOptions,restoreDefaults,saveLine,scriptFallback,selectProfile,selectType,setOpen,t,terminalMode,testNotification,useStandardTemplate} from '../store.ts';
 
 // Kept here because their {{tokens}} cannot sit inside a template expression.
@@ -106,15 +106,6 @@ const toggle=(id,event)=>setOpen(id,event.target.open);
           <p class="mail-program-links">{{t('插件只能打开')}} <b>{{t('Windows 默认邮件程序')}}</b>{{t('（无法直接指定其他程序，也无法检测是否已安装），这里选的程序必须与 Windows 默认邮件程序一致。没有安装：')}}<a href="https://www.foxmail.com/" target="_blank" rel="noopener">{{t('下载 Foxmail')}}</a> · <a href="https://apps.microsoft.com/detail/9NRX63209R7B" target="_blank" rel="noopener">{{t('下载 Outlook（Microsoft Store）')}}</a> · <a id="defaultAppsLink" href="ms-settings:defaultapps" rel="noopener" @click.prevent="openDefaultApps">{{t('打开 Windows 默认应用设置')}}</a>{{t('（搜索「MAILTO」并选择）。')}}</p>
         </div>
       </template>
-    </form>
-  </details>
-  <details id="autoCcSection" class="settings-section" :open="isOpen('autoCcSection')" @toggle="toggle('autoCcSection',$event)">
-    <summary>{{t('实验性功能：Gmail 自动抄送（Auto CC）')}}</summary>
-    <form id="autoCcForm" @submit.prevent="flushSave">
-      <p class="hint">{{t('发件人在名单内时，写信和回复自动加上抄送；其他发件人不受影响。')}}</p>
-      <n-checkbox id="autoCcEnabled" class="check" v-model:checked="form.autoCcEnabled">{{t('开启 Auto CC')}}</n-checkbox>
-      <label class="field-label" for="autoCcSenders">{{t('发件人')}}</label><n-input v-model:value="form.autoCcSenders" :input-props="field('autoCcSenders')" :placeholder="t('多个邮箱用逗号分隔')"/>
-      <label class="field-label" for="autoCcCc">{{t('抄送对象')}}</label><n-input v-model:value="form.autoCcCc" :input-props="field('autoCcCc')" :placeholder="t('多个邮箱用逗号分隔')"/>
     </form>
   </details>
   <details id="importSection" class="settings-section" :open="isOpen('importSection')" @toggle="toggle('importSection',$event)">
