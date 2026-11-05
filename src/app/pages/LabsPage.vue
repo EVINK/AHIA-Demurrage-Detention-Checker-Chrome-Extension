@@ -79,7 +79,7 @@ onMounted(()=>{loadChagui();watchChagui();loadHoldRules();});
           <div v-for="u in pending" :key="holdKey(u)" class="labs-pending-row">
             <div><b>{{u.text||u.type}}</b><span v-if="u.source" class="hint"> （{{t(byLabel(u.source))}}）</span><span v-else-if="u.type&&u.text" class="hint"> （{{u.type}}）</span><p class="hint">{{u.containers.join('、')}}</p></div>
             <n-radio-group size="small" :value="answer(u).hold?'hold':'ignore'" @update:value="v=>answer(u).hold=v==='hold'">
-              <n-radio value="hold">{{t('不可提（添加关键词） B 列写')}}</n-radio>
+              <n-radio value="hold">{{t('不可提（添加关键词）')}}</n-radio>
               <n-radio value="ignore">{{t('可提（忽略）')}}</n-radio>
             </n-radio-group>
             <n-input v-if="answer(u).hold" v-model:value="answer(u).word" size="small" class="labs-word"/>

@@ -60,7 +60,7 @@ export const LAB_STRINGS=[
 ['{}。点此打开插件选择：1 不可提（添加关键词）；2 可提（忽略）；3 暂停任务。','{0}. Click to open the plugin and choose: 1 not pickable (add keyword); 2 pickable (ignore); 3 pause the task.','{0}. Haga clic para abrir el complemento y elegir: 1 no retirable (añadir palabra); 2 retirable (ignorar); 3 pausar la tarea.'],
 ['已暂停：新的词还没处理。处理好后点「重试」继续。','Paused: the new words are not handled yet. Click Retry to continue once they are.','En pausa: las palabras nuevas aún no se resolvieron. Pulse Reintentar para seguir.'],
 ['Draydog 出现了关键词里没有的词，请选择怎么处理：','Draydog shows words that are not in the keywords. Choose what to do:','Draydog muestra palabras que no están en la lista. Elija qué hacer:'],
-['不可提（添加关键词） B 列写','Not pickable (add keyword) · column B gets','No retirable (añadir palabra) · la columna B lleva'],
+['不可提（添加关键词）','Not pickable (add keyword)','No retirable (añadir palabra)'],
 ['可提（忽略）','Pickable (ignore)','Retirable (ignorar)'],
 ['暂停任务','Pause the task','Pausar la tarea'],
 ['不是 Hold','Not a hold','No es retención'],

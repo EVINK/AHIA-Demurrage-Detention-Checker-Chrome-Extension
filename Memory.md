@@ -264,6 +264,8 @@ Debugging: a reinstalled unpacked extension kept running its old service worker 
 
 **v0.9.11.** Card badges: the Trapac "Reliability Issues" badge is in Dray Dog's code but not in calcBadges, so the card never shows it; removed (owner saw it asked for HMMU6571624). The new-word panel got spacing (.labs-pending styles) and the option reads "不可提（添加关键词） B 列写" without the comma.
 
+**v0.9.12.** The new-word option reads just 不可提（添加关键词）; the column B word box stays next to it (owner, 11/5).
+
 ## Known limitations
 
 - Gmail, COSCO, ONE and KDocs are driven through their page structure, so a site redesign can stop any flow. Failures stop with a message rather than guess.
