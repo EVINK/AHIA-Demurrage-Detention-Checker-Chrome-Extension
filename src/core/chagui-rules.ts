@@ -99,7 +99,7 @@ export function cardBadges(c,{lineCheck=false}={}){
   if(String(c.shipping_line||'').toUpperCase()==='COSU'&&!c.master_bl&&!status?.master_bill_of_lading)add('BOL Needed for Cosco');
   if(terminal==='wbct'&&tracked&&status&&!c.master_bl&&!status.master_bill_of_lading)add('BOL needed for booking');
   if(terminal==='apm'&&tracked&&status&&status.master_bill_of_lading===null)add('⛔️ APM Missing BOL');
-  if(terminal==='trapac'&&tracked)add('Reliability Issues (hover me)');
+  // (Dray Dog's code has a Trapac "Reliability Issues" badge, but the card does not show it: not in calcBadges.)
   // Pier Pass (TMF) and PortCheck (CTF) badges.
   if(tracked){
     const tmfHold=(status?.parsed_holds||[]).some(h=>h.type==='TMF Hold');

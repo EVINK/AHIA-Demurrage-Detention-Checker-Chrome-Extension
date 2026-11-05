@@ -262,6 +262,8 @@ Debugging: a reinstalled unpacked extension kept running its old service worker 
 
 **v0.9.10.** Owner, 11/5: 仍要发送 on a locked container row stays a text button (warning colour), only with some space on its left (`.resend-locked`, margin-left 10px). v0.9.8 had turned it into a bordered button, which the owner did not want. (v0.9.9 is the Draydog badge change.)
 
+**v0.9.11.** Card badges: the Trapac "Reliability Issues" badge is in Dray Dog's code but not in calcBadges, so the card never shows it; removed (owner saw it asked for HMMU6571624). The new-word panel got spacing (.labs-pending styles) and the option reads "不可提（添加关键词） B 列写" without the comma.
+
 ## Known limitations
 
 - Gmail, COSCO, ONE and KDocs are driven through their page structure, so a site redesign can stop any flow. Failures stop with a message rather than guess.
