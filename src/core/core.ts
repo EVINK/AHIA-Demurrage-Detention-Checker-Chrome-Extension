@@ -277,30 +277,38 @@ export function messageTemplate(record,options={}){
 }
 function editedType(type,edit){
   if(typeof edit!=='object'||Array.isArray(edit))throw new Error('邮件选项格式无效。');
-  const text=value=>value==null?'':typeof value==='string'?value:(()=>{throw new Error('邮件选项格式无效。');})();
-  const subject=text(edit.subject).replace(/[\r\n]+/g,' ').trim(),body=text(edit.body).replace(/\r\n?/g,'\n');
-  return {...type,to:addressList(text(edit.to)),cc:addressList(text(edit.cc)),subjectTemplate:subject,bodyTemplate:body.trim()?body:''};
+  const subject=editText(edit.subject).replace(/[\r\n]+/g,' ').trim();
+  return {...type,to:addressList(editText(edit.to)),cc:addressList(editText(edit.cc)),subjectTemplate:subject,bodyTemplate:editedBody(edit)};
+}
+const editText=value=>value==null?'':typeof value==='string'?value:(()=>{throw new Error('邮件选项格式无效。');})();
+// COSCO tickets and ONE chats take a one-off body only.
+function editedBody(edit){
+  if(typeof edit!=='object'||Array.isArray(edit))throw new Error('邮件选项格式无效。');
+  const body=editText(edit.body).replace(/\r\n?/g,'\n');
+  return body.trim()?body:'';
 }
 /** Ticket content for a carrier whose channel is a support portal instead of email. */
 export function portalTemplate(record,options={}){
   if(!options||typeof options!=='object'||Array.isArray(options))throw new Error('工单选项格式无效。');
-  const profile=normalizeCarriers([options.carrier])[0],id=resolveType(profile,options.inquiryType||PORTAL_INQUIRY_TYPE),type=findType(profile,id),onHire=id===ON_HIRE;
+  const profile=normalizeCarriers([options.carrier])[0],id=resolveType(profile,options.inquiryType||PORTAL_INQUIRY_TYPE),onHire=id===ON_HIRE;
+  let type=findType(profile,id);
   if(type?.channel!=='cosco-portal')throw new Error(`${profile.name} 不是工单网站方式。`);
   if(!profile.portal.requester)throw new Error('请先配置 COSCO 工单的 Requester 邮箱。');
   if(options.more?.length&&!onHire)throw new Error('只有 On-Hire 工单支持一次提交多个柜号。');
   const portal=profile.portal;
   if(!type.bodyTemplate)throw new Error('首次使用该船公司，请先配置正文模板。');
+  if(options.edit){type={...type,bodyTemplate:editedBody(options.edit)};if(!type.bodyTemplate)throw new Error('本次工单的正文不能为空。');}
   if(onHire){
     // On-Hire: Type Equipment → Services / Region / Number of Containers / Container # / SCAC Code; Description
     // from the carrier's On-Hire template with {{table}} as the Container# / MBL# table (one row per container).
-    const {bodyText,html,items}=renderTemplates(record,profile,type,options.more||[]);
+    const {bodyText,html,items,editableBody}=renderTemplates(record,profile,type,options.more||[]);
     const fields=[{label:'Type',value:portal.onHire.type,kind:'select'},{label:'Services',value:portal.onHire.service,kind:'select'},{label:'Region',value:portal.onHire.region,kind:'select'},
       {label:'Number of Containers',value:String(items.length),kind:'input'},{label:'Container #',value:items.map(item=>item.container).join(' '),kind:'input'},{label:'SCAC Code',value:portal.reference,kind:'input'}].filter(field=>field.value);
-    return {channel:'cosco-portal',url:portal.onHire.url,requester:portal.requester,fields,containers:items.map(item=>item.container),carrierId:profile.id,carrierName:profile.name,inquiryType:id,typeLabel:type.label,bodyText,html};
+    return {channel:'cosco-portal',url:portal.onHire.url,requester:portal.requester,fields,containers:items.map(item=>item.container),carrierId:profile.id,carrierName:profile.name,inquiryType:id,typeLabel:type.label,bodyText,html,editableBody};
   }
-  const {bodyText,html}=renderTemplates(record,profile,type);
+  const {bodyText,html,editableBody}=renderTemplates(record,profile,type);
   const fields=[{label:'Shipment Type',value:portal.shipmentType,kind:'select'},{label:'Per Diem Services',value:portal.service,kind:'select'},{label:'PD INV /BL /BKG /HOU # /SCAC Code',value:portal.reference,kind:'input'}].filter(field=>field.value);
-  return {channel:'cosco-portal',url:'https://support.cosco-usa.com/support/tickets/new',...portal,fields,carrierId:profile.id,carrierName:profile.name,inquiryType:id,typeLabel:type.label,bodyText,html};
+  return {channel:'cosco-portal',url:'https://support.cosco-usa.com/support/tickets/new',...portal,fields,carrierId:profile.id,carrierName:profile.name,inquiryType:id,typeLabel:type.label,bodyText,html,editableBody};
 }
 /** Chat message for a carrier whose channel is the ONE live chat. */
 export function chatTemplate(record,options={}){
@@ -312,7 +320,12 @@ export function chatTemplate(record,options={}){
   if(new Set(items.map(item=>item.container)).size!==items.length)throw new Error('同一会话中的柜号不能重复。');
   if(items.length>10)throw new Error('一个 ONE 会话最多查询 10 个柜号。');
   const values={type:type.label.toLowerCase(),Type:type.label,carrier:profile.name};
-  const messages=items.map(item=>profile.chat.message.replace(/\{\{([^{}]*)\}\}/g,(_,token)=>({...values,...item})[token]));
+  let messages=items.map(item=>profile.chat.message.replace(/\{\{([^{}]*)\}\}/g,(_,token)=>({...values,...item})[token]));
+  // A one-off edit: one message per line, one line per container, in the same order.
+  if(options.edit){
+    messages=editedBody(options.edit).split('\n').map(line=>line.trim()).filter(Boolean);
+    if(messages.length!==items.length)throw new Error(`ONE 消息需要每个柜号一行，共 ${items.length} 行。`);
+  }
   const message=messages.join('\n');
   return {channel:'one-chat',...profile.chat,message,messages,containers:items.map(item=>item.container),carrierId:profile.id,carrierName:profile.name,inquiryType:id,typeLabel:type.label};
 }

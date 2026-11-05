@@ -58,6 +58,16 @@ test('portal ticket uses the default mail body, always Detention, and is never r
   assert.throws(()=>portalTemplate(record,{carrier:{...cosco(),portal:{...COSCO_PORTAL,requester:''}}}),/Requester/);
 });
 
+test('a one-off edit changes only this ticket body and keeps the fields and the settings',()=>{
+  const profile=cosco(),before=JSON.stringify(profile),original=portalTemplate(record,{carrier:profile});
+  assert.ok(original.editableBody.includes('{{table}}'));assert.ok(original.editableBody.includes('Dear Cosco'));
+  const edited=portalTemplate(record,{carrier:profile,edit:{body:original.editableBody.replace('Dear Cosco','Hello team'),to:'ignored@x.com'}});
+  assert.ok(edited.bodyText.startsWith('Hello team'));assert.match(edited.html,/<table[^>]*>.*MSMU7504817/);
+  assert.deepEqual(edited.fields,original.fields);assert.equal(edited.requester,original.requester);
+  assert.throws(()=>portalTemplate(record,{carrier:profile,edit:{body:'  '}}),/不能为空/);
+  assert.equal(JSON.stringify(profile),before);assert.equal(portalTemplate(record,{carrier:profile}).bodyText,original.bodyText);
+});
+
 test('identify reports the portal channel with Detention even when Demurrage is selected',async()=>{
   const t=setup();
   const identified=await t.service.run(record.container,'identify',{inquiryType:'demurrage'});

@@ -122,7 +122,7 @@ A version 1 file does not mention terminals, mode, Auto CC or language, so those
 
 Several containers in one message (`supportsManyContainers`): every email type, ONE chat, and COSCO On-Hire. COSCO's Detention ticket takes one container. Since v0.8.0 Demurrage and Detention work like On-Hire: each extra row is looked up for its MBL and carrier, rows of another carrier are marked and block sending, and one email carries all containers in `{{table}}`, with `{{container}}` and `{{mbl}}` joined by commas.
 
-One-off edit (v0.9.8): an email group's To / Cc / subject / body can be changed for one send from the query page (`options.edit` → `messageTemplate`); settings and templates are never changed by it.
+One-off edit (v0.9.8, COSCO / ONE since v0.9.13): an email group's To / Cc / subject / body can be changed for one send from the query page (`options.edit` → `messageTemplate`); a COSCO ticket or ONE chat takes the body only (`portalTemplate` / `chatTemplate` with `options.edit.body`). Settings and templates are never changed by it.
 
 Duplicate lock: container + MBL + profile + type. The check compares entry contents, so old key formats (with the account, or the earliest three-part ones) still block.
 
@@ -265,6 +265,8 @@ Debugging: a reinstalled unpacked extension kept running its old service worker 
 **v0.9.11.** Card badges: the Trapac "Reliability Issues" badge is in Dray Dog's code but not in calcBadges, so the card never shows it; removed (owner saw it asked for HMMU6571624). The new-word panel got spacing (.labs-pending styles) and the option reads "不可提（添加关键词） B 列写" without the comma.
 
 **v0.9.12.** The new-word option reads just 不可提（添加关键词）; the column B word box stays next to it (owner, 11/5).
+
+**v0.9.13.** Owner, 11/5: ✎ 编辑 also on COSCO and ONE groups, body only. COSCO: the ticket description is edited like a mail body (values filled, `{{table}}` kept), Type / Services / reference fields stay. Not offered for a COSCO Detention group with several containers, because each gets its own ticket and would all get the first one's text. ONE: one message per line, one line per container in order (`chatTemplate` rejects another line count). Store: `mailOf` builds any channel, `edit.mailOnly` marks an email edit; `editFields` sends only `body` for the other two.
 
 ## Known limitations
 

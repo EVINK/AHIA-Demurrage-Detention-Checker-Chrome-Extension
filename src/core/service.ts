@@ -125,7 +125,9 @@ export function createService({storage, readSheet, prepareMail, sendMail, prepar
       if(!cached&&!item.mbl)throw new Error(`${extraContainer} 尚未查询，请先查询后再加入。`);
       return {container:extraContainer,mbl:mblNumber(item.mbl||cached.mbl)};
     });
-    const message = chat?chatTemplate(record,{carrier,inquiryType:type,more:extras}):portal?portalTemplate(record,{carrier,inquiryType:type,more:extras}):messageTemplate(record,{carrier,inquiryType:type,more:extras,plainTextLayout:settings.mailClient==='outlook'?'labels':'table',...(options.edit?{edit:options.edit}:{})});
+    // A one-off edit from the query page (email: To / Cc / subject / body; ticket and chat: body only).
+    const edit=options.edit?{edit:options.edit}:{};
+    const message = chat?chatTemplate(record,{carrier,inquiryType:type,more:extras,...edit}):portal?portalTemplate(record,{carrier,inquiryType:type,more:extras,...edit}):messageTemplate(record,{carrier,inquiryType:type,more:extras,plainTextLayout:settings.mailClient==='outlook'?'labels':'table',...edit});
     if (mode === 'preview') return {...record, ...message};
     const items=[{container:record.container,mbl:record.mbl},...extras];
     const keys=items.map(item=>JSON.stringify([item.container, item.mbl, carrier.id, type]));

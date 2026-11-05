@@ -37,6 +37,14 @@ test('chat message follows the selected type: demurrage and detention',()=>{
   assert.equal(chatTemplate(record,{carrier:one(),inquiryType:'detention'}).message,'Please advise detention LFD for TRHU6206940 / ONEYSZPGR9159802');
 });
 
+test('a one-off edit replaces the chat messages, one line per container, and leaves the template alone',()=>{
+  const more=[{container:'NYKU4734803',mbl:'ONEYNB6BDCV24500'}];
+  const edited=chatTemplate(record,{carrier:one(),inquiryType:'demurrage',more,edit:{body:'First please\r\n\n  Second please  '}});
+  assert.deepEqual(edited.messages,['First please','Second please']);assert.equal(edited.message,'First please\nSecond please');
+  assert.throws(()=>chatTemplate(record,{carrier:one(),inquiryType:'demurrage',more,edit:{body:'Only one'}}),/每个柜号一行，共 2 行/);
+  assert.equal(chatTemplate(record,{carrier:one(),inquiryType:'demurrage'}).message,'Please advise demurrage LFD for TRHU6206940 / ONEYSZPGR9159802');
+});
+
 test('chat config validates the message template and email, and round-trips through JSON',()=>{
   const base=DEFAULT_CARRIERS.find(p=>p.id==='one');
   assert.throws(()=>normalizeCarriers([{...base,chat:{...ONE_CHAT,message:'Please advise LFD for {{container}}'}}]),/必须包含/);

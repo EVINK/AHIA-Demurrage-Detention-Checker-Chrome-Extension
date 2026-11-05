@@ -187,18 +187,25 @@ const previewItems=group=>(group.ready.length?group.ready:group.rows.map(row=>ro
 export const mailEdits=reactive({});
 const editKey=group=>`${group.type}|${previewItems(group).map(item=>`${item.container}/${item.mbl}`).join(',')}`;
 export function editOf(group){const edit=mailEdits[group.id];return edit&&edit.key===editKey(group)?edit:null;}
+// What the group sends (its first ticket where each container gets its own), with an edit applied when given.
 const mailOf=(group,edit=null)=>{
-  const [first,...rest]=previewItems(group);
-  return messageTemplate(first,{carrier:group.profile,inquiryType:group.type,...(rest.length?{more:rest}:{}),...(edit?{edit}:{})});
+  const [first,...rest]=previewItems(group),options={carrier:group.profile,inquiryType:group.type,...(edit?{edit}:{})};
+  if(group.channel==='one-chat')return chatTemplate(first,{...options,more:rest.slice(0,9)});
+  if(group.channel==='cosco-portal')return portalTemplate(first,{...options,...(group.many&&rest.length?{more:rest}:{})});
+  return messageTemplate(first,{...options,...(rest.length?{more:rest}:{})});
 };
-const editFields=edit=>({to:edit.to,cc:edit.cc,subject:edit.subject,body:edit.body});
-export const canEditMail=group=>group.channel==='email'&&!group.missing.length&&previewItems(group).length>0;
+// COSCO tickets and ONE chats take a body only.
+const editFields=edit=>edit.mailOnly?{to:edit.to,cc:edit.cc,subject:edit.subject,body:edit.body}:{body:edit.body};
+// Several COSCO tickets (one per container) would all get the first one's text: not editable then.
+export const canEditMail=group=>!group.missing.length&&previewItems(group).length>0&&(group.channel!=='cosco-portal'||group.many||previewItems(group).length===1);
 export function startEdit(group){
   const current=editOf(group);
   if(current){current.editing=true;return;}
   try{
-    const mail=mailOf(group);
-    mailEdits[group.id]={key:editKey(group),editing:true,to:mail.to.join(', '),cc:mail.cc.join(', '),subject:mail.subject,body:mail.editableBody};
+    const sent=mailOf(group),mail=group.channel==='email';
+    mailEdits[group.id]={key:editKey(group),editing:true,mailOnly:mail,
+      ...(mail?{to:sent.to.join(', '),cc:sent.cc.join(', '),subject:sent.subject}:{}),
+      body:group.channel==='one-chat'?sent.messages.join('\n'):sent.editableBody};
   }catch(error){status(error.message,'error');}
 }
 export function finishEdit(group){
@@ -209,19 +216,17 @@ export function discardEdit(group){delete mailEdits[group.id];}
 export function previewOf(group){
   const items=previewItems(group);
   if(!items.length||group.missing.length)return null;
-  const [first,...rest]=items;
   try{
-    if(group.channel==='one-chat'){const chat=chatTemplate(first,{carrier:group.profile,inquiryType:group.type,more:rest.slice(0,9)});return {to:`${chat.firstName} ${chat.lastName} · ${chat.email}`,subject:'',html:'',lines:chat.messages};}
-    if(group.channel==='cosco-portal'){const ticket=portalTemplate(first,{carrier:group.profile,inquiryType:group.type,...(group.many&&rest.length?{more:rest}:{})});return {to:new URL(ticket.url).hostname,subject:ticket.fields.map(f=>f.value).join(' · '),html:ticket.html,lines:[],note:!group.many&&items.length>1?`共 ${items.length} 张工单，这里是第一张`:''};}
-    const edit=editOf(group);
-    const mail=mailOf(group,edit?editFields(edit):null);
-    return {to:mail.to.join(', '),cc:mail.cc.join(', '),subject:mail.subject,html:mail.html,lines:[],edited:Boolean(edit)};
+    const edit=editOf(group),sent=mailOf(group,edit?editFields(edit):null),edited=Boolean(edit);
+    if(group.channel==='one-chat')return {to:`${sent.firstName} ${sent.lastName} · ${sent.email}`,subject:'',html:'',lines:sent.messages,edited};
+    if(group.channel==='cosco-portal')return {to:new URL(sent.url).hostname,subject:sent.fields.map(f=>f.value).join(' · '),html:sent.html,lines:[],edited,note:!group.many&&items.length>1?`共 ${items.length} 张工单，这里是第一张`:''};
+    return {to:sent.to.join(', '),cc:sent.cc.join(', '),subject:sent.subject,html:sent.html,lines:[],edited};
   }catch(error){return {error:error.message,edited:Boolean(editOf(group))};}
 }
 export const sending=reactive({});
 async function runGroup(group,mode){
   const queued=[],failed=[],duplicates=[];
-  const edit=group.channel==='email'?editOf(group):null;
+  const edit=canEditMail(group)?editOf(group):null;
   for(const run of group.runs){
     const [first,...rest]=run;
     try{

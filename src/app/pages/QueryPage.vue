@@ -6,6 +6,7 @@ import {busy,channelName,configureCarrier,containersInput,entryNote,groupLabels,
 const missingNames={carrier:'船公司配置',type:'查询类型',to:'收件邮箱',requester:'工单 Requester',reference:'PD INV /BL /BKG /HOU # /SCAC Code',bodyTemplate:'正文模板',subjectTemplate:'主题模板'};
 // Kept out of the template: its {{table}} would end the template's own {{ }}.
 const editHint='{{table}} 处会放入柜号表格。这里的修改只用于这一次发送，不会改动配置里的模板。';
+const chatEditHint='每个柜号一行消息，顺序和上面的柜号一致。这里的修改只用于这一次发送，不会改动配置里的模板。';
 const missingText=group=>group.missing.map(key=>t(missingNames[key]||key)).join(' · ');
 </script>
 
@@ -62,16 +63,18 @@ const missingText=group=>group.missing.map(key=>t(missingNames[key]||key)).join(
           <summary>{{t('预览')}}<span v-if="editOf(group)" class="edited-mark">{{t('已临时修改 · 仅本次发送')}}</span></summary>
           <template v-for="preview in [previewOf(group)]" :key="group.id+'p'">
             <div v-if="canEditMail(group)&&!editOf(group)?.editing" class="preview-tools">
-              <n-button text size="tiny" class="edit-mail" :title="t('只修改这一次发送的邮件，不会改动配置里的模板')" @click="startEdit(group)">✎ {{t('编辑')}}</n-button>
+              <n-button text size="tiny" class="edit-mail" :title="t(group.channel==='email'?'只修改这一次发送的邮件，不会改动配置里的模板':'只修改这一次发送的正文，不会改动配置里的模板')" @click="startEdit(group)">✎ {{t('编辑')}}</n-button>
               <n-button v-if="editOf(group)" text size="tiny" class="edit-mail" @click="discardEdit(group)">{{t('恢复模板')}}</n-button>
             </div>
             <form v-if="editOf(group)?.editing" class="mail-edit" @submit.prevent="finishEdit(group)">
               <template v-for="edit in [editOf(group)]" :key="group.id+'e'">
-                <label class="field-label">To</label><n-input size="small" v-model:value="edit.to" :input-props="{autocomplete:'off',spellcheck:false}" :placeholder="t('多个邮箱用逗号分隔')"/>
-                <label class="field-label">Cc</label><n-input size="small" v-model:value="edit.cc" :input-props="{autocomplete:'off',spellcheck:false}" :placeholder="t('多个邮箱用逗号分隔')"/>
-                <label class="field-label">{{t('主题')}}</label><n-input size="small" v-model:value="edit.subject" placeholder=""/>
-                <label class="field-label">{{t('正文')}}</label><n-input type="textarea" size="small" v-model:value="edit.body" :autosize="{minRows:5,maxRows:16}" placeholder=""/>
-                <p class="hint">{{t(editHint)}}</p>
+                <template v-if="edit.mailOnly">
+                  <label class="field-label">To</label><n-input size="small" v-model:value="edit.to" :input-props="{autocomplete:'off',spellcheck:false}" :placeholder="t('多个邮箱用逗号分隔')"/>
+                  <label class="field-label">Cc</label><n-input size="small" v-model:value="edit.cc" :input-props="{autocomplete:'off',spellcheck:false}" :placeholder="t('多个邮箱用逗号分隔')"/>
+                  <label class="field-label">{{t('主题')}}</label><n-input size="small" v-model:value="edit.subject" placeholder=""/>
+                </template>
+                <label class="field-label">{{t('正文')}}</label><n-input type="textarea" size="small" v-model:value="edit.body" :autosize="{minRows:group.channel==='one-chat'?2:5,maxRows:16}" placeholder=""/>
+                <p class="hint">{{t(group.channel==='one-chat'?chatEditHint:editHint)}}</p>
                 <div class="edit-actions">
                   <n-button size="tiny" quaternary @click="discardEdit(group)">{{t('恢复模板')}}</n-button>
                   <n-button size="tiny" attr-type="submit">{{t('完成')}}</n-button>
