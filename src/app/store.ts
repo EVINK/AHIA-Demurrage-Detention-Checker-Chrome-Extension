@@ -181,28 +181,57 @@ export function entryNote(entry){
   if(!carrierOf(entry))return entry.sheetCarrier?`表中船公司「${entry.sheetCarrier}」未配置，请选择`:`请选择${kind.value}`;
   return '';
 }
+const previewItems=group=>(group.ready.length?group.ready:group.rows.map(row=>row.entry)).map(entry=>({container:entry.container,mbl:mblOf(entry)}));
+// One-off mail edits, per group: they change this send only, never the carrier's templates. An edit belongs to the
+// containers and type it was made for; once those change it no longer applies.
+export const mailEdits=reactive({});
+const editKey=group=>`${group.type}|${previewItems(group).map(item=>`${item.container}/${item.mbl}`).join(',')}`;
+export function editOf(group){const edit=mailEdits[group.id];return edit&&edit.key===editKey(group)?edit:null;}
+const mailOf=(group,edit=null)=>{
+  const [first,...rest]=previewItems(group);
+  return messageTemplate(first,{carrier:group.profile,inquiryType:group.type,...(rest.length?{more:rest}:{}),...(edit?{edit}:{})});
+};
+const editFields=edit=>({to:edit.to,cc:edit.cc,subject:edit.subject,body:edit.body});
+export const canEditMail=group=>group.channel==='email'&&!group.missing.length&&previewItems(group).length>0;
+export function startEdit(group){
+  const current=editOf(group);
+  if(current){current.editing=true;return;}
+  try{
+    const mail=mailOf(group);
+    mailEdits[group.id]={key:editKey(group),editing:true,to:mail.to.join(', '),cc:mail.cc.join(', '),subject:mail.subject,body:mail.editableBody};
+  }catch(error){status(error.message,'error');}
+}
+export function finishEdit(group){
+  const edit=editOf(group);if(!edit)return;
+  try{mailOf(group,editFields(edit));edit.editing=false;}catch(error){status(error.message,'error');}
+}
+export function discardEdit(group){delete mailEdits[group.id];}
 export function previewOf(group){
-  const items=(group.ready.length?group.ready:group.rows.map(row=>row.entry)).map(entry=>({container:entry.container,mbl:mblOf(entry)}));
+  const items=previewItems(group);
   if(!items.length||group.missing.length)return null;
   const [first,...rest]=items;
   try{
     if(group.channel==='one-chat'){const chat=chatTemplate(first,{carrier:group.profile,inquiryType:group.type,more:rest.slice(0,9)});return {to:`${chat.firstName} ${chat.lastName} · ${chat.email}`,subject:'',html:'',lines:chat.messages};}
     if(group.channel==='cosco-portal'){const ticket=portalTemplate(first,{carrier:group.profile,inquiryType:group.type,...(group.many&&rest.length?{more:rest}:{})});return {to:new URL(ticket.url).hostname,subject:ticket.fields.map(f=>f.value).join(' · '),html:ticket.html,lines:[],note:!group.many&&items.length>1?`共 ${items.length} 张工单，这里是第一张`:''};}
-    const mail=messageTemplate(first,{carrier:group.profile,inquiryType:group.type,...(rest.length?{more:rest}:{})});
-    return {to:mail.to.join(', '),cc:mail.cc.join(', '),subject:mail.subject,html:mail.html,lines:[]};
-  }catch(error){return {error:error.message};}
+    const edit=editOf(group);
+    const mail=mailOf(group,edit?editFields(edit):null);
+    return {to:mail.to.join(', '),cc:mail.cc.join(', '),subject:mail.subject,html:mail.html,lines:[],edited:Boolean(edit)};
+  }catch(error){return {error:error.message,edited:Boolean(editOf(group))};}
 }
 export const sending=reactive({});
 async function runGroup(group,mode){
   const queued=[],failed=[],duplicates=[];
+  const edit=group.channel==='email'?editOf(group):null;
   for(const run of group.runs){
     const [first,...rest]=run;
     try{
-      const data=await rpc({type:'run',mode,container:first.container,options:{carrierId:group.id,inquiryType:query.inquiryType,mode:settings.value.mode,manualMbl:mblOf(first),useConfirmed:true,...(rest.length?{more:rest.map(entry=>({container:entry.container,mbl:mblOf(entry)}))}:{})}});
+      const data=await rpc({type:'run',mode,container:first.container,options:{carrierId:group.id,inquiryType:query.inquiryType,mode:settings.value.mode,manualMbl:mblOf(first),useConfirmed:true,...(rest.length?{more:rest.map(entry=>({container:entry.container,mbl:mblOf(entry)}))}:{}),...(edit?{edit:editFields(edit)}:{})}});
       if(data.mailto)openMailto(data.mailto);
       queued.push(...run.map(entry=>entry.container));
     }catch(error){if(error.duplicate)duplicates.push(...error.duplicate);else failed.push(`${run.map(entry=>entry.container).join('、')}：${t(error.message)}`);}
   }
+  // The edit was for this send only.
+  if(edit&&queued.length&&!failed.length)discardEdit(group);
   return {queued,failed,duplicates};
 }
 async function dispatch(list,mode){

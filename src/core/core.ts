@@ -265,13 +265,21 @@ export function recognizeCarrier(record,profiles=DEFAULT_CARRIERS){
 export function messageTemplate(record,options={}){
   if(!options||typeof options!=='object'||Array.isArray(options))throw new Error('邮件选项格式无效。');
   const rawProfile=options.carrier!==undefined?options.carrier:options.profile!==undefined?options.profile:DEFAULT_CARRIERS[0];
-  const profile=normalizeCarriers([rawProfile])[0],requested=inquiryType(options.inquiryType,[profile]),id=resolveType(profile,requested)||requested,type=findType(profile,id);
-  if(!type)throw new Error(`${profile.name} 没有配置 ${INQUIRY_TYPES[id]||id} 这个查询类型。`);
-  if(type.channel!=='email')throw new Error(`${profile.name} 使用${type.channel==='one-chat'?'在线客服':'工单网站'}，不发邮件。`);
-  if(!type.to.length)throw new Error(`请先在 ${profile.name} 的配置中填写 ${type.label} 收件邮箱。`);
-  if(!type.bodyTemplate||!type.subjectTemplate)throw new Error(`首次使用该类型，请先配置 ${profile.name} 的 ${type.label} 正文模板和主题模板。`);
-    const {subject,bodyText,html,mailtoHtml}=renderTemplates(record,profile,type,options.more||[],options.plainTextLayout==='labels'?'labels':'table');
-  return {to:[...type.to],cc:[...type.cc],question:`Could you please advise the ${type.label.toLowerCase()} LFD for the container below?`,carrierId:profile.id,carrierName:profile.name,inquiryType:id,typeLabel:type.label,subject,bodyText,html,mailtoHtml};
+  const profile=normalizeCarriers([rawProfile])[0],requested=inquiryType(options.inquiryType,[profile]),id=resolveType(profile,requested)||requested,configured=findType(profile,id);
+  if(!configured)throw new Error(`${profile.name} 没有配置 ${INQUIRY_TYPES[id]||id} 这个查询类型。`);
+  if(configured.channel!=='email')throw new Error(`${profile.name} 使用${configured.channel==='one-chat'?'在线客服':'工单网站'}，不发邮件。`);
+  // A one-off edit from the query page replaces To / Cc / subject / body for this send only; the settings stay.
+  const type=options.edit?editedType(configured,options.edit):configured;
+  if(!type.to.length)throw new Error(options.edit?'本次邮件需要至少一个收件邮箱。':`请先在 ${profile.name} 的配置中填写 ${type.label} 收件邮箱。`);
+  if(!type.bodyTemplate||!type.subjectTemplate)throw new Error(options.edit?'本次邮件的主题和正文不能为空。':`首次使用该类型，请先配置 ${profile.name} 的 ${type.label} 正文模板和主题模板。`);
+    const {subject,bodyText,html,mailtoHtml,editableBody}=renderTemplates(record,profile,type,options.more||[],options.plainTextLayout==='labels'?'labels':'table');
+  return {to:[...type.to],cc:[...type.cc],question:`Could you please advise the ${type.label.toLowerCase()} LFD for the container below?`,carrierId:profile.id,carrierName:profile.name,inquiryType:id,typeLabel:type.label,subject,bodyText,html,mailtoHtml,editableBody,edited:Boolean(options.edit)};
+}
+function editedType(type,edit){
+  if(typeof edit!=='object'||Array.isArray(edit))throw new Error('邮件选项格式无效。');
+  const text=value=>value==null?'':typeof value==='string'?value:(()=>{throw new Error('邮件选项格式无效。');})();
+  const subject=text(edit.subject).replace(/[\r\n]+/g,' ').trim(),body=text(edit.body).replace(/\r\n?/g,'\n');
+  return {...type,to:addressList(text(edit.to)),cc:addressList(text(edit.cc)),subjectTemplate:subject,bodyTemplate:body.trim()?body:''};
 }
 /** Ticket content for a carrier whose channel is a support portal instead of email. */
 export function portalTemplate(record,options={}){
@@ -317,18 +325,23 @@ function renderTemplates(record,profile,type,more=[],tableStyle='table'){
   const lines=tableStyle==='lines';
   const values={'steam shipping line':profile.greeting,carrier:profile.name,type:type.label.toLowerCase(),Type:type.label,container,mbl,s:items.length>1?'s':'',
     table:tableStyle==='labels'?items.map(item=>`Container#: ${item.container}\nMBL#: ${item.mbl}`).join('\n\n'):lines?items.map(item=>`${item.container} ${item.mbl}`).join('\n'):`Container#\tMBL#\n${items.map(item=>`${item.container}\t${item.mbl}`).join('\n')}`};
-  const fill=text=>text.replace(/\{\{([^{}]*)\}\}/g,(_,token)=>values[token]);
+  // Unknown tokens stay as typed (a one-off edit may contain braces of its own).
+  const fill=text=>text.replace(/\{\{([^{}]*)\}\}/g,(match,token)=>Object.hasOwn(values,token)?values[token]:match);
   const subject=type.subjectTemplate?fill(type.subjectTemplate):'';
   if(subject.length>998)throw new Error('生成的邮件主题过长，请缩短主题模板。');
   const htmlText=text=>fill(text).trim().split(/\n[\t ]*\n+/).filter(Boolean).map(p=>`<p>${escapeHtml(p).replace(/\n/g,'<br>')}</p>`).join('');
   const table=`<table cellpadding="7" cellspacing="0" style="border-collapse:collapse;font-family:Arial,sans-serif;font-size:14px"><tr><th style="border:1px solid #888;text-align:left">Container#</th><th style="border:1px solid #888;text-align:left">MBL#</th></tr>${items.map(item=>`<tr><td style="border:1px solid #888">${escapeHtml(item.container)}</td><td style="border:1px solid #888">${escapeHtml(item.mbl)}</td></tr>`).join('')}</table>`;
-  const [before,after]=type.bodyTemplate.split('{{table}}');
-  const html=htmlText(before)+(lines?`<p>${items.map(item=>escapeHtml(`${item.container} ${item.mbl}`)).join('<br>')}</p>`:table)+htmlText(after);
+  // Without {{table}} (only possible in a one-off edit) the mail carries no table.
+  const hasTable=type.bodyTemplate.includes('{{table}}');
+  const [before,after='']=type.bodyTemplate.split('{{table}}');
+  const html=htmlText(before)+(hasTable?lines?`<p>${items.map(item=>escapeHtml(`${item.container} ${item.mbl}`)).join('<br>')}</p>`:table:'')+htmlText(after);
   if(html.length>20000)throw new Error('生成的邮件正文过长，请缩短正文模板。');
   // Foxmail reads a mailto body as HTML: line breaks must be <br> and only attribute-based table borders
   // survive (verified in Foxmail on 2026-10-20).
   const brText=text=>escapeHtml(fill(text)).replace(/\r\n|\r|\n/g,'<br>');
   const mailtoTable=`<table border=1 cellpadding=6 cellspacing=0 bordercolor=#888888><tr><th align=left>Container#</th><th align=left>MBL#</th></tr>${items.map(item=>`<tr><td>${escapeHtml(item.container)}</td><td>${escapeHtml(item.mbl)}</td></tr>`).join('')}</table>`;
-  const mailtoHtml=brText(before)+mailtoTable+brText(after||'');
-  return {subject,bodyText:fill(type.bodyTemplate),html,items,mailtoHtml};
+  const mailtoHtml=brText(before)+(hasTable?mailtoTable:'')+brText(after);
+  // The body as the user edits it: values filled in, the container table kept as {{table}}.
+  const editableBody=type.bodyTemplate.split('{{table}}').map(fill).join('{{table}}');
+  return {subject,bodyText:fill(type.bodyTemplate),html,items,mailtoHtml,editableBody};
 }

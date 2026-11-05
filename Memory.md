@@ -1,4 +1,4 @@
-# Trucker Helper: handoff for agents
+﻿# Trucker Helper: handoff for agents
 
 Formerly "LFD Inquiry". Written at v0.6.2, updated for the Vue rewrite at v0.7.0. `agent.md` holds the older detailed history in Chinese; where the two differ, this file wins.
 
@@ -121,6 +121,8 @@ A version 1 file does not mention terminals, mode, Auto CC or language, so those
 **one-chat.** Runs on one-line.com: form, menus, transfer to agent, one message per container, done when each shows Read. ONE allows one chat per browser, so tasks queue and append to a live chat. On-Hire for ONE is email.
 
 Several containers in one message (`supportsManyContainers`): every email type, ONE chat, and COSCO On-Hire. COSCO's Detention ticket takes one container. Since v0.8.0 Demurrage and Detention work like On-Hire: each extra row is looked up for its MBL and carrier, rows of another carrier are marked and block sending, and one email carries all containers in `{{table}}`, with `{{container}}` and `{{mbl}}` joined by commas.
+
+One-off edit (v0.9.8): an email group's To / Cc / subject / body can be changed for one send from the query page (`options.edit` → `messageTemplate`); settings and templates are never changed by it.
 
 Duplicate lock: container + MBL + profile + type. The check compares entry contents, so old key formats (with the account, or the earliest three-part ones) still block.
 
@@ -253,6 +255,8 @@ Debugging: a reinstalled unpacked extension kept running its old service worker 
 **v0.9.6.** Owner, 11/4: every new tag-like signal is asked about. `draydogSignals` (core/chagui-rules.ts) turns a container's other signals into `by:'label'` keyword texts: Pier Pass / CTF badges by state; holds from the other sources (eModal, Port Optimizer; the main source's copy is skipped), as `<source> hold: <text>`; status words and remarks in each source's extra data, as `<source> <key>: <value>`; fees owed (`<source> <key>: owed`); and "Appointment: no truck plate". The first preview asked about 10 such texts; the pause panel has 全部选可提 for that.
 
 **v0.9.7.** Repeated containers. A container is matched only on business rows: above 取消DO, and not a row with a container in D and nothing else (`businessRows`, `onlyContainer`; TH_Apply build 2 does the same). Trigger: CSGU8059834 also sat on row 988 under 已送仓 with only column D filled, and the preview said "2 行，请人工确认" with no way to answer. When a container really is on several business rows, the run pauses (`run.pending.rows`, notification) and the page lists the rows (A, B, C, P, G/H, LFD, appointment) to pick one or skip; the pick travels as `pick` to TH_Apply, which writes that row and moves the row with the same MBL below 未放行.
+
+**v0.9.8.** One-off mail edit on the query page. A quiet ✎ 编辑 under each email group's 预览 opens To / Cc / 主题 / 正文 for this send only; 恢复模板 drops it. The body is shown filled in, with the container table kept as `{{table}}` (`messageTemplate` returns `editableBody`). The popup keeps edits in `mailEdits` per group, keyed by type + containers + MBLs, so any change to the group drops the edit; it is passed as `options.edit` to `run` and `messageTemplate` swaps it in for the type's to/cc/subjectTemplate/bodyTemplate (`editedType`), never touching settings. The edit is cleared after the group is queued without failures. Edits apply to the email channel only (Gmail and mailto). Template `fill` now keeps unknown `{{tokens}}` as typed instead of writing `undefined`; a body without `{{table}}` (possible only in an edit) sends no table.
 
 ## Known limitations
 

@@ -24,6 +24,19 @@ test('exact user wording and subject',()=>{
   assert.deepEqual(m.to,[TO]);assert.equal(m.carrierId,'maersk');assert.equal(m.inquiryType,'demurrage');assert.equal(m.question,QUESTION);
   assert.ok(m.html.includes(QUESTION));assert.ok(m.html.includes('<table'));
 });
+test('a one-off edit changes this mail only and keeps the container table',()=>{
+  const carrier=DEFAULT_CARRIERS[0],before=JSON.stringify(carrier);
+  const original=messageTemplate(record);
+  assert.ok(original.editableBody.includes('{{table}}'));assert.ok(!original.editableBody.includes('{{container}}'));
+  const edited=messageTemplate(record,{edit:{to:'a@b.com; C@D.com',cc:'',subject:'Hi\nthere {{x}}',body:original.editableBody.replace(QUESTION,'Please check.')}});
+  assert.deepEqual(edited.to,['a@b.com','c@d.com']);assert.deepEqual(edited.cc,[]);assert.equal(edited.subject,'Hi there {{x}}');
+  assert.ok(edited.html.includes('Please check.'));assert.ok(!edited.html.includes(QUESTION));assert.ok(edited.html.includes('<table'));assert.ok(edited.mailtoHtml.includes('<table'));
+  assert.ok(!messageTemplate(record,{edit:{to:'a@b.com',subject:'S',body:'No table'}}).html.includes('<table'));
+  assert.throws(()=>messageTemplate(record,{edit:{to:'',subject:'S',body:'B'}}),/收件邮箱/);
+  assert.throws(()=>messageTemplate(record,{edit:{to:'a@b.com',subject:' ',body:'B'}}),/不能为空/);
+  assert.throws(()=>messageTemplate(record,{edit:{to:'bad',subject:'S',body:'B'}}),/邮箱地址格式无效/);
+  assert.equal(JSON.stringify(carrier),before);assert.equal(messageTemplate(record).subject,original.subject);
+});
 
 test('duplicate lookup picks first complete document row without mixing fields',()=>{
   const rows=[{...record,row:40,mbl:'MAEULATER',carrier:'MSK'},{...record,row:10,mbl:'',carrier:'MSC'},

@@ -48,11 +48,17 @@ footer{display:flex;align-items:center;gap:8px;padding:9px 18px;min-height:43px;
 .container-table{width:100%;border-collapse:collapse;margin-top:6px;font-size:11px;
   td{padding:4px 4px;border-top:1px solid #edf2ed;vertical-align:middle}
   .row-state{color:#2f7a55}.row-remove{width:28px;text-align:right}
-  tr.locked .row-state{color:#a06455}}
+  tr.locked .row-state{color:#a06455}
+  .resend-locked{margin-left:6px;height:20px;padding:0 8px;font-size:10px;vertical-align:middle}}
 .fix-row{display:grid;grid-template-columns:96px 1fr 120px 24px;gap:6px;align-items:center;margin-top:6px}
 .fix-note{grid-column:1/-1;font-size:10px;color:#a06455;overflow-wrap:anywhere}
 .group-preview{margin-top:8px;border-top:1px dashed #d4dfd6;padding-top:6px;summary{font-size:11px;font-weight:600;cursor:pointer;color:#5b7468}
   dl{display:grid;grid-template-columns:34px 1fr;gap:6px;margin:8px 0;font-size:11px}dt{color:#85948c}dd{margin:0;overflow-wrap:anywhere}.subject{font-weight:600}}
+// One-off mail edit: kept quiet next to the preview.
+.preview-tools{display:flex;justify-content:flex-end;gap:10px;margin-top:4px;.edit-mail{font-size:10px;color:#85948c;opacity:.8}.edit-mail:hover{opacity:1}}
+.edited-mark{margin-left:8px;font-weight:400;font-size:10px;color:#a06455}
+.mail-edit{display:grid;gap:4px;margin-top:6px;.field-label{font-size:10px;margin-top:4px}.hint{margin:4px 0 0}}
+.edit-actions{display:flex;justify-content:flex-end;gap:6px;margin-top:4px}
 .notice.missing{display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-top:8px;strong{font-weight:600}}
 // A config field the query page sent the user to fill in.
 @keyframes field-flash{0%,100%{box-shadow:0 0 0 4px rgba(214,84,61,.12)}50%{box-shadow:0 0 0 4px rgba(214,84,61,.45)}}

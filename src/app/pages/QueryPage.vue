@@ -1,8 +1,11 @@
 <script setup lang="ts">
 import {NButton,NInput,NSelect,NTag} from 'naive-ui';
+import {canEditMail,discardEdit,editOf,finishEdit,startEdit} from '../store.ts';
 import {busy,channelName,configureCarrier,containersInput,entryNote,groupLabels,groups,kind,lookup,moveGroup,pendingCount,previewOf,profileChoices,query,recordLabel,removeEntry,resendLocked,sendAll,sendGroup,sendAllLabel,sending,setManualMbl,setOverride,t,totals,typeOptions,chooseType,unresolved} from '../store.ts';
 
 const missingNames={carrier:'船公司配置',type:'查询类型',to:'收件邮箱',requester:'工单 Requester',reference:'PD INV /BL /BKG /HOU # /SCAC Code',bodyTemplate:'正文模板',subjectTemplate:'主题模板'};
+// Kept out of the template: its {{table}} would end the template's own {{ }}.
+const editHint='{{table}} 处会放入柜号表格。这里的修改只用于这一次发送，不会改动配置里的模板。';
 const missingText=group=>group.missing.map(key=>t(missingNames[key]||key)).join(' · ');
 </script>
 
@@ -47,7 +50,7 @@ const missingText=group=>group.missing.map(key=>t(missingNames[key]||key)).join(
             <td class="mono">{{row.entry.container}}</td>
             <td class="mono">{{row.entry.manualMbl||row.entry.mbl}}</td>
             <td class="row-state">
-              <template v-if="row.lock">{{t('已有记录')}} · {{t(recordLabel(row.lock.status))}} <n-button text size="tiny" type="warning" @click="resendLocked(row)">{{t('仍要发送')}}</n-button></template>
+              <template v-if="row.lock">{{t('已有记录')}} · {{t(recordLabel(row.lock.status))}} <n-button class="resend-locked" size="tiny" :title="t('解除锁定后再次发送')" @click="resendLocked(row)">{{t('仍要发送')}}</n-button></template>
               <template v-else>{{t('已匹配')}}</template>
             </td>
             <td class="row-remove"><n-button size="tiny" quaternary type="error" :title="t('移除这个柜号')" @click="removeEntry(row.entry)">×</n-button></td>
@@ -56,9 +59,26 @@ const missingText=group=>group.missing.map(key=>t(missingNames[key]||key)).join(
         <div v-if="group.missing.length" class="notice missing"><span>{{t('还需要配置：')}}</span><strong>{{missingText(group)}}</strong><n-button size="tiny" @click="configureCarrier(group)">{{t(group.profile?`配置 ${group.name}`:`新增或选择${kind}`)}}</n-button></div>
         <p v-if="group.channel==='cosco-portal'&&!group.many&&group.ready.length>1" class="hint">{{t('逐个提交，每张需人机验证')}}</p>
         <details v-if="previewOf(group)" class="group-preview" :open="groups.length===1&&!unresolved.length">
-          <summary>{{t('预览')}}</summary>
+          <summary>{{t('预览')}}<span v-if="editOf(group)" class="edited-mark">{{t('已临时修改 · 仅本次发送')}}</span></summary>
           <template v-for="preview in [previewOf(group)]" :key="group.id+'p'">
-            <p v-if="preview.error" class="notice">{{t(preview.error)}}</p>
+            <div v-if="canEditMail(group)&&!editOf(group)?.editing" class="preview-tools">
+              <n-button text size="tiny" class="edit-mail" :title="t('只修改这一次发送的邮件，不会改动配置里的模板')" @click="startEdit(group)">✎ {{t('编辑')}}</n-button>
+              <n-button v-if="editOf(group)" text size="tiny" class="edit-mail" @click="discardEdit(group)">{{t('恢复模板')}}</n-button>
+            </div>
+            <form v-if="editOf(group)?.editing" class="mail-edit" @submit.prevent="finishEdit(group)">
+              <template v-for="edit in [editOf(group)]" :key="group.id+'e'">
+                <label class="field-label">To</label><n-input size="small" v-model:value="edit.to" :input-props="{autocomplete:'off',spellcheck:false}" :placeholder="t('多个邮箱用逗号分隔')"/>
+                <label class="field-label">Cc</label><n-input size="small" v-model:value="edit.cc" :input-props="{autocomplete:'off',spellcheck:false}" :placeholder="t('多个邮箱用逗号分隔')"/>
+                <label class="field-label">{{t('主题')}}</label><n-input size="small" v-model:value="edit.subject" placeholder=""/>
+                <label class="field-label">{{t('正文')}}</label><n-input type="textarea" size="small" v-model:value="edit.body" :autosize="{minRows:5,maxRows:16}" placeholder=""/>
+                <p class="hint">{{t(editHint)}}</p>
+                <div class="edit-actions">
+                  <n-button size="tiny" quaternary @click="discardEdit(group)">{{t('恢复模板')}}</n-button>
+                  <n-button size="tiny" attr-type="submit">{{t('完成')}}</n-button>
+                </div>
+              </template>
+            </form>
+            <p v-else-if="preview.error" class="notice">{{t(preview.error)}}</p>
             <template v-else>
               <dl>
                 <dt>To</dt><dd>{{preview.to}}</dd>
