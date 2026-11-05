@@ -50,7 +50,7 @@ const missingText=group=>group.missing.map(key=>t(missingNames[key]||key)).join(
             <td class="mono">{{row.entry.container}}</td>
             <td class="mono">{{row.entry.manualMbl||row.entry.mbl}}</td>
             <td class="row-state">
-              <template v-if="row.lock">{{t('已有记录')}} · {{t(recordLabel(row.lock.status))}} <n-button class="resend-locked" size="tiny" :title="t('解除锁定后再次发送')" @click="resendLocked(row)">{{t('仍要发送')}}</n-button></template>
+              <template v-if="row.lock">{{t('已有记录')}} · {{t(recordLabel(row.lock.status))}} <n-button class="resend-locked" text size="tiny" type="warning" :title="t('解除锁定后再次发送')" @click="resendLocked(row)">{{t('仍要发送')}}</n-button></template>
               <template v-else>{{t('已匹配')}}</template>
             </td>
             <td class="row-remove"><n-button size="tiny" quaternary type="error" :title="t('移除这个柜号')" @click="removeEntry(row.entry)">×</n-button></td>

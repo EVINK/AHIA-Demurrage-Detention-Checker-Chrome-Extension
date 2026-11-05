@@ -83,32 +83,38 @@ export function noteLfd(note,near){
 }
 const strings=value=>{const out=[];const walk=v=>{if(v==null)return;if(typeof v==='string')out.push(v);else if(Array.isArray(v))v.forEach(walk);else if(typeof v==='object')Object.values(v).forEach(walk);};walk(value);return out;};
 
-/** Tag-like signals of a Dray Dog container besides its own tags and main hold list, as keyword texts. Each
- * distinct text is asked about once (`by:'label'`), so a new kind of status never passes unnoticed:
- * - the "TMF (Pier Pass)" / "PortCheck: CTF" badges (pier_pass, clean_truck_fee records), by state;
- * - holds reported by the other sources (eModal, Port Optimizer …), which the main hold list may not include;
- * - status words and remarks in each source's extra data (customs, freight, line release, delivery order, "available" …);
- * - fees owed at the terminal or line;
- * - an appointment without a truck plate ("No Plate"). */
-export function draydogSignals(c){
-  const out=[];
-  const add=text=>{text=String(text).replace(/\s+/g,' ').trim().slice(0,120);if(text&&!out.some(t=>lower(t)===lower(text)))out.push(text);};
-  for(const [name,record] of [['TMF (Pier Pass)',c.pier_pass],['PortCheck: CTF',c.clean_truck_fee]])
-    if(record&&typeof record==='object')add(`${name}: ${record.has_hold?'hold':'no hold'}, fee ${record.fee_paid?'paid':'unpaid'}`);
-  const main=c.import_status||null;
-  for(const s of [main,...(c.import_statuses||[])].filter(Boolean)){
-    const source=String(s.source||s.terminal||'source');
-    // The main source's holds are the hold list itself; its copy in import_statuses is skipped.
-    if(s!==main&&source!==String(main?.source||''))for(const hold of s.holds||[])add(`${source} hold: ${hold}`);
-    for(const [key,value] of Object.entries(s.extra_data||{})){
-      if(/owed|fees?$/i.test(key)&&typeof value==='number'){if(value>0)add(`${source} ${key}: owed`);continue;}
-      if(!/status|available|release|hold|order|customs|freight|remark/i.test(key))continue;
-      if(typeof value==='string'&&value.trim())add(`${source} ${key}: ${value}`);
-      else if(typeof value==='boolean')add(`${source} ${key}: ${value?'yes':'no'}`);
-    }
+/** The badges Dray Dog's container card shows (besides tags and hold badges, which have their own rules), with
+ * the same wording, following Dray Dog's own card code (containers chunk, calcBadges). Owner, 11/5: only what the
+ * card shows is asked about, not every field of the data. A dollar amount is one keyword whatever the amount. */
+export const DEMURRAGE_BADGE='$ (demurrage)';
+export function cardBadges(c,{lineCheck=false}={}){
+  const out=[],add=text=>{if(text&&!out.includes(text))out.push(text);};
+  const state=c.cycle_state,status=c.import_status||null,terminal=String(c.last_related_terminal||status?.terminal||'').toLowerCase();
+  const bookable=['import_appt_booking','import_appt_booked'].includes(state);
+  const tracked=['import_tracking','import_tracking_on_vessel','import_appt_booking','import_appt_booked'].includes(state);
+  if(status?.closed_area===true)add('Closed Area');
+  if(bookable&&status?.available_for_pickup===false)add('Not Ready For Pickup');
+  if(lineCheck)add('CHECK LINE FOR LFD');
+  if(['import_tracking','import_appt_booking','import_appt_booked'].includes(state)&&status?.demurrage_fees>0)add(DEMURRAGE_BADGE);
+  if(String(c.shipping_line||'').toUpperCase()==='COSU'&&!c.master_bl&&!status?.master_bill_of_lading)add('BOL Needed for Cosco');
+  if(terminal==='wbct'&&tracked&&status&&!c.master_bl&&!status.master_bill_of_lading)add('BOL needed for booking');
+  if(terminal==='apm'&&tracked&&status&&status.master_bill_of_lading===null)add('⛔️ APM Missing BOL');
+  if(terminal==='trapac'&&tracked)add('Reliability Issues (hover me)');
+  // Pier Pass (TMF) and PortCheck (CTF) badges.
+  if(tracked){
+    const tmfHold=(status?.parsed_holds||[]).some(h=>h.type==='TMF Hold');
+    if(status){
+      const has=Boolean(c.pier_pass?.has_hold);
+      if(has&&tmfHold)add('TMF');else if(has)add('TMF (Pier Pass)');else if(tmfHold)add(`TMF (${terminal.toUpperCase()})`);
+    }else if(c.pier_pass?.has_hold)add('PierPass: TMF');
+    const ctf=c.clean_truck_fee;
+    if(ctf){
+      if(ctf.has_hold)add('PortCheck: CTF');
+      const count=Array.isArray(ctf.terminals)?ctf.terminals.length:0;
+      if(count>1)add('PortCheck: CTF Multiple Terminals');
+      if(count===0)add('PortCheck: CTF No Terminal Found');
+    }else if(status)add('PortCheck: Unknown');
   }
-  const appointment=c.latest_appointment;
-  if(appointment&&['scheduled','in_progress'].includes(appointment.status)&&!String(appointment.truck_license_plate_number||'').trim())add('Appointment: no truck plate');
   return out;
 }
 
@@ -124,12 +130,9 @@ export function observe(c,now=Date.now(),{lineCheck=false,holdRules=DEFAULT_HOLD
   }
   // The team's own Dray Dog tags (e.g. "1H", "TEST") go through the same list (`by:'tag'`): an unknown tag pauses
   // the run too, and the answer says whether it holds the container.
-  // Dray Dog's own markers (`by:'label'`, owner 11/4): the "TMF (Pier Pass)" and "PortCheck: CTF" badges come from
-  // the pier_pass and clean_truck_fee records, not from tags. Each state ("hold / no hold, fee paid / unpaid") is
-  // its own keyword, so a state never answered before pauses the run like a new tag.
-  // Owner, 11/4: every other tag-like signal Dray Dog has is asked about the first time it appears, too
-  // (see draydogSignals).
-  const labels=draydogSignals(c);
+  // The card's other badges (`by:'label'`): Not Ready For Pickup, CHECK LINE FOR LFD, $ demurrage, TMF / CTF …
+  // A badge never answered pauses the run like a new tag. Closed Area keeps its built-in word (Closed_Area).
+  const labels=cardBadges(c,{lineCheck}).filter(b=>b!=='Closed Area');
   for(const [source,list] of [['tag',c.tags||[]],['label',labels]])for(const text of list){
     const rule=holdRules.find(r=>r.by===source&&lower(r.match)===lower(text));
     if(!rule){if(!unknownHolds.some(u=>u.source===source&&lower(u.text)===lower(text)))unknownHolds.push({text:String(text).trim(),type:'',source});continue;}

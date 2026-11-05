@@ -1,10 +1,10 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {observe,draydogSignals,duplicateRows,statusCell,targets,plan,placeMoves,parseBaseline,unknownHolds,validHoldRules,managedPattern,DEFAULT_HOLD_RULES,serialOf,mmddOf,hhmmOf,laParts,noteLfd,dateText,timeText} from '../src/core/chagui-rules.ts';
+import {observe,cardBadges,duplicateRows,statusCell,targets,plan,placeMoves,parseBaseline,unknownHolds,validHoldRules,managedPattern,DEFAULT_HOLD_RULES,serialOf,mmddOf,hhmmOf,laParts,noteLfd,dateText,timeText} from '../src/core/chagui-rules.ts';
 
 const container=(over={})=>({container_number:'TRHU6793446',cycle_state:'import_appt_booked',last_related_terminal:'everport',last_free_date:'2026-11-05',line_last_free_date:null,note_body:null,
   import_status:{terminal:'everport',holds:[],parsed_holds:[],wheeled:false,closed_area:false,ready_for_appointment:true,available_for_pickup:true,location:'In Yard',extra_data:{'Wheeled/Decked':'Decked'}},
-  import_statuses:[],latest_appointment:{status:'scheduled',window_start:'2026-11-05T15:00:00Z',window_end:'2026-11-05T16:00:00Z',truck_license_plate_number:'8ABC123'},...over});
+  import_statuses:[],latest_appointment:{status:'scheduled',window_start:'2026-11-05T15:00:00Z',window_end:'2026-11-05T16:00:00Z',truck_license_plate_number:'8ABC123'},clean_truck_fee:{has_hold:false,terminals:['ets']},pier_pass:{has_hold:false},...over});
 const row=(over={})=>({row:300,A:'',B:'',C:'MBL1',D:'TRHU6793446',G:'',H:'',K:'',M:'',N:'',P:'ETS',...over});
 
 test('dates and times round-trip the sheet formats',()=>{
@@ -51,18 +51,19 @@ test('hold keywords: text before type, empty word ignores, unknown holds are rep
   const known=observe(container({tags:['TEST','1H']}),Date.now(),{holdRules:tagRules});
   assert.deepEqual([known.holds,known.unknownHolds],[['CEX'],[]]);
   assert.equal(targets(known,row()).A,'','a tag that holds blocks the tick');
-  // Other sources' holds, status words, fees owed and a missing plate are asked about too.
-  assert.deepEqual(draydogSignals({
-    import_status:{source:'lbct_api',holds:['Customs'],extra_data:{available:'NO (HOLD | FEES OWED)',terminal_demurrage_owed:45,gross_weight:17000,vessel:'X'}},
-    import_statuses:[{source:'lbct_api',holds:['Customs'],extra_data:{}},{source:'emodal_asb',holds:['CTF HOLD'],extra_data:{customs_status:'CLEARED',carrier_remarks:null}}],
-    latest_appointment:{status:'scheduled',truck_license_plate_number:''}
-  }),['lbct_api available: NO (HOLD | FEES OWED)','lbct_api terminal_demurrage_owed: owed','emodal_asb hold: CTF HOLD','emodal_asb customs_status: CLEARED','Appointment: no truck plate']);
-  // Pier Pass / CTF badges: each state is its own keyword.
-  const badged=container({pier_pass:{has_hold:false,fee_paid:true},clean_truck_fee:{has_hold:true,fee_paid:false}});
-  assert.deepEqual(observe(badged).unknownHolds.map(u=>[u.source,u.text]),[['label','TMF (Pier Pass): no hold, fee paid'],['label','PortCheck: CTF: hold, fee unpaid']]);
-  const badgeRules=validHoldRules([...DEFAULT_HOLD_RULES,{match:'TMF (Pier Pass): no hold, fee paid',by:'label',word:''},{match:'PortCheck: CTF: hold, fee unpaid',by:'label',word:'CTF_H'}]);
+  // Only the badges the Dray Dog card shows, in its wording; API fields that the card does not show are not asked.
+  assert.deepEqual(cardBadges({cycle_state:'import_appt_booking',last_related_terminal:'lbct',shipping_line:'OOLU',master_bl:'X',
+    import_status:{available_for_pickup:false,closed_area:true,demurrage_fees:225,parsed_holds:[],master_bill_of_lading:'X',extra_data:{available:'NO (HOLD | FEES OWED)'}},
+    pier_pass:{has_hold:false},clean_truck_fee:{has_hold:true,terminals:['lbct']}},{lineCheck:true}),
+    ['Closed Area','Not Ready For Pickup','CHECK LINE FOR LFD','$ (demurrage)','PortCheck: CTF']);
+  assert.deepEqual(cardBadges({cycle_state:'import_appt_booked',last_related_terminal:'yti',import_status:{parsed_holds:[],master_bill_of_lading:'X'},pier_pass:{has_hold:false},clean_truck_fee:{has_hold:false,terminals:['yti']}}),[],
+    'a paid Pier Pass / CTF shows nothing (WHSU8595452)');
+  // A badge is a keyword like a tag.
+  const badged=container({demurrage_fees:0,import_status:{...container().import_status,available_for_pickup:false}});
+  assert.deepEqual(observe(badged).unknownHolds.map(u=>[u.source,u.text]),[['label','Not Ready For Pickup']]);
+  const badgeRules=validHoldRules([...DEFAULT_HOLD_RULES,{match:'Not Ready For Pickup',by:'label',word:'NotReady_H'}]);
   const badgedKnown=observe(badged,Date.now(),{holdRules:badgeRules});
-  assert.deepEqual([badgedKnown.holds,badgedKnown.unknownHolds],[['CTF_H'],[]]);
+  assert.deepEqual([badgedKnown.holds,badgedKnown.unknownHolds],[['NotReady_H'],[]]);
 });
 test('the status cell keeps the team text and only adds or removes hold words',()=>{
   assert.equal(statusCell('VSL ETA: 10/21,Custom_H',[]),'VSL ETA: 10/21');
