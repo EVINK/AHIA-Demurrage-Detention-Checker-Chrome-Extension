@@ -226,20 +226,38 @@ export function unknownHolds(statuses){
 }
 
 /** Steps 7–13: the cells to change and the rows to move. Every skip carries a reason for the report. */
-export function plan(statuses,baseline,{holdRules=DEFAULT_HOLD_RULES}={}){
+/** A row with a container in D and nothing else (A–P as read) is not a business row: ListA_Push skips it too. */
+export const onlyContainer=r=>[r.A,r.B,r.C,r.E,r.F,r.G,r.H,r.K,r.M,r.N,r.P].every(v=>v===''||v==null);
+/** The rows each container can be written to: above 取消DO (the cancelled and delivered history below is never
+ * written) and not a bare container number. */
+export function businessRows(baseline){
+  const {rows,markers}=baseline;
+  const cancelled=markers?.cancelled?.length===1?markers.cancelled[0]:Infinity;
+  const byId=new Map();
+  for(const r of rows)if(/^[A-Z]{4}\d{7}$/.test(r.D)&&r.row<cancelled&&!onlyContainer(r))byId.set(r.D,[...(byId.get(r.D)||[]),r]);
+  return byId;
+}
+/** Containers to be written that sit on more than one business row: the owner picks the right one. */
+export function duplicateRows(statuses,baseline){
+  const byId=businessRows(baseline);
+  return statuses.filter(s=>['Appointed','Bookable'].includes(s.category)&&(byId.get(s.container)?.length||0)>1)
+    .map(s=>({container:s.container,rows:byId.get(s.container).map(r=>({row:r.row,A:r.A,B:r.B,C:r.C,P:r.P,G:r.G,H:r.H,K:SHOWN.K(r.K),M:SHOWN.M(r.M),N:SHOWN.N(r.N)}))}));
+}
+
+/** Steps 7–13. `chosen`: container → row number the owner picked among duplicate rows. */
+export function plan(statuses,baseline,{holdRules=DEFAULT_HOLD_RULES,chosen={}}={}){
   const {rows,markers}=baseline;
   const managed=managedPattern(holdRules);
-  const byId=new Map();
-  for(const r of rows)if(/^[A-Z]{4}\d{7}$/.test(r.D))byId.set(r.D,[...(byId.get(r.D)||[]),r]);
+  const byId=businessRows(baseline);
   const one=list=>list?.length===1?list[0]:null;
   const section={unscheduled:one(markers.unscheduled),unreleased:one(markers.unreleased),byTerminal:one(markers.byTerminal),cancelled:one(markers.cancelled)};
   const changes=[],moves=[],skipped=[];
   for(const s of statuses){
     if(!['Appointed','Bookable'].includes(s.category))continue;
     const found=byId.get(s.container)||[];
-    if(found.length!==1){skipped.push({container:s.container,reason:found.length?`提柜表里有 ${found.length} 行这个柜号，请人工确认`:'提柜表里找不到这个柜号'});continue;}
-    const row=found[0];
-    if(section.cancelled&&row.row>section.cancelled)continue; // 取消DO and below are not checked
+    const picked=found.length>1&&chosen[s.container]?found.find(r=>r.row===Number(chosen[s.container])):null;
+    if(found.length!==1&&!picked){skipped.push({container:s.container,reason:found.length?`提柜表里有 ${found.length} 行这个柜号，请人工确认`:'提柜表里找不到这个柜号'});continue;}
+    const row=picked||found[0];
     const goal=targets(s,row,{managed});
     const cells=[];
     for(const [col,target] of Object.entries(goal)){
@@ -248,13 +266,14 @@ export function plan(statuses,baseline,{holdRules=DEFAULT_HOLD_RULES}={}){
       if(SHOWN[col](before)===targetText[col](target))continue;
       cells.push({col,column:COLUMNS[col],before,beforeText:SHOWN[col](before),after:written[col](target),afterText:targetText[col](target)});
     }
-    if(cells.length)changes.push({container:s.container,mbl:row.C,row:row.row,category:s.category,cells});
+    // `pick`: the chosen row among duplicates, so the write script uses that one rather than refusing.
+    if(cells.length)changes.push({container:s.container,mbl:row.C,row:row.row,category:s.category,cells,...(picked?{pick:row.row}:{})});
     // 11. A row below 未放行 moves under 按码头排, next to its terminal.
     if(section.unreleased&&row.row>section.unreleased){
       if(!section.byTerminal||section.byTerminal>section.unreleased){skipped.push({container:s.container,reason:'找不到“按码头排”分区，没有移动'});continue;}
       const next=rows.find(r=>r.row===row.row+1);
       if(next&&!/^[A-Z]{4}\d{7}$/.test(next.D)&&![...Object.values(markers)].flat().includes(next.row)){skipped.push({container:s.container,reason:'这一行下面还有附属行，需要人工移动'});continue;}
-      moves.push({container:s.container,mbl:row.C,from:row.row,terminal:row.P});
+      moves.push({container:s.container,mbl:row.C,from:row.row,terminal:row.P,...(picked?{pick:row.row}:{})});
     }
   }
   placeMoves(moves,rows,section);
@@ -268,7 +287,7 @@ export function placeMoves(moves,rows,section){
   let sheet=rows.map(r=>({row:r.row,D:r.D,P:r.P}));
   let unreleased=section.unreleased;
   for(const move of moves){
-    const source=sheet.find(r=>r.D===move.container);if(!source)continue;
+    const source=sheet.find(r=>r.D===move.container&&r.row===move.from);if(!source)continue;
     const from=source.row;
     const group=sheet.filter(r=>r.row>section.byTerminal&&r.row<unreleased&&/^[A-Z]{4}\d{7}$/.test(r.D)&&r.P.toUpperCase()===String(move.terminal).toUpperCase());
     const dest=group.length?Math.max(...group.map(r=>r.row))+1:unreleased;

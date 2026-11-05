@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {observe,draydogSignals,statusCell,targets,plan,placeMoves,parseBaseline,unknownHolds,validHoldRules,managedPattern,DEFAULT_HOLD_RULES,serialOf,mmddOf,hhmmOf,laParts,noteLfd,dateText,timeText} from '../src/core/chagui-rules.ts';
+import {observe,draydogSignals,duplicateRows,statusCell,targets,plan,placeMoves,parseBaseline,unknownHolds,validHoldRules,managedPattern,DEFAULT_HOLD_RULES,serialOf,mmddOf,hhmmOf,laParts,noteLfd,dateText,timeText} from '../src/core/chagui-rules.ts';
 
 const container=(over={})=>({container_number:'TRHU6793446',cycle_state:'import_appt_booked',last_related_terminal:'everport',last_free_date:'2026-11-05',line_last_free_date:null,note_body:null,
   import_status:{terminal:'everport',holds:[],parsed_holds:[],wheeled:false,closed_area:false,ready_for_appointment:true,available_for_pickup:true,location:'In Yard',extra_data:{'Wheeled/Decked':'Decked'}},
@@ -129,6 +129,16 @@ test('the plan lists only changed cells, moves rows below 未放行 and skips wh
   assert.ok(result.skipped.some(s=>s.container==='OOCU0000003'&&/附属行/.test(s.reason)));
   assert.ok(result.skipped.some(s=>s.container==='ZZZU0000000'&&/找不到/.test(s.reason)));
   assert.ok(!result.changes.some(c=>c.container==='CCCU0000009'),'rows under 取消DO are left alone');
+  // A bare container number and history rows below 取消DO are not duplicates; two real rows are, until one is picked.
+  const dupRows=[...baselineRows,[310,'','x','MBL1','TRHU6793446','','','','','','','','ETS'],[990,'','','','TRHU6793446','','','','','','','','']];
+  const dup=parseBaseline(dupRows);
+  assert.deepEqual(duplicateRows([observe(container())],dup).map(d=>[d.container,d.rows.map(r=>r.row)]),[['TRHU6793446',[300,310]]]);
+  assert.ok(plan([observe(container())],dup).skipped.some(s=>/2 行/.test(s.reason)));
+  const picked=plan([observe(container())],dup,{chosen:{TRHU6793446:310}});
+  assert.equal(picked.changes[0].row,310);assert.equal(picked.changes[0].pick,310);
+  assert.equal(picked.moves[0].from,310);assert.equal(picked.moves[0].pick,310);
+  const bare=parseBaseline([...baselineRows,[990,'','','','TRHU6793446','','','','','','','','']]);
+  assert.deepEqual(duplicateRows([observe(container())],bare),[],'a bare number under 已送仓 is not a second row');
   // Already right: nothing to do.
   const same=parseBaseline([[204,'','','','未排程 ↓','','','','','','','',''],[221,'','按码头排','','','','','','','','','',''],[230,'✔','','MBL1','TRHU6793446','','','Deck','OWN',46331,46331,7/24,'ETS'],[274,'','','','未放行 ↓','','','','','','','','']]);
   assert.deepEqual(plan([observe(container())],same).changes,[]);

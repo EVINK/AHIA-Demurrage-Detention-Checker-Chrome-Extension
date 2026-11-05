@@ -63,6 +63,14 @@ export async function answerHolds(){
   try{await rpc({type:'chaguiResolveHolds',decisions});status('已保存，查柜继续。','success');await loadHoldRules();}
   catch(error){status((error as Error).message,'error');}
 }
+// Row choices for containers on several rows: container → row number (0 = skip it this time).
+export const rowChoices=reactive<Record<string,number>>({});
+export async function answerRows(){
+  const pending=chagui.run?.pending?.rows||[];
+  if(pending.some((d:any)=>rowChoices[d.container]===undefined)){status('请为每个重复的柜号选一行，或选跳过。','error');return;}
+  try{await rpc({type:'chaguiResolveRows',choices:Object.fromEntries(pending.map((d:any)=>[d.container,rowChoices[d.container]]))});status('已保存，查柜继续。','success');}
+  catch(error){status((error as Error).message,'error');}
+}
 export async function stopChagui(){try{await rpc({type:'chaguiStop'});}catch(error){status((error as Error).message,'error');}}
 
 /** Writes the last preview's changes as they are (each cell is still checked before it is written). */

@@ -63,3 +63,15 @@ test('a terminal with no group goes to the end of the section; a wrong MBL or du
   const dup=rows();dup[8]=[null,null,'M4','FFAU8773083'];
   assert.equal(run(dup,{id:'t4',changes:[{container:'FFAU8773083',mbl:'M4',cells:[{col:'G',column:7,before:'',after:'Ground'}]}],moves:[]}).results[0].skipped[0].reason,'柜号出现多行');
 });
+test('a picked row among duplicates is written; a bare container number or history under 取消DO is not a duplicate',()=>{
+  const base=rows();base[8]=[null,'取消DO'];base[10]=[null,null,null,'FFAU8773083'];
+  const bare=run(base,{id:'t5',changes:[{container:'FFAU8773083',mbl:'M4',cells:[{col:'G',column:7,before:'',after:'Ground'}]}],moves:[]});
+  assert.deepEqual(bare.results[0].applied,['G'],'the bare number below 取消DO does not count');
+  const dup=rows();dup[7]=[null,'other','M9','FFAU8773083',null,null,null,null,null,null,null,null,null,null,null,'PCT'];
+  const refused=run(dup,{id:'t6',changes:[{container:'FFAU8773083',mbl:'M4',cells:[{col:'G',column:7,before:'',after:'Ground'}]}],moves:[]});
+  assert.equal(refused.results[0].skipped[0].reason,'柜号出现多行');
+  const picked=run(dup,{id:'t7',changes:[{container:'FFAU8773083',mbl:'M4',pick:7,cells:[{col:'G',column:7,before:'',after:'Ground'}]}],moves:[{container:'FFAU8773083',mbl:'M4',from:7,terminal:'LBCT',pick:7}]});
+  assert.deepEqual(picked.results[0].applied,['G']);
+  assert.deepEqual(picked.results[1].move,{from:7,to:4});
+  assert.equal(picked.data[7][1],'other','the other row is untouched');
+});

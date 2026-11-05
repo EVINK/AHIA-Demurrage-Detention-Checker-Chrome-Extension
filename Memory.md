@@ -252,6 +252,8 @@ Debugging: a reinstalled unpacked extension kept running its old service worker 
 
 **v0.9.6.** Owner, 11/4: every new tag-like signal is asked about. `draydogSignals` (core/chagui-rules.ts) turns a container's other signals into `by:'label'` keyword texts: Pier Pass / CTF badges by state; holds from the other sources (eModal, Port Optimizer; the main source's copy is skipped), as `<source> hold: <text>`; status words and remarks in each source's extra data, as `<source> <key>: <value>`; fees owed (`<source> <key>: owed`); and "Appointment: no truck plate". The first preview asked about 10 such texts; the pause panel has 全部选可提 for that.
 
+**v0.9.7.** Repeated containers. A container is matched only on business rows: above 取消DO, and not a row with a container in D and nothing else (`businessRows`, `onlyContainer`; TH_Apply build 2 does the same). Trigger: CSGU8059834 also sat on row 988 under 已送仓 with only column D filled, and the preview said "2 行，请人工确认" with no way to answer. When a container really is on several business rows, the run pauses (`run.pending.rows`, notification) and the page lists the rows (A, B, C, P, G/H, LFD, appointment) to pick one or skip; the pick travels as `pick` to TH_Apply, which writes that row and moves the row with the same MBL below 未放行.
+
 ## Known limitations
 
 - Gmail, COSCO, ONE and KDocs are driven through their page structure, so a site redesign can stop any flow. Failures stop with a message rather than guess.

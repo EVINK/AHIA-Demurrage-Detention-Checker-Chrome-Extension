@@ -2,12 +2,13 @@
 import {computed,onMounted} from 'vue';
 import {NButton,NCheckbox,NInput,NRadio,NRadioGroup,NSelect} from 'naive-ui';
 import {flushSave,form,isOpen,setOpen,t} from '../store.ts';
-import {addHoldRule,answerHolds,markAllPickable,applyPreviewChagui,chagui,downloadAirScript,duration,editHoldRule,exportChaguiCache,holdAnswers,holdDraft,holdKey,holdRules,importChaguiCache,importing,importText,loadChagui,loadHoldRules,removeHoldRule,retryChagui,startChagui,starting,stopChagui,suggestWord,timeText,watchChagui} from '../labs.ts';
+import {addHoldRule,answerHolds,answerRows,rowChoices,markAllPickable,applyPreviewChagui,chagui,downloadAirScript,duration,editHoldRule,exportChaguiCache,holdAnswers,holdDraft,holdKey,holdRules,importChaguiCache,importing,importText,loadChagui,loadHoldRules,removeHoldRule,retryChagui,startChagui,starting,stopChagui,suggestWord,timeText,watchChagui} from '../labs.ts';
 
 const running=computed(()=>['running','waiting'].includes(chagui.run?.status));
 // The write button under a finished preview that has changes (the worker also refuses a stale one).
 const canWritePreview=computed(()=>{const r=chagui.run;return Boolean(r&&r.status==='done'&&!r.apply&&r.plan&&(r.plan.changes.length||r.plan.moves.length));});
 const pending=computed(()=>chagui.run?.status==='waiting'?chagui.run.pending?.holds||[]:[]);
+const pendingRows=computed(()=>chagui.run?.status==='waiting'?chagui.run.pending?.rows||[]:[]);
 // Each new word starts as "a hold", with a suggested B column word the owner can change.
 const answer=(u:any)=>holdAnswers[holdKey(u)]||(holdAnswers[holdKey(u)]={hold:true,word:suggestWord(u)});
 const byOptions=[{value:'text',label:'Draydog 原文'},{value:'type',label:'Draydog 类型'},{value:'tag',label:'Draydog 标签'},{value:'label',label:'Draydog 标记'}];
@@ -56,7 +57,23 @@ onMounted(()=>{loadChagui();watchChagui();loadHoldRules();});
             <n-button v-if="step.status==='error'&&chagui.run.status==='error'" class="labs-retry" size="tiny" :disabled="starting||running" @click="retryChagui">{{t('重试')}}</n-button>
           </li>
         </ol>
-        <div v-if="pending.length" id="pendingHolds" class="labs-pending">
+        <div v-if="pendingRows.length" id="pendingRows" class="labs-pending">
+          <strong>{{t('这些柜号在提柜表里有多行，请选择要更新的那一行：')}}</strong>
+          <div v-for="d in pendingRows" :key="d.container" class="labs-pending-row">
+            <b>{{d.container}}</b>
+            <n-radio-group size="small" :value="rowChoices[d.container]" @update:value="v=>rowChoices[d.container]=v">
+              <div v-for="r in d.rows" :key="r.row" class="labs-row-choice">
+                <n-radio :value="r.row">{{t(`第 ${r.row} 行`)}}</n-radio>
+                <span class="hint">{{[r.A,r.B,r.C,r.P,r.G,r.H,r.K&&('LFD '+r.K),r.M&&(r.M+' '+r.N)].filter(Boolean).join(' · ')||t('（其他列为空）')}}</span>
+              </div>
+              <div class="labs-row-choice"><n-radio :value="0">{{t('这次跳过这个柜号')}}</n-radio></div>
+            </n-radio-group>
+          </div>
+          <div class="history-buttons labs-buttons">
+            <n-button id="answerRows" type="primary" size="small" @click="answerRows">{{t('保存并继续')}}</n-button>
+            <n-button size="small" @click="stopChagui">{{t('暂停任务')}}</n-button>
+          </div>
+        </div>        <div v-if="pending.length" id="pendingHolds" class="labs-pending">
           <strong>{{t('Draydog 出现了关键词里没有的词，请选择怎么处理：')}}</strong>
           <div v-for="u in pending" :key="holdKey(u)" class="labs-pending-row">
             <div><b>{{u.text||u.type}}</b><span v-if="u.source" class="hint"> （{{t(byLabel(u.source))}}）</span><span v-else-if="u.type&&u.text" class="hint"> （{{u.type}}）</span><p class="hint">{{u.containers.join('、')}}</p></div>

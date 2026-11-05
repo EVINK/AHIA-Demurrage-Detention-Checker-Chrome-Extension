@@ -7,7 +7,7 @@
 // Progress is stored in `chaguiRun`, which the 实验性功能 page follows through storage.onChanged.
 import {airScriptPage} from '../injected/airscript.ts';
 import {draydogPage} from '../injected/draydog.ts';
-import {observe,parseBaseline,plan,statusWords,SHOWN,unknownHolds,validHoldRules} from '../core/chagui-rules.ts';
+import {observe,parseBaseline,plan,statusWords,SHOWN,unknownHolds,validHoldRules,duplicateRows,businessRows} from '../core/chagui-rules.ts';
 
 export const PICKUP_URL='https://www.kdocs.cn/l/ce3LmgRtHK2F';
 export const TEMPLATE_URL='https://www.kdocs.cn/l/cl7RhcdagjJs';
@@ -173,7 +173,30 @@ export function createChagui({execute,loaded,notify,focusTab}){
     const saved=await saveHoldRules(rules);
     waiting.resolve(saved);return saved;
   }
-  function stopWaiting(){if(waiting)waiting.reject(new Error('已暂停：新的词还没处理。处理好后点「重试」继续。'));return true;}
+  function stopWaiting(){if(waiting)waiting.reject(new Error(waiting.rows?'已暂停：重复的柜号还没选行。处理好后点「重试」继续。':'已暂停：新的词还没处理。处理好后点「重试」继续。'));return true;}
+  /** Pauses on containers found on several business rows; the owner picks the right row for each (resolveRows). */
+  async function askRows(run,step,duplicates){
+    run.status='waiting';run.pending={rows:duplicates};
+    await step('plan','running',`${duplicates.length} 个柜号在提柜表里有多行，请在插件里选择正确的一行`);
+    notify('lfd-chagui-rows',-1,'查柜发现重复的柜号',`${duplicates.map(d=>d.container).join('、')}：提柜表里有多行。点此打开插件选择正确的一行，或暂停任务。`,true);
+    const keep=setInterval(()=>chrome.runtime.getPlatformInfo().catch(()=>{}),20000);
+    let timer;
+    try{
+      return await new Promise((resolve,reject)=>{waiting={resolve,reject,run,rows:duplicates};timer=setTimeout(()=>reject(new Error('等待选择重复柜号的行超时（30 分钟），查柜停止。')),30*60000);});
+    }finally{
+      clearInterval(keep);clearTimeout(timer);waiting=null;delete run.pending;run.status='running';
+      chrome.notifications.clear('lfd-chagui-rows').catch(()=>{});await save(run);
+    }
+  }
+  /** choices: {container: row number, or 0 to skip that container this time}. */
+  async function resolveRows(choices){
+    if(!waiting?.rows)throw new Error('没有在等待选择的重复柜号。');
+    for(const d of waiting.rows){
+      const pick=Number(choices?.[d.container]);
+      if(!(pick===0||d.rows.some(r=>r.row===pick)))throw new Error('请为每个重复的柜号选择一行，或选择跳过。');
+    }
+    waiting.resolve(Object.fromEntries(waiting.rows.map(d=>[d.container,Number(choices[d.container])])));return true;
+  }
 
   async function bundled(file){
     const code=await (await fetch(chrome.runtime.getURL('airscript/'+file))).text();
@@ -258,7 +281,10 @@ export function createChagui({execute,loaded,notify,focusTab}){
       await step('baseline','done',`${baseline.rows.length} 行`);
       // 7–13. Plan.
       current='plan';await step('plan','running');
-      const planned=plan(statuses,baseline,{holdRules});
+      // Containers on several business rows: the owner picks the right row (0 = skip it this time).
+      const duplicates=duplicateRows(statuses,baseline);
+      const chosen=duplicates.length?await askRows(run,step,duplicates):{};
+      const planned=plan(statuses,baseline,{holdRules,chosen});
       run.plan={changes:planned.changes,moves:planned.moves,skipped:planned.skipped,appointed,bookable};
       const cellCount=planned.changes.reduce((n,c)=>n+c.cells.length,0);
       await step('plan','done',`${planned.changes.length} 个柜子 ${cellCount} 个格子要改，${planned.moves.length} 行要移动${planned.skipped.length?`，${planned.skipped.length} 个需人工`:''}`);
@@ -267,7 +293,7 @@ export function createChagui({execute,loaded,notify,focusTab}){
         // Write: TH_Apply with this run's data.
         current='apply';await step('apply','running');
         const template=await bundled('TH_Apply.js');
-        const payload={id:run.id+'a',changes:planned.changes.map(({container,mbl,cells})=>({container,mbl,cells:cells.map(({col,column,before,after})=>({col,column,before,after}))})),moves:planned.moves};
+        const payload={id:run.id+'a',changes:planned.changes.map(({container,mbl,cells,pick})=>({container,mbl,...(pick?{pick}:{}),cells:cells.map(({col,column,before,after})=>({col,column,before,after}))})),moves:planned.moves};
         const code=template.code.replace('const PAYLOAD = null;',`const PAYLOAD = ${JSON.stringify(payload)};`);
         const result=await withTab(PICKUP_URL,'https://www.kdocs.cn/',tabId=>execute(tabId,airScriptPage,[{title:'TH_Apply',group:'mine',install:{code,build:template.build,always:true},expect:{type:'chunks'},timeout:300000}],'MAIN'));
         applied=result.rows.map(r=>JSON.parse(r));
@@ -320,7 +346,7 @@ export function createChagui({execute,loaded,notify,focusTab}){
       const planned=run.plan;
       await step('apply','running');
       const template=await bundled('TH_Apply.js');
-      const payload={id:run.id+'a',changes:planned.changes.map(({container,mbl,cells})=>({container,mbl,cells:cells.map(({col,column,before,after})=>({col,column,before,after}))})),moves:planned.moves.map(({container,mbl,from,terminal})=>({container,mbl,from,terminal}))};
+      const payload={id:run.id+'a',changes:planned.changes.map(({container,mbl,cells,pick})=>({container,mbl,...(pick?{pick}:{}),cells:cells.map(({col,column,before,after})=>({col,column,before,after}))})),moves:planned.moves.map(({container,mbl,from,terminal,pick})=>({container,mbl,from,terminal,...(pick?{pick}:{})}))};
       const code=template.code.replace('const PAYLOAD = null;',`const PAYLOAD = ${JSON.stringify(payload)};`);
       const result=await withTab(PICKUP_URL,'https://www.kdocs.cn/',tabId=>execute(tabId,airScriptPage,[{title:'TH_Apply',group:'mine',install:{code,build:template.build,always:true},expect:{type:'chunks'},timeout:300000}],'MAIN'));
       const applied=result.rows.map(r=>JSON.parse(r));
@@ -371,18 +397,20 @@ export function createChagui({execute,loaded,notify,focusTab}){
       if(!ok)await chrome.tabs.remove(tab.id).catch(()=>{});
     }
   }
-  return {start,applyPreview,state,importFile,exportFile,resolveHolds,stopWaiting,holdRules:loadHoldRules,setHoldRules:saveHoldRules};
+  return {start,applyPreview,state,importFile,exportFile,resolveHolds,resolveRows,stopWaiting,holdRules:loadHoldRules,setHoldRules:saveHoldRules};
 }
 
 /** Step 14: every planned cell that was written now shows its target, and every move landed. */
 export function verify(planned,applied,after){
   const ok=new Set(),problems=[];
-  const rows=new Map();for(const r of after.rows)if(/^[A-Z]{4}\d{7}$/.test(r.D))rows.set(r.D,[...(rows.get(r.D)||[]),r]);
+  const rows=businessRows(after);
   for(const result of applied){
     const change=planned.changes.find(c=>c.container===result.container);
     const found=rows.get(result.container)||[];
-    if(found.length!==1){if(result.applied?.length||result.move?.to)problems.push(`${result.container} 找不到或出现多行`);continue;}
-    const row=found[0];
+    if(!found.length){if(result.applied?.length||result.move?.to)problems.push(`${result.container} 找不到或出现多行`);continue;}
+    // A container on several rows (the owner picked one): the row now showing every written value is the one.
+    const shows=r=>(result.applied||[]).every(col=>{const cell=change?.cells.find(c=>c.col===col);return !cell||SHOWN[col](r[col])===cell.afterText;});
+    const row=found.length===1?found[0]:found.find(shows)||found[0];
     let good=true;
     for(const col of result.applied||[]){
       const cell=change?.cells.find(c=>c.col===col);
