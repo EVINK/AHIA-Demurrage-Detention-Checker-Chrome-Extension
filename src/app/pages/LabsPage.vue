@@ -2,7 +2,7 @@
 import {computed,onMounted} from 'vue';
 import {NButton,NCheckbox,NInput,NRadio,NRadioGroup,NSelect} from 'naive-ui';
 import {flushSave,form,isOpen,setOpen,t} from '../store.ts';
-import {addHoldRule,answerHolds,answerRows,rowChoices,markAllPickable,applyPreviewChagui,chagui,downloadAirScript,duration,editHoldRule,exportChaguiCache,holdAnswers,holdDraft,holdKey,holdRules,importChaguiCache,importing,importText,loadChagui,loadHoldRules,removeHoldRule,retryChagui,startChagui,starting,stopChagui,suggestWord,timeText,watchChagui} from '../labs.ts';
+import {addHoldRule,answerHolds,answerRows,rowChoices,markAllPickable,applyPreviewChagui,chagui,downloadAirScript,duration,editHoldRule,exportChaguiCache,holdAnswers,holdDraft,holdKey,holdRules,importChaguiCache,importing,importText,loadChagui,loadHoldRules,removeHoldRule,retryChagui,startChagui,starting,stopChagui,suggestWord,timeText,watchChagui,matson,matsonStarting,loadMatson,watchMatson,startMatson,applyPreviewMatson} from '../labs.ts';
 
 const running=computed(()=>['running','waiting'].includes(chagui.run?.status));
 // The write button under a finished preview that has changes (the worker also refuses a stale one).
@@ -30,7 +30,10 @@ const planRows=computed(()=>{
 const COLUMN_NAMES:Record<string,string>={A:'放行',B:'查验信息',G:'摆置',H:'车架',K:'LFD',M:'预约日期',N:'预约时段'};
 const colLabel=(col:string)=>COLUMN_NAMES[col]?`${col}（${t(COLUMN_NAMES[col])}）`:col;
 const scripts=['ListA_Push.js','TH_ReadV2.js','TH_ReadPickup.js','TH_Apply.js'];
-onMounted(()=>{loadChagui();watchChagui();loadHoldRules();});
+const matsonRunning=computed(()=>matson.run?.status==='running');
+const canWriteMatson=computed(()=>{const r=matson.run;return Boolean(r&&r.status==='done'&&!r.apply&&r.plan?.changes.length);});
+const matsonLabel=computed(()=>({running:'Matson 查柜进行中',done:'上次 Matson 查柜完成',error:'上次 Matson 查柜失败'}[matson.run?.status]||''));
+onMounted(()=>{loadChagui();watchChagui();loadHoldRules();loadMatson();watchMatson();});
 </script>
 
 <template>
@@ -165,7 +168,56 @@ onMounted(()=>{loadChagui();watchChagui();loadHoldRules();});
         </div>
       </details>
     </section>
-    <!-- Feature 2: Auto CC. -->
+    <!-- Feature 2: Matson 查柜. -->
+    <section id="matsonFeature" class="labs-feature">
+      <div class="section-top labs-feature-head">
+        <div>
+          <h3>{{t('查 Matson 柜子')}}</h3>
+          <p class="hint">{{t('提柜表里码头是 MATSON、A 列为空的柜子，用 C 列提单号在 Matson 官网查状态和船期：B 列写 ETA（已卸船写卸船时间）或 HOLD 及之后的每个状态，AVAILABLE 且没有 Hold 时 A 列打 ✔。预览只计算要改什么，不写表。')}}</p>
+        </div>
+        <div class="history-buttons">
+          <n-button id="matsonPreview" :loading="(matsonStarting||matsonRunning)&&!matson.run?.apply" :disabled="matsonStarting||matsonRunning" @click="startMatson(false)">{{t('预览')}}</n-button>
+          <n-button id="matsonApply" type="primary" :loading="(matsonStarting||matsonRunning)&&matson.run?.apply" :disabled="matsonStarting||matsonRunning" @click="startMatson(true)">{{t('查柜并写表')}}</n-button>
+        </div>
+      </div>
+      <template v-if="matson.run">
+        <div class="labs-run" :class="matson.run.status">
+          {{t(matsonLabel)}}<template v-if="!matson.run.apply"> · {{t('预览')}}</template> · {{timeText(matson.run.startedAt)}}<template v-if="duration(matson.run)"> · {{t(duration(matson.run))}}</template>
+        </div>
+        <ol class="labs-steps">
+          <li v-for="step in matson.run.steps" :key="step.key" :class="step.status">
+            <span class="labs-state">{{t(stateLabel[step.status]||step.status)}}</span>
+            <span>{{t(step.label)}}</span>
+            <p v-if="step.detail">{{t(step.detail)}}</p>
+          </li>
+        </ol>
+        <details v-if="matson.run.plan" class="labs-sub labs-plan" :open="!matson.run.apply">
+          <summary>{{t(matson.run.apply?'本轮改动':'预览：将要做的改动')}}</summary>
+          <table v-if="matson.run.plan.changes.length">
+            <tr><th>{{t('柜号')}}</th><th>{{t('行')}}</th><th>{{t('列')}}</th><th>{{t('原值')}}</th><th>{{t('新值')}}</th></tr>
+            <template v-for="c in matson.run.plan.changes" :key="c.container">
+              <tr v-for="(cell,i) in c.cells" :key="cell.col"><td>{{i?'':c.container}}</td><td class="labs-row">{{i?'':c.row}}</td><td>{{colLabel(cell.col)}}</td><td>{{cell.beforeText}}</td><td>{{cell.afterText}}</td></tr>
+            </template>
+          </table>
+          <p v-else class="hint">{{t('没有需要修改的')}}</p>
+          <p v-for="item in matson.run.plan.skipped" :key="item.container+item.reason" class="hint labs-skip">{{item.container}}：{{t(item.reason)}}</p>
+          <div v-if="canWriteMatson" class="history-buttons labs-buttons">
+            <n-button id="matsonApplyPreview" type="primary" size="small" :disabled="matsonStarting||matsonRunning" @click="applyPreviewMatson">{{t('按预览写入')}}</n-button>
+            <span class="hint">{{t('直接写入上面这些改动，不再重新查询。')}}</span>
+          </div>
+        </details>
+        <details v-if="matson.run.plan?.observed?.length" class="labs-sub labs-plan">
+          <summary>{{t('Matson 状态')}}（{{matson.run.plan.observed.length}}）</summary>
+          <table>
+            <tr><th>{{t('柜号')}}</th><th>{{t('船名航次')}}</th><th>{{t('最新状态')}}</th><th>Hold</th><th>{{t('B 列')}}</th></tr>
+            <tr v-for="o in matson.run.plan.observed" :key="o.container">
+              <td>{{o.container}}</td><td>{{o.vessel}}</td><td>{{o.latest}}</td><td>{{o.hold?(o.holdReasons.join(', ')||'HOLD'):''}}</td><td>{{o.words}}</td>
+            </tr>
+          </table>
+        </details>
+      </template>
+    </section>
+    <!-- Feature 3: Auto CC. -->
     <section id="autoCcSection" class="labs-feature">
       <div class="labs-feature-head">
         <h3>{{t('Gmail 自动抄送（Auto CC）')}}</h3>

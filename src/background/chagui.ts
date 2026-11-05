@@ -81,7 +81,7 @@ export function importCache(current,text){
 /** Container count written by ListA_Push, from its log line "List A 已写入：… | 363 柜". */
 export const pushedCount=line=>{const m=String(line).match(/\|\s*(\d+)\s*柜\s*$/);return m?Number(m[1]):null;};
 
-export function createChagui({execute,loaded,notify,focusTab}){
+export function createChagui({execute,loaded,notify,focusTab,busy=()=>false}){
   let active=null;
   const get=async()=>(await chrome.storage.local.get('chaguiRun')).chaguiRun||null;
   const save=run=>chrome.storage.local.set({chaguiRun:{...run,updatedAt:Date.now()}});
@@ -126,6 +126,7 @@ export function createChagui({execute,loaded,notify,focusTab}){
   // pushed and read back); everything from Dray Dog on runs again, since it is quick and must be fresh.
   async function start({apply=false,retry=false}={}){
     if(active)throw new Error('查柜正在进行中。');
+    if(busy())throw new Error('Matson 查柜正在进行中，请等它完成。');
     let resume=null;
     if(retry){
       const {chaguiRun:previous,chaguiCache:cache}=await chrome.storage.local.get(['chaguiRun','chaguiCache']);
@@ -328,6 +329,7 @@ export function createChagui({execute,loaded,notify,focusTab}){
    * skips any cell no longer holding the value the preview read, so a stale preview cannot overwrite an edit. */
   async function applyPreview(){
     if(active)throw new Error('查柜正在进行中。');
+    if(busy())throw new Error('Matson 查柜正在进行中，请等它完成。');
     const {chaguiRun:preview}=await chrome.storage.local.get('chaguiRun');
     if(!preview||preview.status!=='done'||preview.apply||!preview.plan)throw new Error('没有可写入的预览，请先点「预览」。');
     if(Date.now()-(preview.finishedAt||0)>PREVIEW_FRESH)throw new Error('预览已超过 30 分钟，表格可能有变化，请重新预览。');
@@ -397,7 +399,7 @@ export function createChagui({execute,loaded,notify,focusTab}){
       if(!ok)await chrome.tabs.remove(tab.id).catch(()=>{});
     }
   }
-  return {start,applyPreview,state,importFile,exportFile,resolveHolds,resolveRows,stopWaiting,holdRules:loadHoldRules,setHoldRules:saveHoldRules};
+  return {busy:()=>Boolean(active),start,applyPreview,state,importFile,exportFile,resolveHolds,resolveRows,stopWaiting,holdRules:loadHoldRules,setHoldRules:saveHoldRules};
 }
 
 /** Step 14: every planned cell that was written now shows its target, and every move landed. */

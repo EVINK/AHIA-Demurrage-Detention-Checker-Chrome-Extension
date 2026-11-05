@@ -2,6 +2,7 @@
 import {createService,retryBlankChat,waitForAgent} from '../core/service.ts';
 import {readKdocsPage} from '../injected/kdocs.ts';
 import {createChagui} from './chagui.ts';
+import {createMatson} from './matson.ts';
 import {gmailPage} from '../injected/gmail.ts';
 import {coscoPage} from '../injected/cosco.ts';
 import {onePage} from '../injected/one.ts';
@@ -89,7 +90,7 @@ chrome.notifications.onClicked.addListener(id=>{
   // Config page 「发送测试通知」: confirm that clicks on system notifications reach this browser.
   if(id==='lfd-test'){chrome.notifications.clear(id).catch(()=>{});notify('lfd-test-ok',-1,'插件已收到点击','通知点击正常，COSCO 人机验证和 ONE 客服回复的通知点击后会打开对应小窗。');return;}
   // 查柜 notices (finished, failed, waiting for an answer on a new hold word) open the 实验性功能 page.
-  if(id.startsWith('lfd-chagui')&&id!=='lfd-chagui-login'){chrome.notifications.clear(id).catch(()=>{});openPlugin('labs').catch(()=>{});return;}
+  if((id.startsWith('lfd-chagui')&&id!=='lfd-chagui-login')||id==='lfd-matson'){chrome.notifications.clear(id).catch(()=>{});openPlugin('labs').catch(()=>{});return;}
   // The worker may have restarted since the notification was shown, so the tab id is also part of the id.
   const tabId=noticeTabs.get(id)??Number(id.match(/^lfd-.*-(\d+)$/)?.[1]);if(!Number.isInteger(tabId))return;
   showTab(tabId).catch(()=>{});chrome.notifications.clear(id).catch(()=>{});
@@ -355,7 +356,9 @@ const service=createService({storage:store,
 // the popup never repeats the query or creates a second draft.
 // Operations run concurrently; only the newest is persisted for a reopened popup to restore.
 // 实验性功能 · 查柜.
-const chagui=createChagui({execute,loaded,notify,focusTab});
+// The two write through the same TH_Apply script in 我的脚本, so they never run at the same time.
+const chagui=createChagui({execute,loaded,notify,focusTab,busy:()=>matson.busy()});
+const matson=createMatson({execute,loaded,notify,busy:()=>chagui.busy()});
 const pendingOperations=new Set();let latestOperation='';
 async function persist(operation){if(operation.id===latestOperation)await chrome.storage.local.set({operation});}
 async function runOperation(message){
@@ -467,6 +470,9 @@ chrome.runtime.onMessage.addListener((message,sender,respond)=>{
     if(message.type==='chaguiHoldRules')return message.rules?chagui.setHoldRules(message.rules):chagui.holdRules();
     if(message.type==='chaguiImport')return chagui.importFile(message.text);
     if(message.type==='chaguiExport')return chagui.exportFile();
+    if(message.type==='matsonStart')return matson.start({apply:message.apply===true});
+    if(message.type==='matsonState')return matson.state();
+    if(message.type==='matsonApplyPreview')return matson.applyPreview();
     if(message.type==='settings'){
       // Config auto-saves while lookups run; a running job keeps the settings it started with.
       const settings=validateSettings(message.settings);

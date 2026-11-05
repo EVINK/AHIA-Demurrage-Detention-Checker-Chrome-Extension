@@ -118,5 +118,33 @@ export async function exportChaguiCache(){
     setTimeout(()=>URL.revokeObjectURL(url),1000);
   }catch(error){status((error as Error).message,'error');}
 }
+// Matson 查柜: its own run (`matsonRun`), same preview → write pattern.
+export const matson=reactive<{run:any,loaded:boolean}>({run:null,loaded:false});
+export const matsonStarting=ref(false);
+export async function loadMatson(){
+  if(demo){matson.loaded=true;return;}
+  try{Object.assign(matson,await rpc({type:'matsonState'}),{loaded:true});}catch(error){status((error as Error).message,'error');}
+}
+let listeningMatson=false;
+export function watchMatson(){
+  if(demo||listeningMatson)return;listeningMatson=true;
+  chrome.storage.onChanged.addListener((changes,area)=>{if(area==='local'&&changes.matsonRun)loadMatson();});
+}
+export async function startMatson(apply=false){
+  if(demo){status('演示模式不会运行查柜。');return;}
+  if(apply&&!await ask('查 Matson 柜子并写入提柜表：只改 B 列（ETA / HOLD 等）和 A 列 ✔。写之前会核对每个格子没被人改过。继续？'))return;
+  matsonStarting.value=true;
+  try{await rpc({type:'matsonStart',apply});status(apply?'查柜已在后台开始。':'预览已在后台开始，不会写表。');await loadMatson();}
+  catch(error){status((error as Error).message,'error');}
+  finally{matsonStarting.value=false;}
+}
+export async function applyPreviewMatson(){
+  if(demo){status('演示模式不会运行查柜。');return;}
+  if(!await ask('按这次预览写入提柜表？写之前会核对每个格子没被人改过，改过的会跳过。'))return;
+  matsonStarting.value=true;
+  try{await rpc({type:'matsonApplyPreview'});status('正在按预览写入。');await loadMatson();}
+  catch(error){status((error as Error).message,'error');}
+  finally{matsonStarting.value=false;}
+}
 export const timeText=(ms:number)=>ms?new Date(ms).toLocaleString():'';
 export const duration=(run:any)=>run?.finishedAt?`${Math.round((run.finishedAt-run.startedAt)/1000)} 秒`:'';
