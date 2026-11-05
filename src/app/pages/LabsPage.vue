@@ -26,6 +26,9 @@ const planRows=computed(()=>{
   for(const m of plan.moves)if(!plan.changes.some((c:any)=>c.container===m.container))items.push({container:m.container,cells:[{col:'—',beforeText:'',afterText:''}],move:m,rowText:rowText(m.container,m.from)});
   return items;
 });
+// Column letter with its meaning in the 提柜表, e.g. K（LFD）, B（查验信息）.
+const COLUMN_NAMES:Record<string,string>={A:'放行',B:'查验信息',G:'摆置',H:'车架',K:'LFD',M:'预约日期',N:'预约时段'};
+const colLabel=(col:string)=>COLUMN_NAMES[col]?`${col}（${t(COLUMN_NAMES[col])}）`:col;
 const scripts=['ListA_Push.js','TH_ReadV2.js','TH_ReadPickup.js','TH_Apply.js'];
 onMounted(()=>{loadChagui();watchChagui();loadHoldRules();});
 </script>
@@ -95,7 +98,7 @@ onMounted(()=>{loadChagui();watchChagui();loadHoldRules();});
           <table v-if="planRows.length">
             <tr><th>{{t('柜号')}}</th><th>{{t('行')}}</th><th>{{t('列')}}</th><th>{{t('原值')}}</th><th>{{t('新值')}}</th></tr>
             <template v-for="item in planRows" :key="item.container">
-              <tr v-for="(cell,i) in item.cells" :key="cell.col"><td>{{i?'':item.container}}</td><td class="labs-row labs-moved" :title="i||!item.move?'':t(`移到按码头排（${item.move.terminal}）`)">{{i?'':item.rowText}}</td><td>{{cell.col}}</td><td>{{cell.beforeText}}</td><td>{{cell.afterText}}</td></tr>
+              <tr v-for="(cell,i) in item.cells" :key="cell.col"><td>{{i?'':item.container}}</td><td class="labs-row labs-moved" :title="i||!item.move?'':t(`移到按码头排（${item.move.terminal}）`)">{{i?'':item.rowText}}</td><td>{{colLabel(cell.col)}}</td><td>{{cell.beforeText}}</td><td>{{cell.afterText}}</td></tr>
             </template>
           </table>
           <p v-else class="hint">{{t('没有需要修改的')}}</p>

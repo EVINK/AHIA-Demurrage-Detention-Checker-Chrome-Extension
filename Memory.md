@@ -268,6 +268,8 @@ Debugging: a reinstalled unpacked extension kept running its old service worker 
 
 **v0.9.13.** Owner, 11/5: ✎ 编辑 also on COSCO and ONE groups, body only. COSCO: the ticket description is edited like a mail body (values filled, `{{table}}` kept), Type / Services / reference fields stay. Not offered for a COSCO Detention group with several containers, because each gets its own ticket and would all get the first one's text. ONE: one message per line, one line per container in order (`chatTemplate` rejects another line count). Store: `mailOf` builds any channel, `edit.mailOnly` marks an email edit; `editFields` sends only `body` for the other two.
 
+**v0.9.15.** The 查柜 change table names each column: K（LFD）, B（查验信息）, A（放行）, G（摆置）, H（车架）, M（预约日期）, N（预约时段） (owner, 11/5).
+
 ## Known limitations
 
 - Gmail, COSCO, ONE and KDocs are driven through their page structure, so a site redesign can stop any flow. Failures stop with a message rather than guess.
