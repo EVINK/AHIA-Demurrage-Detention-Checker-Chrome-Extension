@@ -90,7 +90,7 @@ test('targets follow the owner rules',()=>{
   const notReady=targets(observe(container({import_status:{...container().import_status,available_for_pickup:false}})),row());
   assert.equal(notReady.A,'✔','no hold: ticked, whatever Dray Dog says about availability');
   const lineOnly=targets(observe(container(),Date.now(),{lineCheck:true}),row({K:46330}));
-  assert.equal(lineOnly.K,'','"Check Line for LFD" without a line date is blank');
+  assert.equal(lineOnly.K,'2026-11-05','"Check Line for LFD": the date the card shows still counts (owner, 11/6)');
   assert.equal(targets(observe(container({note_body:'SSL LFD 11/04'}),Date.now(),{lineCheck:true}),row()).K,'2026-11-04');
   const release=observe(container({import_status:{...container().import_status,parsed_holds:[{type:'Customs Hold',raw_type:'Customs BL Genereal Release'}]}}));
   assert.deepEqual(release.holds,['Custom_H'],'LBCT reports this as NO (HOLD)');

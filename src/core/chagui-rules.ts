@@ -150,7 +150,9 @@ export function observe(c,now=Date.now(),{lineCheck=false,holdRules=DEFAULT_HOLD
     terminal:String(c.last_related_terminal||status?.terminal||'').toUpperCase(),
     holds,unknownHolds,closedArea:status?.closed_area??null,ready:status?.ready_for_appointment??null,available:status?.available_for_pickup??null,
     // "Check Line for LFD": the terminal date is not the line's, so only the line's own date or a note counts.
-    lfd:lineCheck?null:c.last_free_date||status?.last_free_date||null,lineCheck,lineLfd:c.line_last_free_date||status?.line_last_free_date||null,
+    // Owner, 11/6: the date the card shows (terminal's) always counts, CHECK LINE FOR LFD or not; the earliest of it,
+    // the line's and a note's "SSL LFD" is the LFD.
+    lfd:c.last_free_date||status?.last_free_date||null,lineCheck,lineLfd:c.line_last_free_date||status?.line_last_free_date||null,
     note:c.note_body||'',noteLfd:noteLfd(c.note_body,c.last_free_date?Date.parse(c.last_free_date):now),
     appointment:appointment?{status:appointment.status,start:appointment.window_start,end:appointment.window_end||null,...laParts(appointment.window_start)}:null,
     position,eta:c.vessel_eta||status?.eta||null,location:status?.location||'',tags:c.tags||[],mbl:c.master_bl||status?.master_bill_of_lading||'',

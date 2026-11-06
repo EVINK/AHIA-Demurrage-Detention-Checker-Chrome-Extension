@@ -288,6 +288,8 @@ Debugging: a reinstalled unpacked extension kept running its old service worker 
 
 **v1.1.4, Matson B = latest event (owner, 11/6).** The one status in B is the latest of ALL Matson events and the ETA, e.g. MATU4665360 `Available 11/04 23:46` (AVAILABLE is written `Available`); the ETA wins a tie, so a discharge reads `ETA`. A future ETA still wins over past events. Row moves now depend on an exact vessel arrival (schedule arrival or discharged), not on B reading `ETA`.
 
+**v1.1.5 (owner, 11/6).** 查柜 too: the LFD Draydog's card shows (the terminal's) always counts, also under CHECK LINE FOR LFD (owner: 本来就应该是这样). K = earliest of that date, the line's date and a note's SSL LFD. `observe` no longer drops `lfd` when `lineCheck`; the Appointed / Bookable table shows it.
+
 ## Known limitations
 
 - Gmail, COSCO, ONE and KDocs are driven through their page structure, so a site redesign can stop any flow. Failures stop with a message rather than guess.

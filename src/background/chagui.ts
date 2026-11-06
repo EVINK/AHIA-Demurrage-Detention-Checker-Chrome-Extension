@@ -106,7 +106,7 @@ export function createChagui({execute,loaded,notify,focusTab,busy=()=>false,oocl
       known:records.length,verified:records.filter(e=>e?.lastVerifiedApplied).length,observed:records.filter(e=>e?.lastObservedStatus).length,runs:cache.runs.length,
       // Read-only view: this list's Appointed and Bookable containers as Dray Dog last showed them.
       ready:listed.map(({container})=>({container,status:cache.containers[container]?.lastObservedStatus})).filter(e=>['Appointed','Bookable'].includes(e.status?.category))
-        .map(({container,status:s})=>({container,category:s.category,terminal:s.terminal,holds:s.holds,lfd:s.lineCheck?'':(s.lfd||''),lineLfd:s.lineLfd||s.noteLfd||'',appointment:s.appointmentDateTime||'',position:s.position||'',available:s.availableForPickup,observedRun:s.observedRun}))};
+        .map(({container,status:s})=>({container,category:s.category,terminal:s.terminal,holds:s.holds,lfd:s.lfd||'',lineLfd:s.lineLfd||s.noteLfd||'',appointment:s.appointmentDateTime||'',position:s.position||'',available:s.availableForPickup,observedRun:s.observedRun}))};
   };
   async function importFile(text){
     if(active)throw new Error('查柜进行中，请完成后再导入。');
