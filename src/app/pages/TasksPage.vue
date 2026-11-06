@@ -15,21 +15,18 @@ const ooclRunning=computed(()=>oocl.run?.status==='running');
 const canWriteOocl=computed(()=>{const r=oocl.run;return Boolean(r&&r.status==='done'&&!r.apply&&r.plan&&(r.plan.changes.length||r.plan.notes.length));});
 const mmdd=(iso:string)=>iso?iso.slice(5).replace('-','/'):'';
 const timeText=(ms:number)=>ms?new Date(ms).toLocaleTimeString():'';
-// The card's head reads like the other task rows: containers (MBL small), then carrier · type · start time, then
-// where it stands and what to do next.
+// The card's head reads like the other task rows: containers (MBL small), carrier · type · start time, status.
+// Only the conclusion, no explanations (owner, 11/6).
 const ooclHead=computed(()=>{
   const r=oocl.run;if(!r)return null;
-  const minutes=Math.max(0,Math.round(((r.status==='running'?Date.now():r.finishedAt||Date.now())-(r.startedAt||Date.now()))/60000));
+  const minutes=Math.max(0,Math.round((Date.now()-(r.startedAt||Date.now()))/60000));
   const detail=`${r.carrierName||'OOCL'} · ${r.typeLabel||'Demurrage'} · ${timeText(r.startedAt)} 开始${r.status==='running'?` · 已 ${minutes} 分钟`:''}`;
   const current=r.steps.find(s=>s.status==='running');
-  const steps=r.fromPreview?'按上次仅查询的结果写入':r.apply?`查询并更新，共 ${r.steps.length} 步`:`仅查询，共 ${r.steps.length} 步（不写 Draydog、不写提柜表）`;
-  const pending=canWriteOocl.value;
-  const step=r.status==='running'?`${current?current.label:'进行中'}`
-    :r.status==='error'?`查询失败：${r.error||'请看下面失败的那一步'}`
-    :pending?'已查询，还没写入；下一步：核对下面的结果后点「写入数据」'
-    :'已查询，LFD 已确定，已归档到「记录」';
-  return {detail,steps,step,items:r.items||[]};
+  const step=r.status==='running'?(current?current.label:'进行中'):r.status==='error'?`查询失败：${r.error||''}`:canWriteOocl.value?'待写入':'完成';
+  return {detail,step,items:r.items||[]};
 });
+// Why a container got no 提柜表 update, shown in its own row.
+const skipReason=computed(()=>Object.fromEntries((oocl.run?.plan?.skipped||[]).map((s:any)=>[s.container,s.reason])));
 const retryOocl=()=>refillLookup((oocl.run?.items||[]).map((i:any)=>i.container));
 // Long values such as "Line_H,Not_Ready_For_Pickup_H" may wrap after each comma rather than mid-word.
 const breakable=(text:unknown)=>String(text??'').replace(/,/g,',​');
@@ -44,7 +41,7 @@ onMounted(()=>{loadOocl();watchOocl();});
       <div class="task-row oocl-head">
         <div>
           <strong class="task-names"><template v-for="(item,i) in ooclHead.items" :key="item.container">{{i?'、':''}}{{item.container}}<span v-if="item.mbl" class="task-mbl">{{item.mbl}}</span></template></strong>
-          <p>{{t(ooclHead.detail)}} · {{t(ooclHead.steps)}}</p>
+          <p>{{t(ooclHead.detail)}}</p>
           <div class="task-step" :class="{interrupted:oocl.run.status==='error'}">{{t(ooclHead.step)}}</div>
         </div>
         <div class="history-buttons">
@@ -57,7 +54,7 @@ onMounted(()=>{loadOocl();watchOocl();});
           </template>
         </div>
       </div>
-      <ol class="labs-steps">
+      <ol v-if="oocl.run.status!=='done'" class="labs-steps">
         <li v-for="step in oocl.run.steps" :key="step.key" :class="step.status">
           <span class="labs-state">{{t(stateLabel[step.status]||step.status)}}</span>
           <span>{{t(step.label)}}</span>
@@ -73,11 +70,9 @@ onMounted(()=>{loadOocl();watchOocl();});
           <td class="oocl-nowrap">{{mmdd(r.ooclLfd)}}</td>
           <td class="oocl-nowrap">{{mmdd(r.draydogLfd)}}</td>
           <td class="oocl-nowrap"><b>{{mmdd(r.lfd)}}</b></td>
-          <td class="oocl-nowrap"><template v-if="r.row"><template v-if="r.before===r.after">{{t('不用改')}}</template><template v-else>{{r.before||'—'}} <span class="oocl-arrow">→</span> {{r.after}}</template></template></td>
+          <td class="oocl-nowrap"><template v-if="r.row"><template v-if="r.before===r.after">{{t('不用改')}}</template><template v-else>{{r.before||'—'}} <span class="oocl-arrow">→</span> {{r.after}}</template></template><span v-else class="hint">{{t(skipReason[r.container]||'')}}</span></td>
         </tr>
       </table>
-      <p v-for="item in oocl.run.plan?.skipped||[]" :key="item.container+item.reason" class="hint labs-skip">{{item.container}}<template v-if="item.mbl"> ({{item.mbl}})</template>：{{t(item.reason)}}</p>
-      <p v-if="canWriteOocl" class="hint">{{t('「写入数据」直接写入上面这些改动（Draydog SSL LFD 和提柜表 K 列），不再重新查询。')}}</p>
     </div>
     <template v-for="section in sections" :key="section.heading">
       <h3 class="task-heading">{{t(section.heading)}}</h3>

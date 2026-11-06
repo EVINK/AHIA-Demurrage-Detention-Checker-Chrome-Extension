@@ -14,7 +14,6 @@ const mmdd=(iso:string)=>iso?iso.slice(5).replace('-','/'):'';
         <p>{{row.detail}}</p>
         <div class="history-state">{{t(row.state)}}{{row.suffix}}</div>
         <template v-if="row.oocl">
-          <p v-if="row.conclusion"><b>{{t(row.conclusion)}}</b></p>
           <!-- The run's table row for this container, only when opened. -->
           <details v-if="row.entry.lookup" class="diagnostics">
             <summary>{{t('详情')}}</summary>
