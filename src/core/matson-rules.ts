@@ -11,7 +11,7 @@
 //   7. discharged: the discharge time is the ETA, no schedule lookup;
 //   8. AVAILABLE as the latest event and no hold → A ✔. Matson needs no appointment.
 // Matson shows every time in Los Angeles time; the API gives instants, shown here in Los Angeles time too.
-import {businessRows,placeMoves} from './chagui-rules.ts';
+import {businessRows,placeMoves,managedPattern} from './chagui-rules.ts';
 
 const TZ='America/Los_Angeles';
 const pad=n=>String(n).padStart(2,'0');
@@ -49,8 +49,11 @@ export const MANAGED=/(^|[\s,，;；])(ETA|HOLD|RELEASED|Discharge|LOAD|OUTGATE|
 /** Column B: drop this feature's earlier words, keep the team's text, append the new words. */
 // Older hand-written Matson statuses the single status replaces (owner's sheet, 11/6): "VSL ETA: 11/08", "HOLD RELEASED".
 export const LEGACY=/(^|[\s,，;；])(VSL\s*ETA\s*[:：]?\s*\d{1,2}\/\d{1,2}(?:\s+\d{1,2}:\d{2})?|HOLD\s+RELEASED)(?=$|[\s,，;；])/gi;
-export function matsonCell(current,words){
+// Owner, 11/6: B keeps only the one Matson status, so 查柜's Draydog hold words (Custom_H, Line_H, Closed_Area …,
+// `holdPattern` = chagui-rules managedPattern) go too: Matson's own events decide holds for a Matson container.
+export function matsonCell(current,words,holdPattern=null){
   let text=String(current||'').replace(MANAGED,'$1').replace(LEGACY,'$1');
+  if(holdPattern){holdPattern.lastIndex=0;text=text.replace(holdPattern,'$1');holdPattern.lastIndex=0;}
   text=text.replace(/\s*[,，]\s*([,，]\s*)+/g,',').replace(/^[\s,，;；]+|[\s,，;；]+$/g,'').replace(/ {2,}/g,' ');
   return words.length?(text?`${text},${words.join(',')}`:words.join(',')):text;
 }
@@ -137,7 +140,7 @@ export function matsonList(baseline){
  * Moves (owner, 11/6): a container whose B now shows an ETA with a time ("ETA mm/dd HH:MM") and whose row is below
  * 未放行 moves under 按码头排 (in 未排程), after the last MATSON row there — the same move as 查柜. A row with a note
  * row under it is left for a person, as in 查柜. `baseline`: parseBaseline of the 提柜 read. */
-export function matsonPlan(items,baseline=null){
+export function matsonPlan(items,baseline=null,{holdPattern=managedPattern()}={}){
   const changes=[],skipped=[],observed=[],moves=[];
   const one=list=>list?.length===1?list[0]:null;
   const markers=baseline?.markers||{};
@@ -148,7 +151,7 @@ export function matsonPlan(items,baseline=null){
     const words=matsonWords(o,arrival);
     observed.push({container,bl:row.C,row:row.row,vessel:o.vvd,latest:o.latest,hold:o.hold,holdReasons:o.holdReasons,available:o.available,words:words.join(',')});
     const cells=[];
-    const B=matsonCell(row.B,words);
+    const B=matsonCell(row.B,words,holdPattern);
     if(B!==String(row.B))cells.push({col:'B',column:2,before:row.B,beforeText:String(row.B),after:B,afterText:B});
     if(row.A===''||row.A==='✔'){const A=o.available?'✔':'';if(A!==row.A)cells.push({col:'A',column:1,before:row.A,beforeText:row.A,after:A,afterText:A});}
     if(cells.length)changes.push({container,mbl:row.C,row:row.row,cells});

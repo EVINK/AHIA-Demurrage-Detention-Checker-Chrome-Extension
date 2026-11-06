@@ -6,7 +6,7 @@
 // read) and is read back and compared. Progress in `matsonRun`, which the 实验性功能 page follows.
 import {airScriptPage} from '../injected/airscript.ts';
 import {matsonPage} from '../injected/matson.ts';
-import {parseBaseline} from '../core/chagui-rules.ts';
+import {parseBaseline,validHoldRules,managedPattern} from '../core/chagui-rules.ts';
 import {matsonList,observeMatson,scheduleQuery,queryKey,arrivalOf,matsonPlan} from '../core/matson-rules.ts';
 import {PICKUP_URL,verify} from './chagui.ts';
 
@@ -82,7 +82,8 @@ export function createMatson({execute,loaded,notify,busy=()=>false}){
       await step('schedule','done',lookedUp.length?`${lookedUp.length} 个柜子，找到到港时间 ${lookedUp.filter(i=>i.arrival).length} 个`:'都已卸船，无需查船期');
       // Plan.
       current='plan';await step('plan','running');
-      const planned=matsonPlan(items,baseline);
+      const holdRules=validHoldRules((await chrome.storage.local.get('chaguiHoldRules')).chaguiHoldRules);
+      const planned=matsonPlan(items,baseline,{holdPattern:managedPattern(holdRules)});
       planned.skipped=[...list.skipped,...planned.skipped];
       run.plan=planned;
       const cellCount=planned.changes.reduce((n,c)=>n+c.cells.length,0);

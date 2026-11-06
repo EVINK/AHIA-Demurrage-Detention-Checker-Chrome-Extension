@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {blNumber,observeMatson,scheduleQuery,arrivalOf,matsonWords,matsonCell,matsonList,matsonPlan,eventWord} from '../src/core/matson-rules.ts';
-import {parseBaseline} from '../src/core/chagui-rules.ts';
+import {parseBaseline,managedPattern} from '../src/core/chagui-rules.ts';
 
 // Real answers from matson.com, 11/5 (the owner's screenshots).
 const ev=(date,status,location='')=>({date,status,location});
@@ -41,6 +41,13 @@ test('on hold, not discharged: HOLD, the events after it, and the schedule ETA',
   assert.deepEqual(matsonWords(o),['ETA 11/04']);
   // An ETA already in the past: the latest event wins.
   assert.deepEqual(matsonWords(o,{text:'10/20 08:00',key:'2026-10-20 08:00'}),['LOAD 10/24 21:00']);
+});
+
+test('Draydog hold words leave B: only the one Matson status stays (MATU4665360, 11/6)',()=>{
+  const o=observeMatson('MATU2650593',available);
+  const plan=matsonPlan([{container:'MATU2650593',row:{row:168,A:'',B:'Custom_H',C:'MATS8112198000'},observation:o}]);
+  assert.deepEqual(plan.changes[0].cells.map(c=>[c.col,c.after]),[['B','ETA 11/04 13:39'],['A','✔']]);
+  assert.equal(matsonCell('倉儲,Line_H,Closed_Area',['ETA 11/04 13:39'],managedPattern()),'倉儲,ETA 11/04 13:39');
 });
 
 test('old hand-written Matson statuses are replaced by the one status',()=>{

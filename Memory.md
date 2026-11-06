@@ -284,6 +284,8 @@ Debugging: a reinstalled unpacked extension kept running its old service worker 
 
 **v1.1.2 (owner's screenshot, 11/6).** The OOCL query compares with the LFD the Draydog card shows (e.g. LFD 10/31, Source LBCT) also when the card says CHECK LINE FOR LFD; before, that date was dropped and the Draydog LFD column was empty. 查柜 keeps its own rule (terminal date ignored under Check Line).
 
+**v1.1.3, Matson B keeps one status (owner, 11/6).** MATU4665360 row 168 got `Custom_H,ETA 11/04 21:15` and ✔: the ✔ was right (owner: 该打), but B must hold only the latest status. `matsonCell` now also removes 查柜's Draydog hold words (`managedPattern` of the owner's hold keywords: Custom_H, Line_H, Closed_Area …; CEX stays) on Matson rows; Matson's own events decide holds. Note a later Draydog 查柜 run may add its words back if it lists the container as Appointed/Bookable with a hold.
+
 ## Known limitations
 
 - Gmail, COSCO, ONE and KDocs are driven through their page structure, so a site redesign can stop any flow. Failures stop with a message rather than guess.
