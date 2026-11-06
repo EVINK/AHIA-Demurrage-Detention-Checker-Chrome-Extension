@@ -61,7 +61,7 @@ export function watchOocl(){
 }
 export async function applyPreviewOocl(){
   if(demo){status('演示模式不会写表。');return;}
-  if(!await ask('按这次查询结果更新？Draydog 写 SSL LFD note，提柜表 K 列写入较早的 LFD（写之前核对格子没被人改过）。'))return;
+  if(!await ask('写入这次查询的结果？Draydog 写 SSL LFD note，提柜表 K 列写入较早的 LFD（写之前核对格子没被人改过）。'))return;
   ooclWriting.value=true;
   try{await rpc({type:'ooclApplyPreview'});status('正在按查询结果写入。');await loadOocl();}
   catch(error){status((error as Error).message,'error');}

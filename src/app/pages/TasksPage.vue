@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import {computed,onMounted} from 'vue';
 import {NButton} from 'naive-ui';
-import {deleteTask,markSent,openDraft,openMailto,refillLookup,resendTask,showPage,stopTask,t,taskGroups,taskView,verifySent} from '../store.ts';
+import {deleteTask,markSent,openDraft,openMailto,refillLookup,resendTask,stopTask,t,taskGroups,taskView,verifySent} from '../store.ts';
 import {oocl,loadOocl,watchOocl,applyPreviewOocl,dismissOocl,ooclWriting} from '../oocl.ts';
 
 const sections=computed(()=>[
@@ -26,9 +26,8 @@ const ooclHead=computed(()=>{
   const pending=canWriteOocl.value;
   const step=r.status==='running'?`${current?current.label:'进行中'}`
     :r.status==='error'?`查询失败：${r.error||'请看下面失败的那一步'}`
-    :r.apply?'已查询并更新，结果已记入「记录」'
-    :pending?'已查询，结果已记入「记录」；下一步：确认后点「按这次结果更新」'
-    :'已查询，没有需要改的，结果已记入「记录」';
+    :pending?'已查询，还没写入；下一步：核对下面的结果后点「写入数据」'
+    :'已查询，LFD 已确定，已归档到「记录」';
   return {detail,steps,step,items:r.items||[]};
 });
 const retryOocl=()=>refillLookup((oocl.run?.items||[]).map((i:any)=>i.container));
@@ -50,10 +49,11 @@ onMounted(()=>{loadOocl();watchOocl();});
         </div>
         <div class="history-buttons">
           <template v-if="!ooclRunning">
-            <n-button v-if="canWriteOocl" id="ooclApplyPreview" type="primary" size="tiny" :loading="ooclWriting" :disabled="ooclWriting" @click="applyPreviewOocl">{{t('按这次结果更新')}}</n-button>
-            <n-button v-if="oocl.run.status==='error'" size="tiny" @click="retryOocl">{{t('重新查询')}}</n-button>
-            <n-button size="tiny" @click="showPage('history')">{{t('查看记录')}}</n-button>
-            <n-button size="tiny" @click="dismissOocl">{{t('关闭')}}</n-button>
+            <n-button v-if="canWriteOocl" id="ooclApplyPreview" type="primary" size="tiny" :loading="ooclWriting" :disabled="ooclWriting" @click="applyPreviewOocl">{{t('写入数据')}}</n-button>
+            <template v-else>
+              <n-button v-if="oocl.run.status==='error'" size="tiny" @click="retryOocl">{{t('重新查询')}}</n-button>
+              <n-button size="tiny" @click="dismissOocl">{{t('关闭')}}</n-button>
+            </template>
           </template>
         </div>
       </div>
@@ -77,7 +77,7 @@ onMounted(()=>{loadOocl();watchOocl();});
         </tr>
       </table>
       <p v-for="item in oocl.run.plan?.skipped||[]" :key="item.container+item.reason" class="hint labs-skip">{{item.container}}<template v-if="item.mbl"> ({{item.mbl}})</template>：{{t(item.reason)}}</p>
-      <p v-if="canWriteOocl" class="hint">{{t('「按这次结果更新」直接写入上面这些改动，不再重新查询。')}}</p>
+      <p v-if="canWriteOocl" class="hint">{{t('「写入数据」直接写入上面这些改动（Draydog SSL LFD 和提柜表 K 列），不再重新查询。')}}</p>
     </div>
     <template v-for="section in sections" :key="section.heading">
       <h3 class="task-heading">{{t(section.heading)}}</h3>

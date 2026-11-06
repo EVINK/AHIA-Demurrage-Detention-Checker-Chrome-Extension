@@ -368,10 +368,13 @@ export async function duplicateForce(){
 const statuses={preparing:'准备中 / 中断待核实',draft:'草稿已生成 · 未自动发送',sending:'发送中 / 待核实',sent:'Gmail 已确认发送',uncertain:'发送结果待核实',needs_review:'准备失败，请检查草稿'};
 const chatStatuses={preparing:'准备中 / 中断待核实',draft:'客服已接入 · 消息未发送',sending:'联系客服中 / 待核实',sent:'已查询（客服已读）',uncertain:'客服消息结果待核实',needs_review:'消息未发送，请检查聊天页'};
 const portalStatuses={preparing:'准备中 / 中断待核实',draft:'工单已填写 · 未提交',sending:'等待人机验证 / 提交中',sent:'COSCO 工单已提交',uncertain:'工单提交结果待核实',needs_review:'工单未提交，请检查页面'};
-const ooclStatuses={preparing:'OOCL 查询进行中',queried:'OOCL 已查询（仅查询，未写入）',updated:'OOCL 已查询并更新',failed:'OOCL 写入未完成，请查看'};
+const ooclStatuses={preparing:'OOCL 查询进行中',queried:'OOCL 已查询（仅查询，未写入）',updated:'OOCL 已查询 · LFD 已确定',failed:'OOCL 写入未完成，请查看'};
+// An OOCL record's conclusion, shown without opening it: the LFD and the two dates it was taken from.
+const md=iso=>iso?iso.slice(5).replace('-','/'):'—';
+const ooclConclusion=entry=>{const r=entry.lookup;if(!r)return entry.detail||'';return r.lfd?`LFD ${md(r.lfd)}（SSL ${md(r.ooclLfd)} · Draydog ${md(r.draydogLfd)}，取较早）`:entry.reason||entry.detail||'没有查到 LFD';};
 export const historyRows=computed(()=>Object.entries(ledger.value).sort((a:any,b:any)=>(b[1].time||0)-(a[1].time||0)).map(([key,entry]:any)=>{
   const portal=entry.channel==='cosco-portal',chat=entry.channel==='one-chat',oocl=entry.channel===OOCL_RTR,system=mailProgram(entry.mailClient);
-  return {key,entry,system,
+  return {key,entry,system,oocl,conclusion:oocl?ooclConclusion(entry):'',
     detail:`${entry.carrierName||'Maersk'} · ${typeTitle(entry)||'Demurrage'} · ${new Date(entry.time).toLocaleString()}`,
     state:oocl?(entry.running?`${ooclStatuses.preparing}${entry.step?` · ${entry.step}`:''}`:ooclStatuses[entry.status]||entry.status):system&&entry.status==='draft'?'已打开邮件程序 · 待确认发送':system&&entry.status==='sent'?'已发送（用户确认）':(chat?chatStatuses:portal?portalStatuses:statuses)[entry.status]||entry.status,
     suffix:(entry.ticketId?` #${entry.ticketId}`:'')+(entry.agent?` · ${entry.agent}`:''),

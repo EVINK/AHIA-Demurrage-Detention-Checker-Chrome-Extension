@@ -37,6 +37,9 @@ export function lookupDetail(result,reason,apply){
   return `LFD ${mmdd(result.lfd)} · SSL ${mmdd(result.ooclLfd)} · Draydog ${mmdd(result.draydogLfd)} · ${sheet}`;
 }
 const WRITE_STEPS=['note','apply','verify'];
+// The LFD is settled: written by this run, or a 仅查询 that found nothing to write (someone had already put it in
+// the sheet and the note in Draydog). Such a run is archived: it leaves 进行中 and stays on 记录 (owner, 11/6).
+export const settled=run=>run.status==='done'&&(run.apply||!(run.plan?.changes?.length||run.plan?.notes?.length));
 
 // tasks: the service (src/core/service.ts). Each run's containers get records in the ledger, the same locks a send
 // takes: they show on 记录 and keep the same container from being looked up twice.
@@ -153,7 +156,9 @@ export function createOocl({execute,loaded,notify,focusTab,busy=()=>false,tasks=
     if(run.status==='done'){
       const results=Object.fromEntries((run.plan?.results||[]).map(r=>[r.container,r]));
       const reasons=Object.fromEntries((run.plan?.skipped||[]).map(s=>[s.container,s.reason]));
-      await tasks.endLookup(run.requestId,entry=>({running:false,step:'',status:run.apply?'updated':'queried',runId:run.id,finishedAt:run.finishedAt,detail:lookupDetail(results[entry.container],reasons[entry.container],run.apply)})).catch(()=>{});
+      // lookup: the run table's row for this container (记录 shows it when the record is opened).
+      const row=r=>r?{terminal:r.terminal||'',status:r.status||'',ooclLfd:r.ooclLfd||'',draydogLfd:r.draydogLfd||'',lfd:r.lfd||'',row:r.row||null,before:r.before||'',after:r.after||''}:null;
+      await tasks.endLookup(run.requestId,entry=>({running:false,step:'',status:run.apply||settled(run)?'updated':'queried',runId:run.id,finishedAt:run.finishedAt,lookup:row(results[entry.container]),reason:reasons[entry.container]||'',detail:lookupDetail(results[entry.container],reasons[entry.container],run.apply)})).catch(()=>{});
     }else if(WRITE_STEPS.includes(current))await tasks.endLookup(run.requestId,{running:false,step:'',status:'failed',runId:run.id,finishedAt:run.finishedAt,detail:run.error||''}).catch(()=>{});
     else if(run.fromPreview)await tasks.endLookup(run.requestId,{running:false,step:'',status:'queried',detail:run.error||''}).catch(()=>{});
     else await tasks.endLookup(run.requestId,null);
@@ -224,6 +229,7 @@ export function createOocl({execute,loaded,notify,focusTab,busy=()=>false,tasks=
     run.status=failed?'error':'done';run.finishedAt=Date.now();
     if(failed)run.error=failed.key==='note'?'有 Draydog SSL LFD 没写上，请查看。':'写入后复核有不符，请查看。';
     await save(run);await record(run,failed?.key||current);
+    if(settled(run))await chrome.storage.local.remove('ooclRun');
     const lfds=(run.plan?.results||[]).filter(r=>r.lfd).map(r=>`${r.container} ${r.lfd.slice(5).replace('-','/')}`);
     try{notify('lfd-oocl',-1,run.apply?'OOCL LFD 查询完成':'OOCL LFD 查询完成（仅查询）',lfds.length?lfds.slice(0,6).join('，'):'没有查到 LFD。');}catch{}
   }

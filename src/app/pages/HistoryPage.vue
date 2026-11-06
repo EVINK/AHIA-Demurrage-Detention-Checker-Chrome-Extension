@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import {NButton} from 'naive-ui';
 import {busy,exportHistory,historyRows,markSent,openDraft,openMailto,refresh,releaseRecord,t} from '../store.ts';
+const mmdd=(iso:string)=>iso?iso.slice(5).replace('-','/'):'';
 </script>
 
 <template>
@@ -12,7 +13,26 @@ import {busy,exportHistory,historyRows,markSent,openDraft,openMailto,refresh,rel
         <strong>{{row.entry.container}} · {{row.entry.mbl}}</strong>
         <p>{{row.detail}}</p>
         <div class="history-state">{{t(row.state)}}{{row.suffix}}</div>
-        <p v-if="row.entry.detail">{{t(row.entry.detail)}}</p>
+        <template v-if="row.oocl">
+          <p v-if="row.conclusion"><b>{{t(row.conclusion)}}</b></p>
+          <!-- The run's table row for this container, only when opened. -->
+          <details v-if="row.entry.lookup" class="diagnostics">
+            <summary>{{t('详情')}}</summary>
+            <table class="container-table oocl-table">
+              <tr><th class="oocl-nowrap">{{t('柜号')}}</th><th class="oocl-nowrap">{{t('码头')}}</th><th class="oocl-value">{{t('状态')}}</th><th class="oocl-nowrap">SSL</th><th class="oocl-nowrap">Draydog</th><th class="oocl-nowrap">LFD</th><th class="oocl-nowrap">{{t('提柜表更新')}}</th></tr>
+              <tr>
+                <td class="mono oocl-nowrap">{{row.entry.container}}</td>
+                <td class="oocl-nowrap">{{row.entry.lookup.terminal}}</td>
+                <td class="oocl-value">{{String(row.entry.lookup.status||'').replace(/,/g,',​')}}</td>
+                <td class="oocl-nowrap">{{mmdd(row.entry.lookup.ooclLfd)}}</td>
+                <td class="oocl-nowrap">{{mmdd(row.entry.lookup.draydogLfd)}}</td>
+                <td class="oocl-nowrap"><b>{{mmdd(row.entry.lookup.lfd)}}</b></td>
+                <td class="oocl-nowrap"><template v-if="row.entry.lookup.row"><template v-if="row.entry.lookup.before===row.entry.lookup.after">{{t('不用改')}}</template><template v-else>{{row.entry.lookup.before||'—'}} <span class="oocl-arrow">→</span> {{row.entry.lookup.after}}</template></template><template v-else>{{t(row.entry.reason||'—')}}</template></td>
+              </tr>
+            </table>
+          </details>
+        </template>
+        <p v-else-if="row.entry.detail">{{t(row.entry.detail)}}</p>
         <p v-if="row.recovered">{{t(row.recovered)}}</p>
         <details v-if="row.diagnostics" class="diagnostics"><summary>{{t('诊断信息')}}</summary><pre>{{JSON.stringify(row.diagnostics,null,2)}}</pre></details>
       </div>
