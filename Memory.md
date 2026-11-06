@@ -276,7 +276,7 @@ Debugging: a reinstalled unpacked extension kept running its old service worker 
 
 **v0.9.18, Matson: one status in B (owner, 11/6).** Column B gets a single word: the candidate with the latest time (ETA from the schedule / discharge / Matson's ETA day, and while on hold HOLD and each later event), e.g. `ETA 11/08 12:30`. Old hand-written Matson statuses are replaced too: `VSL ETA: mm/dd` and `HOLD RELEASED` (`LEGACY` in matson-rules.ts; owner said 换). The MBL (column C) is shown next to the container in the change table, the status table (open by default) and skipped lines.
 
-**v1.0.0 (owner, 11/6).** Version raised to 1.0.0, no code change. Version rule from now on: a small change raises the last number, a larger feature the middle one; the last two stop at 9 and carry over (1.0.9 → 1.1.0, 1.9.9 → 2.0.0); only the first may go past 9.
+**v1.0.0 (owner, 11/6).** Version raised to 1.0.0, no code change. Version rule from now on: a small change raises the last number, a larger feature the middle one; the last two stop at 9 and carry over (1.0.9 → 1.1.0, 1.9.9 → 2.0.0); only the first may go past 9. Every version bump is also packed (owner, 11/6): build, then zip the contents of `dist\extension` (manifest.json at the zip root) as `dist\trucker-helper-v<version>.zip`; zips are not committed.
 
 ## Known limitations
 
