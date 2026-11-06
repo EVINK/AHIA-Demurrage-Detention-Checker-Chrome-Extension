@@ -286,6 +286,8 @@ Debugging: a reinstalled unpacked extension kept running its old service worker 
 
 **v1.1.3, Matson B keeps one status (owner, 11/6).** MATU4665360 row 168 got `Custom_H,ETA 11/04 21:15` and ✔: the ✔ was right (owner: 该打), but B must hold only the latest status. `matsonCell` now also removes 查柜's Draydog hold words (`managedPattern` of the owner's hold keywords: Custom_H, Line_H, Closed_Area …; CEX stays) on Matson rows; Matson's own events decide holds. Note a later Draydog 查柜 run may add its words back if it lists the container as Appointed/Bookable with a hold.
 
+**v1.1.4, Matson B = latest event (owner, 11/6).** The one status in B is the latest of ALL Matson events and the ETA, e.g. MATU4665360 `Available 11/04 23:46` (AVAILABLE is written `Available`); the ETA wins a tie, so a discharge reads `ETA`. A future ETA still wins over past events. Row moves now depend on an exact vessel arrival (schedule arrival or discharged), not on B reading `ETA`.
+
 ## Known limitations
 
 - Gmail, COSCO, ONE and KDocs are driven through their page structure, so a site redesign can stop any flow. Failures stop with a message rather than guess.

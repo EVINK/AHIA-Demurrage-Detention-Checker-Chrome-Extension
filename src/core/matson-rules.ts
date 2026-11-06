@@ -100,23 +100,21 @@ export function arrivalOf(o,schedule){
 }
 const keyOf=ms=>{const t=laTime(ms);return `${t.date} ${t.hhmm}`;};
 
-/** Column B: one word, the status with the latest time (owner, 11/6: "只保留一个状态(最近的时间)"). Candidates: the
- * ETA (schedule arrival, the discharge time once discharged, else Matson's ETA day) and, while on hold, HOLD and
- * every event after it. `arrival` comes from arrivalOf. */
+/** Column B: one word, the status with the latest time (owner, 11/6: "只保留一个状态(最近的时间)"; MATU4665360 shows
+ * "Available 11/04 23:46"). Candidates: every Matson event (HOLD, LOAD, Discharge, OUTGATE, Available …) and the ETA
+ * (schedule arrival, the discharge time once discharged, else Matson's ETA day). On a tie the ETA wins (so a discharge
+ * reads "ETA"). `arrival` comes from arrivalOf. */
+const SHOWN_WORD={AVAILABLE:'Available'};
 export function matsonWords(o,arrival=''){
-  const candidates=[];
+  const candidates=o.events.map(e=>({word:`${SHOWN_WORD[e.word]||e.word} ${stamp(e.date)}`,key:keyOf(e.date)}));
   if(o.discharged)candidates.push({word:`ETA ${stamp(o.discharged)}`,key:keyOf(o.discharged)});
   else if(arrival)candidates.push({word:`ETA ${arrival.text}`,key:arrival.key});
   else{
     const m=String(o.vesselEta||'').match(/^(\d{1,2})\/(\d{1,2})\/(\d{2,4})/);
     if(m)candidates.push({word:`ETA ${pad(m[1])}/${pad(m[2])}`,key:`${m[3].length===2?'20'+m[3]:m[3]}-${pad(m[1])}-${pad(m[2])} 00:00`});
   }
-  if(o.hold){
-    candidates.push({word:`HOLD ${stamp(o.holdSince)}`,key:keyOf(o.holdSince)});
-    for(const e of o.events)if(e.date>o.holdSince&&!['HOLD','RELEASED'].includes(e.word))candidates.push({word:`${e.word} ${stamp(e.date)}`,key:keyOf(e.date)});
-  }
   if(!candidates.length)return [];
-  // Latest time wins; on a tie the later candidate (an event over the ETA it equals).
+  // Latest time wins; on a tie the later candidate (the ETA, pushed last, over the discharge event it equals).
   return [candidates.reduce((best,c)=>c.key>=best.key?c:best).word];
 }
 
@@ -137,7 +135,7 @@ export function matsonList(baseline){
 }
 
 /** Cell changes for TH_Apply: A (✔ only when available and no hold; never overwrites other A content) and B.
- * Moves (owner, 11/6): a container whose B now shows an ETA with a time ("ETA mm/dd HH:MM") and whose row is below
+ * Moves (owner, 11/6): a container with an exact vessel arrival time (schedule arrival, or discharged) whose row is below
  * 未放行 moves under 按码头排 (in 未排程), after the last MATSON row there — the same move as 查柜. A row with a note
  * row under it is left for a person, as in 查柜. `baseline`: parseBaseline of the 提柜 read. */
 export function matsonPlan(items,baseline=null,{holdPattern=managedPattern()}={}){
@@ -155,7 +153,7 @@ export function matsonPlan(items,baseline=null,{holdPattern=managedPattern()}={}
     if(B!==String(row.B))cells.push({col:'B',column:2,before:row.B,beforeText:String(row.B),after:B,afterText:B});
     if(row.A===''||row.A==='✔'){const A=o.available?'✔':'';if(A!==row.A)cells.push({col:'A',column:1,before:row.A,beforeText:row.A,after:A,afterText:A});}
     if(cells.length)changes.push({container,mbl:row.C,row:row.row,cells});
-    if(baseline&&section.unreleased&&row.row>section.unreleased&&words.length===1&&/^ETA \d{2}\/\d{2} \d{2}:\d{2}$/.test(words[0])){
+    if(baseline&&section.unreleased&&row.row>section.unreleased&&(o.discharged||arrival)){
       if(!section.byTerminal||section.byTerminal>section.unreleased){skipped.push({container,mbl:row.C,reason:'找不到“按码头排”分区，没有移动'});continue;}
       const next=baseline.rows.find(r=>r.row===row.row+1);
       if(next&&!/^[A-Z]{4}\d{7}$/.test(next.D)&&!markerRows.includes(next.row)){skipped.push({container,mbl:row.C,reason:'这一行下面还有附属行，需要人工移动'});continue;}

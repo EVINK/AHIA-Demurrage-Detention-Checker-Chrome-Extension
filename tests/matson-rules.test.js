@@ -46,7 +46,7 @@ test('on hold, not discharged: HOLD, the events after it, and the schedule ETA',
 test('Draydog hold words leave B: only the one Matson status stays (MATU4665360, 11/6)',()=>{
   const o=observeMatson('MATU2650593',available);
   const plan=matsonPlan([{container:'MATU2650593',row:{row:168,A:'',B:'Custom_H',C:'MATS8112198000'},observation:o}]);
-  assert.deepEqual(plan.changes[0].cells.map(c=>[c.col,c.after]),[['B','ETA 11/04 13:39'],['A','✔']]);
+  assert.deepEqual(plan.changes[0].cells.map(c=>[c.col,c.after]),[['B','Available 11/04 18:03'],['A','✔']]);
   assert.equal(matsonCell('倉儲,Line_H,Closed_Area',['ETA 11/04 13:39'],managedPattern()),'倉儲,ETA 11/04 13:39');
 });
 
@@ -56,13 +56,13 @@ test('old hand-written Matson statuses are replaced by the one status',()=>{
   assert.equal(matsonCell('倉儲 VSL ETA: 11/08,HOLD 10/28 11:37,LOAD 10/28 23:04',['ETA 11/08 12:30']),'倉儲,ETA 11/08 12:30');
 });
 
-test('released, discharged and AVAILABLE: ETA is the discharge time, A gets ✔',()=>{
+test('released, discharged and AVAILABLE: B shows the latest event (Available), A gets ✔',()=>{
   const o=observeMatson('MATU2650593',available);
   assert.equal(o.hold,false);assert.equal(o.available,true);
   assert.equal(scheduleQuery(o),null);
-  assert.deepEqual(matsonWords(o),['ETA 11/04 13:39']);
+  assert.deepEqual(matsonWords(o),['Available 11/04 18:03']);
   const plan=matsonPlan([{container:'MATU2650593',row:{row:12,A:'',B:'ETA 11/04 倉儲',C:'MATS8112198000'},observation:o}]);
-  assert.deepEqual(plan.changes[0].cells.map(c=>[c.col,c.after]),[['B','倉儲,ETA 11/04 13:39'],['A','✔']]);
+  assert.deepEqual(plan.changes[0].cells.map(c=>[c.col,c.after]),[['B','倉儲,Available 11/04 18:03'],['A','✔']]);
 });
 
 test('a container not in the answer, or an unknown event',()=>{
@@ -78,7 +78,7 @@ test('column B keeps the team text and replaces only its own words',()=>{
   assert.equal(matsonCell('倉儲',[]),'倉儲');
   // Already right: no change.
   const o=observeMatson('MATU2650593',available);
-  assert.equal(matsonPlan([{container:'MATU2650593',row:{row:12,A:'✔',B:'ETA 11/04 13:39',C:'8112198000'},observation:o}]).changes.length,0);
+  assert.equal(matsonPlan([{container:'MATU2650593',row:{row:12,A:'✔',B:'Available 11/04 18:03',C:'8112198000'},observation:o}]).changes.length,0);
 });
 
 test('a row under 未放行 with an ETA time moves next to the MATSON rows under 按码头排',()=>{
