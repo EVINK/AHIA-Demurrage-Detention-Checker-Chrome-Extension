@@ -9,14 +9,33 @@ async function rpc(message:any){
   return response.data;
 }
 export const ooclForm=reactive({username:'',password:'',checking:false,result:'',ok:false});
-export function fillOoclForm(){ooclForm.username=ooclAccount.username;ooclForm.password='';ooclForm.result=ooclAccount.saved?(ooclAccount.checkedAt?`已保存 · 上次检查通过 ${new Date(ooclAccount.checkedAt).toLocaleString()}`:'已保存'):'';ooclForm.ok=ooclAccount.saved;}
+// What the user typed but has not confirmed yet survives the popup closing: it is kept as a draft in
+// chrome.storage.local (this machine's extension storage only, never synced or exported) and cleared once the
+// account is saved or deleted.
+const DRAFT_KEY='ooclDraft';
+let draft:{username:string,password:string}|null=null;
+let draftLoaded=false;
+function applyDraft(){if(draft&&!ooclForm.checking){ooclForm.username=draft.username;ooclForm.password=draft.password;}}
+function clearDraft(){draft=null;if(!demo)chrome.storage.local.remove(DRAFT_KEY).catch(()=>{});}
+if(!demo)chrome.storage.local.get(DRAFT_KEY).then(data=>{
+  const saved=data?.[DRAFT_KEY];
+  if(saved&&typeof saved.username==='string'&&typeof saved.password==='string')draft={username:saved.username,password:saved.password};
+  draftLoaded=true;applyDraft();
+}).catch(()=>{draftLoaded=true;});
+watch(()=>[ooclForm.username,ooclForm.password],([username,password])=>{
+  if(demo||!draftLoaded||ooclForm.checking)return;
+  if(username===ooclAccount.username&&!password){clearDraft();return;}
+  draft={username,password};
+  chrome.storage.local.set({[DRAFT_KEY]:draft}).catch(()=>{});
+});
+export function fillOoclForm(){ooclForm.username=ooclAccount.username;ooclForm.password='';ooclForm.result=ooclAccount.saved?(ooclAccount.checkedAt?`已保存 · 上次检查通过 ${new Date(ooclAccount.checkedAt).toLocaleString()}`:'已保存'):'';ooclForm.ok=ooclAccount.saved;applyDraft();}
 /** 确定并检查连通性: saves the account (an empty password keeps the saved one) and signs in once. */
 export async function checkOocl(){
   if(demo){status('演示模式不会连接 OOCL。');return;}
   ooclForm.checking=true;ooclForm.result='正在登录 OOCL 检查…';ooclForm.ok=false;
   try{
     Object.assign(ooclAccount,await rpc({type:'ooclSaveAccount',username:ooclForm.username,password:ooclForm.password}));
-    ooclForm.password='';ooclForm.ok=true;ooclForm.result='连通性正常，账号已保存在本机插件里。';
+    clearDraft();ooclForm.password='';ooclForm.ok=true;ooclForm.result='连通性正常，账号已保存在本机插件里。';
     status('OOCL 账号检查通过。','success');
     resumeOocl();
   }catch(error){ooclForm.result=(error as Error).message;status((error as Error).message,'error');await loadOoclAccount();}
@@ -24,7 +43,7 @@ export async function checkOocl(){
 }
 export async function clearOocl(){
   if(!await ask('删除插件里保存的 OOCL 账号密码？'))return;
-  try{Object.assign(ooclAccount,await rpc({type:'ooclClearAccount'}));fillOoclForm();status('OOCL 账号已删除。');}catch(error){status((error as Error).message,'error');}
+  try{Object.assign(ooclAccount,await rpc({type:'ooclClearAccount'}));clearDraft();fillOoclForm();status('OOCL 账号已删除。');}catch(error){status((error as Error).message,'error');}
 }
 
 export const oocl=reactive<{run:any,loaded:boolean}>({run:null,loaded:false});
