@@ -170,7 +170,7 @@ export const sendAllLabel=computed(()=>{const {containers,carriers}=totals.value
 const channelNames={email:'Gmail 邮件','cosco-portal':'COSCO 工单','one-chat':'ONE 在线客服','oocl-rtr':'OOCL 网站查询'};
 export const channelName=group=>group.channel==='email'&&mailProgram(settings.value.mailClient)?'电脑邮件程序':channelNames[group.channel];
 export function groupLabels(group){
-  if(group.channel===OOCL_RTR)return {send:'查询并更新',draft:'仅查询（预览）'};
+  if(group.channel===OOCL_RTR)return {send:'查询并更新',draft:'仅查询'};
   if(group.channel==='one-chat')return {send:'发送 ONE 消息',draft:'转人工但不发送'};
   if(group.channel==='cosco-portal')return {send:'提交工单',draft:'仅填写工单'};
   if(mailProgram(settings.value.mailClient))return {send:'打开邮件程序',draft:''};
@@ -262,8 +262,10 @@ async function dispatch(list,mode){
   try{for(const group of list)results.push(await runGroup(group,mode));}
   finally{busy.value=false;for(const group of list)delete sending[group.id];}
   const queued=results.flatMap(result=>result.queued),failed=results.flatMap(result=>result.failed),duplicates=results.flatMap(result=>result.duplicates),looked=results.flatMap(result=>result.looked||[]);
-  if(queued.length)setContainers(parseContainers(query.text).filter(container=>!queued.includes(container)));
-  const parts=[...(queued.length?[`已加入后台任务：${queued.join('、')}。`]:[]),...(looked.length?[`OOCL 查询已在后台开始：${looked.join('、')}，结果显示在下方。`]:[]),...failed.map(line=>`未发送 ${line}`)];
+  // Started containers leave the query page; their task (and the OOCL run) shows on the 进行中 page.
+  const started=[...queued,...looked];
+  if(started.length)setContainers(parseContainers(query.text).filter(container=>!started.includes(container)));
+  const parts=[...(queued.length?[`已加入后台任务：${queued.join('、')}。`]:[]),...(looked.length?[`OOCL 查询已在后台开始：${looked.join('、')}，结果在「进行中」页。`]:[]),...failed.map(line=>`未发送 ${line}`)];
   if(parts.length)status(parts.join(' '),failed.length?'error':'success');
   if(looked.length)ooclStarted.value++;
   await refreshState().catch(()=>{});

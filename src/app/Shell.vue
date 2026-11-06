@@ -8,6 +8,7 @@ import QueryPage from './pages/QueryPage.vue';
 import TasksPage from './pages/TasksPage.vue';
 import {boot,duplicateDialog,duplicateForce,duplicateView,historyRows,language,message,rememberScroll,setLanguage,setMode,settings,showPage,t,taskGroups,ui,useAsk} from './store.ts';
 import {LANGUAGES} from '../core/i18n.ts';
+import {oocl} from './oocl.ts';
 
 declare const __APP_VERSION__:string;
 const version=`v${__APP_VERSION__}`;
@@ -22,7 +23,8 @@ useAsk(text=>new Promise(resolve=>{
   dialog.warning({title:'Trucker Helper',content:()=>h('div',{class:'dialog-text'},t(text)),positiveText:t('确定'),negativeText:t('取消'),maskClosable:false,
     onPositiveClick:()=>answer(true),onNegativeClick:()=>answer(false),onClose:()=>answer(false),onEsc:()=>answer(false)});
 }));
-const tabs=computed(()=>[{page:'query',label:'查询'},{page:'tasks',label:'进行中',count:taskGroups.value.running.length},{page:'config',label:'配置'},{page:'history',label:'记录',count:historyRows.value.length},{page:'labs',label:'实验性功能'}]);
+// A running OOCL Demurrage lookup counts as one task in progress.
+const tabs=computed(()=>[{page:'query',label:'查询'},{page:'tasks',label:'进行中',count:taskGroups.value.running.length+(oocl.run?.status==='running'?1:0)},{page:'config',label:'配置'},{page:'history',label:'记录',count:historyRows.value.length},{page:'labs',label:'实验性功能'}]);
 const languageOptions=Object.entries(LANGUAGES).map(([value,label])=>({value,label}));
 onMounted(boot);
 </script>

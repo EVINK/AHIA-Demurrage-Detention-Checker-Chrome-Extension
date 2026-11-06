@@ -292,6 +292,8 @@ Debugging: a reinstalled unpacked extension kept running its old service worker 
 
 **v1.1.6.** 查柜 tables laid out as the owner asked (11/6): container, row, column, status, terminal, position never wrap; before / after values are narrow, wrap after commas, with a → column between them (also in the Matson change table); in Appointed / Bookable, holds go one per line, the terminal and SSL LFD on two lines (no "/"), and the appointment date above its time.
 
+**v1.1.9 (owner, 11/6).** The OOCL Demurrage LFD run card lives on the 进行中 page (TasksPage.vue), not the query page; once a lookup starts its containers leave the query input like sent ones, and a running lookup adds 1 to the 进行中 tab count. 「仅查询（预览）」 is now 「仅查询」. Result table columns: 柜号 · 状态 · SSL · Draydog (date, terminal below) · LFD · 提柜表更新; MBL and Draydog note columns removed; short columns never wrap, the status wraps narrow.
+
 ## Known limitations
 
 - Gmail, COSCO, ONE and KDocs are driven through their page structure, so a site redesign can stop any flow. Failures stop with a message rather than guess.
