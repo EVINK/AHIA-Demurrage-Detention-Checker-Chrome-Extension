@@ -256,7 +256,6 @@ async function dispatch(list,mode){
   const noAccount=list.find(group=>group.channel===OOCL_RTR&&group.needsAccount);
   if(noAccount&&list.length>1)list=list.filter(group=>group!==noAccount);
   else if(noAccount){pendingOocl.group=noAccount.id;pendingOocl.mode=mode;configureCarrier(noAccount);status('请先填写 OOCL 账号密码，点「确定并检查连通性」，通过后自动开始查询。');return;}
-  if(mode==='send'&&list.some(group=>group.channel===OOCL_RTR)&&!await ask('查询 OOCL 的 Demurrage LFD 并更新：Draydog 没有这条 note 的写一条「SSL LFD mm/dd」，OOCL 和 Draydog 的 LFD 取较早的写入提柜表 K 列（写之前核对格子没被人改过）。继续？'))return;
   busy.value=true;for(const group of list)sending[group.id]=true;
   status('正在加入后台任务…','running');
   const results=[];
