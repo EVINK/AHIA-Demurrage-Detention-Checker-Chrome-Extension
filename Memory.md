@@ -290,6 +290,8 @@ Debugging: a reinstalled unpacked extension kept running its old service worker 
 
 **v1.1.5 (owner, 11/6).** 查柜 too: the LFD Draydog's card shows (the terminal's) always counts, also under CHECK LINE FOR LFD (owner: 本来就应该是这样). K = earliest of that date, the line's date and a note's SSL LFD. `observe` no longer drops `lfd` when `lineCheck`; the Appointed / Bookable table shows it.
 
+**v1.1.6.** 查柜 tables laid out as the owner asked (11/6): container, row, column, status, terminal, position never wrap; before / after values are narrow, wrap after commas, with a → column between them (also in the Matson change table); in Appointed / Bookable, holds go one per line, the terminal and SSL LFD on two lines (no "/"), and the appointment date above its time.
+
 ## Known limitations
 
 - Gmail, COSCO, ONE and KDocs are driven through their page structure, so a site redesign can stop any flow. Failures stop with a message rather than guess.
