@@ -164,8 +164,9 @@ export function createOocl({execute,loaded,notify,focusTab,busy=()=>false}){
       try{
         const numbers=run.items.map(i=>i.container);
         const status=await execute(signIn.tabId,draydogPage,['containers',{numbers}],'MAIN');
-        const lineCheck=new Set(status.lineCheck||[]);
-        for(const c of status.containers)draydog[c.container_number]=observe(c,Date.now(),{lineCheck:lineCheck.has(c.container_number)});
+        // Owner's step 6: compare with the LFD Draydog's card shows (e.g. "LFD: 10/31, Source: LBCT"), also when the
+        // card says CHECK LINE FOR LFD, so the terminal date is kept here (查柜's own rule drops it there).
+        for(const c of status.containers)draydog[c.container_number]=observe(c,Date.now(),{lineCheck:false});
         const tracked=Object.keys(draydog);
         if(tracked.length)Object.assign(notes,await execute(signIn.tabId,draydogPage,['notes',{numbers:tracked}],'MAIN'));
       }finally{await chrome.tabs.remove(signIn.tabId).catch(()=>{});}

@@ -282,6 +282,8 @@ Debugging: a reinstalled unpacked extension kept running its old service worker 
 
 **v1.1.1, Matson moves rows (owner, 11/6).** A Matson container whose column B now reads `ETA mm/dd HH:MM` (an exact time: schedule arrival or discharge time; Matson's ETA day alone does not count) and whose row is below 未放行 moves under 按码头排 (inside 未排程), after the last MATSON row there, using 查柜's `placeMoves` and TH_Apply's move (a row with a note row under it is left for a person). The change table shows old row ↓ new row like 查柜.
 
+**v1.1.2 (owner's screenshot, 11/6).** The OOCL query compares with the LFD the Draydog card shows (e.g. LFD 10/31, Source LBCT) also when the card says CHECK LINE FOR LFD; before, that date was dropped and the Draydog LFD column was empty. 查柜 keeps its own rule (terminal date ignored under Check Line).
+
 ## Known limitations
 
 - Gmail, COSCO, ONE and KDocs are driven through their page structure, so a site redesign can stop any flow. Failures stop with a message rather than guess.
