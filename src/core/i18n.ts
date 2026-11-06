@@ -4,7 +4,8 @@
 import {STRINGS as MAIN_STRINGS} from './i18n-strings.ts';
 import {LAB_STRINGS} from './i18n-labs.ts';
 import {OOCL_STRINGS} from './i18n-oocl.ts';
-const STRINGS=[...MAIN_STRINGS,...LAB_STRINGS,...OOCL_STRINGS];
+import {CHANGELOG_STRINGS} from './i18n-changelog.ts';
+const STRINGS=[...MAIN_STRINGS,...LAB_STRINGS,...OOCL_STRINGS,...CHANGELOG_STRINGS];
 
 export const LANGUAGES=Object.freeze({zh:'中文',en:'English',es:'Español'});
 const COLUMN={en:1,es:2};

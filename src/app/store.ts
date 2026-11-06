@@ -1,6 +1,6 @@
 // State and behavior of the popup. Pages only render what is here and call its actions.
 import {computed,nextTick,reactive,ref,shallowRef,watch} from 'vue';
-import {messageTemplate,portalTemplate,recognizeCarrier,containerNumber,COSCO_PORTAL,ONE_CHAT,DEFAULT_CARRIERS,chatTemplate,addressList,INQUIRY_TYPES,inquiryChannel,findType,resolveType,missingConfiguration,supportsManyContainers,standardBody,standardSubject,newInquiryType,newProfile,carrierLabel,channelsFor,OOCL_RTR} from '../core/core.ts';
+import {messageTemplate,portalTemplate,recognizeCarrier,containerNumber,COSCO_PORTAL,ONE_CHAT,DEFAULT_CARRIERS,chatTemplate,addressList,INQUIRY_TYPES,inquiryChannel,findType,resolveType,missingConfiguration,supportsManyContainers,standardBody,standardSubject,newInquiryType,newProfile,carrierLabel,channelsFor,OOCL_RTR,OOCL_IDS} from '../core/core.ts';
 import {DEFAULT_SETTINGS,validateSettings,createConfig,parseConfig} from '../core/config.ts';
 import {translate,resolveLanguage} from '../core/i18n.ts';
 
@@ -679,6 +679,29 @@ export async function copyScript(){
 }
 export async function downloadScript(){try{download(await scriptText(),'LFD_ReadOnly_v1.js','text/javascript');status('只读脚本已下载。','success');}catch(error){status(error.message,'error');}}
 
+// Jump buttons on the 更新日志 page: open the page where a feature lives and point at it.
+function flashSection(id){
+  nextTick(()=>{
+    const node=document.getElementById(id);if(!node)return;
+    node.scrollIntoView({block:'start'});
+    node.classList.remove('feature-highlight');void (node as HTMLElement).offsetWidth;node.classList.add('feature-highlight');
+    setTimeout(()=>node.classList.remove('feature-highlight'),4000);
+  });
+}
+export function openFeature(target){
+  if(target==='matson'||target==='chagui'){showPage('labs');flashSection(target+'Feature');return;}
+  if(target==='autoCc'){showAutoCcSection();flashSection('autoCcSection');return;}
+  if(target==='ooclConfig'){
+    if(terminalMode.value){showPage('config');status('OOCL 的配置在航司模式下，请先切换到航司模式。');return;}
+    const profile=settings.value.carriers.find(p=>OOCL_IDS.includes(p.id));
+    showPage('config');
+    if(!profile){status('还没有 OOCL 的配置，请先在配置页添加 OOCL。');return;}
+    flushSave();ui.type[profile.id]='demurrage';renderProfile(profile.id);
+    nextTick(()=>{document.getElementById('page-config').scrollTop=0;highlightField('ooclUsername');});
+    return;
+  }
+  showPage(target);
+}
 function showAutoCcSection(){
   showPage('labs');setOpen('autoCcSection',true);
   nextTick(()=>document.getElementById('autoCcSection')?.scrollIntoView());

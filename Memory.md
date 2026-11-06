@@ -192,6 +192,10 @@ An unpacked extension's id comes from its folder, so the Vue build has a differe
 
 ## Changelog
 
+### Changelog tab (rule, owner 11/6, since v1.3.0)
+
+**Every version bump must add an entry to the 更新日志 tab.** Entries are data in `src/app/changelog.ts` (`CHANGELOG`, newest first): `{version, date, items:[{title, text, jumps?}]}`; the page `src/app/pages/ChangelogPage.vue` only renders them. Add the new entry at the top of the array in the same change as the version bump, with `version` equal to the manifest version. A new feature must get jump buttons (`jumps:[{label, target}]`) that take the user to where the feature lives; `target` is handled by `openFeature()` in `store.ts` (`matson`, `chagui`, `autoCc`, `ooclConfig`, or any page name such as `query`, `tasks`, `config`, `history`, `labs`). A feature in a new place needs a new target there. Titles, texts and labels are Chinese sources: add their English and Spanish to `src/core/i18n-changelog.ts` (the i18n test fails otherwise). Small fixes can be one short item without buttons. This list below stays the detailed history for agents; the tab is the user-facing summary.
+
 **v0.4.0.** Fixed the false "Cc 缺少" error: verification now reads the whole recipient area. Config page auto-saves with a local draft, and reopening restores the page, selection and scroll, because the popup closes when the user copies text from elsewhere. One config per carrier, with duplicates merged, because unsaved state used to create extra carriers. Per-type settings and custom types. Paste import, because the system file picker blanks the popup on Windows. Removed test mode and the sender account check. Default Cc for new carriers and types. 12 built-in carriers and restore defaults. Terminal mode. Simplified the config page.
 
 **Gmail signature (between v0.4.0 and v0.5.0).** A missing signature no longer stops sending, because any account may send. An existing signature is still kept and checked.
@@ -295,6 +299,8 @@ Debugging: a reinstalled unpacked extension kept running its old service worker 
 **v1.1.9 (owner, 11/6).** The OOCL Demurrage LFD run card lives on the 进行中 page (TasksPage.vue), not the query page; once a lookup starts its containers leave the query input like sent ones, and a running lookup adds 1 to the 进行中 tab count. 「仅查询（预览）」 is now 「仅查询」. Result table columns: 柜号 · 状态 · SSL · Draydog (date, terminal below) · LFD · 提柜表更新; MBL and Draydog note columns removed; short columns never wrap, the status wraps narrow.
 
 **v1.2.1 (owner, 11/6).** OOCL result table gets a 码头 column right after 柜号; the Draydog column shows only its date. 进行中 task titles show each container's MBL right after it in small light text (`taskView().items`).
+
+**v1.3.0, 更新日志 tab (owner, 11/6).** A sixth tab, 更新日志, lists each version's changes from `src/app/changelog.ts` (see the rule above). The first entry lists Matson 柜查询 (button → 实验性功能, Matson card highlighted) and OOCL Demurrage LFD 查询 (buttons → config page OOCL Demurrage with the account field highlighted, the query page, and 查柜 in 实验性功能). Strings in zh/en/es in `src/core/i18n-changelog.ts`.
 
 ## Known limitations
 

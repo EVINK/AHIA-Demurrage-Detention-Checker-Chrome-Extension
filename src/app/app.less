@@ -111,6 +111,17 @@ footer{display:flex;align-items:center;gap:8px;padding:9px 18px;min-height:43px;
 .labs-section summary{cursor:pointer}
 // Two features on 实验性功能: each is one card; its parts fold out inside it.
 .labs-feature{border:1px solid #cfded4;border-radius:10px;padding:12px 14px;background:#fff}
+@keyframes feature-flash{0%,100%{box-shadow:0 0 0 3px rgba(40,120,93,.15)}50%{box-shadow:0 0 0 4px rgba(40,120,93,.5)}}
+.feature-highlight{border-color:#28785d!important;animation:feature-flash 1s ease-in-out 3}
+.changelog{display:flex;flex-direction:column;gap:12px}
+.changelog-intro{margin:0;color:#6b7f75;font-size:12px}
+.changelog-entry{border:1px solid #cfded4;border-radius:10px;padding:12px 14px;background:#fff}
+.changelog-head{display:flex;align-items:baseline;gap:10px;margin-bottom:4px;h3{margin:0;font-size:15px;color:#1f4a3f}}
+.changelog-date{color:#8ca094;font-size:12px}
+.changelog-current{font-size:11px;color:#165c48;background:#d7eee0;border-radius:10px;padding:1px 8px}
+.changelog-item{border-top:1px solid #e6eee8;margin-top:8px;padding-top:8px;font-size:12px;
+  h4{margin:0 0 4px;font-size:13px;color:#33574b}p{margin:0;line-height:1.6;color:#3d5249}}
+.changelog-jumps{display:flex;flex-wrap:wrap;gap:8px;margin-top:8px}
 .labs-feature h3{margin:0;font-size:15px;color:#1f4a3f}
 .labs-feature-head{margin-bottom:6px}
 .labs-sub{border-top:1px solid #e6eee8;margin-top:10px;padding-top:8px;font-size:12px}
