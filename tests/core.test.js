@@ -20,7 +20,7 @@ test('never selects first duplicate, blank MBL, or unmatched container',()=>{
 });
 test('exact user wording and subject',()=>{
   const m=messageTemplate(record);
-  assert.equal(m.subject,'Demurrage LFD Inquiry - Container#MRSU4786640 MBL#MAEU276301677');
+  assert.equal(m.subject,'Demurrage LFD Inquiry - MSK - Container#MRSU4786640 MBL#MAEU276301677');
   assert.deepEqual(m.to,[TO]);assert.equal(m.carrierId,'maersk');assert.equal(m.inquiryType,'demurrage');assert.equal(m.question,QUESTION);
   assert.ok(m.html.includes(QUESTION));assert.ok(m.html.includes('<table'));
 });
@@ -77,7 +77,7 @@ test('address lists accept common separators, normalize and deduplicate; invalid
 });
 test('carrier configuration copies whitelisted fields, fills old defaults, rejects duplicate ids and controls',()=>{
   const input=[{id:'maersk',name:'Maersk',greeting:'MSK',to:TO,cc:CC,unknown:'ignored'}];
-  const profiles=normalizeCarriers(input),demurrage=findType(profiles[0],'demurrage');assert.equal(demurrage.bodyTemplate,DEFAULT_BODY_TEMPLATE);assert.equal(demurrage.subjectTemplate,DEFAULT_SUBJECT_TEMPLATE);
+  const profiles=normalizeCarriers(input),demurrage=findType(profiles[0],'demurrage');assert.equal(demurrage.bodyTemplate,DEFAULT_BODY_TEMPLATE);assert.equal(demurrage.subjectTemplate,findType(DEFAULT_CARRIERS[0],'demurrage').subjectTemplate);
   assert.deepEqual(profiles[0].aliases,['MAERSK','MSK','马士基']);assert.deepEqual(profiles[0].mblPrefixes,['MAEU']);assert.ok(!('unknown' in profiles[0]));
   demurrage.to.push('other@example.com');assert.equal(input[0].to,TO);
   assert.equal(normalizeCarriers([DEFAULT_CARRIERS[0],{...DEFAULT_CARRIERS[0],id:'MAERSK'}]).length,1,'same id is one carrier');
@@ -87,7 +87,7 @@ test('carrier configuration copies whitelisted fields, fills old defaults, rejec
 test('detention is an explicit type with corresponding subject and body',()=>{
   assert.equal(inquiryType(' Detention '),'detention');assert.throws(()=>inquiryType('storage'),/查询类型/);
   const mail=messageTemplate(record,{inquiryType:'detention'});
-  assert.equal(mail.subject,`Detention LFD Inquiry - Container#${record.container} MBL#${record.mbl}`);
+  assert.equal(mail.subject,`Detention LFD Inquiry - MSK - Container#${record.container} MBL#${record.mbl}`);
   assert.equal(mail.question,'Could you please advise the detention LFD for the container below?');assert.ok(mail.html.includes(mail.question));
 });
 test('a carrier may be saved without recipients but cannot produce an inquiry until configured',()=>{

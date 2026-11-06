@@ -27,7 +27,7 @@ test('with the mail program a send opens a Foxmail-formatted mailto draft and wa
   const url=new URL(entry.mailto);
   assert.equal(url.protocol,'mailto:');assert.equal(decodeURIComponent(url.pathname),'us.customerexperience@maersk.com');
   assert.equal(url.searchParams.get('cc'),'truck@darwinpacific.com;service@darwinpacific.com');
-  assert.equal(url.searchParams.get('subject'),'Demurrage LFD Inquiry - Container#MRSU4786640 MBL#MAEU276301677');
+  assert.equal(url.searchParams.get('subject'),'Demurrage LFD Inquiry - MSK - Container#MRSU4786640 MBL#MAEU276301677');
   assert.match(url.searchParams.get('body'),/^Dear MSK,<br><br>Could you please advise the demurrage LFD/);
   assert.match(url.searchParams.get('body'),/<tr><td>MRSU4786640<\/td><td>MAEU276301677<\/td><\/tr><\/table>$/);
   await assert.rejects(service.run(record.container,'send'),/已有/,'the lock still prevents a second message');
