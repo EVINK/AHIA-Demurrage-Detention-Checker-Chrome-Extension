@@ -17,7 +17,9 @@ export async function gmailPage(action,payload){
   }
   const compact=value=>value.replace(/\s+/g,'');
   const table=template.content.querySelector('table');
-  if(template.content.querySelectorAll('table').length!==1||!table?.textContent.includes(payload.container)||!table?.textContent.includes(payload.mbl)||compact(template.content.textContent)!==compact(payload.bodyText))throw new Error('邮件正文模板与正文或柜号不符。');
+  // A one-off edit from the query page may drop the container table; its text must still match.
+  const tableOk=payload.edited?template.content.querySelectorAll('table').length<=1:template.content.querySelectorAll('table').length===1&&table?.textContent.includes(payload.container)&&table?.textContent.includes(payload.mbl);
+  if(!tableOk||compact(template.content.textContent)!==compact(payload.bodyText))throw new Error('邮件正文模板与正文或柜号不符。');
   const pause=ms=>new Promise(r=>setTimeout(r,ms));
   async function waitFor(fn,description,timeout=20000){const end=Date.now()+timeout;while(Date.now()<end){const v=fn();if(v)return v;await pause(150);}const v=fn();if(v)return v;throw new Error(description);}
   const visible=e=>e&&e.getClientRects().length>0;
@@ -75,14 +77,20 @@ export async function gmailPage(action,payload){
     if(recipientMismatch()){expandRecipients();await waitFor(()=>!recipientMismatch(),'',6000).catch(()=>{});}
     verify();
     const originalSignature=signature?.outerHTML;
-    const clone=body.cloneNode(true);clone.querySelectorAll('.gmail_signature').forEach(e=>e.remove());
-    if(clone.textContent.trim())throw new Error('写信页已有正文，已停止以避免覆盖。');
+    // Whatever the new compose body already holds (Gmail's "Help me write" prompt and the like) is replaced; only the
+    // signature, with its "--" prefix, stays.
     body.focus();const selection=window.getSelection(),range=document.createRange();
+    let keep=signature?[...body.childNodes].find(node=>node.contains(signature)):null;
+    if(keep?.previousSibling?.classList?.contains('gmail_signature_prefix'))keep=keep.previousSibling;
+    range.setStart(body,0);if(keep)range.setEndBefore(keep);else range.setEnd(body,body.childNodes.length);
+    if(!range.collapsed){selection.removeAllRanges();selection.addRange(range);document.execCommand('delete');}
+    // Anything the delete left behind goes too.
+    for(const node of [...body.childNodes]){if(keep&&(node===keep||keep.compareDocumentPosition(node)&Node.DOCUMENT_POSITION_FOLLOWING))break;node.remove();}
     range.selectNodeContents(body);range.collapse(true);selection.removeAllRanges();selection.addRange(range);
     if(!document.execCommand('insertHTML',false,payload.html+'<br><br>'))throw new Error('Gmail 未接受正文插入。');
     body.dispatchEvent(new InputEvent('input',{bubbles:true,inputType:'insertText'}));
     await pause(300);
-    if(!body.textContent.includes(payload.container)||!body.textContent.includes(payload.mbl)||!compact(body.textContent).startsWith(compact(payload.bodyText)))throw new Error('正文插入验证失败。');
+    if((!payload.edited&&(!body.textContent.includes(payload.container)||!body.textContent.includes(payload.mbl)))||!compact(body.textContent).startsWith(compact(payload.bodyText)))throw new Error('正文插入验证失败。');
     if(signature&&body.querySelector('.gmail_signature')?.outerHTML!==originalSignature)throw new Error('签名发生变化，已停止。');
     body.dataset.lfdRequest=payload.requestId;verify();
     return {ok:true,data:{bodyHash:await digest(body.innerHTML),signatureText:signature?.innerText||''}};

@@ -34,6 +34,18 @@ await test('accepts recipients Gmail only keeps in hidden inputs',async()=>{cons
 await test('expands the collapsed recipients when they are not readable yet',async()=>{const cc=fixture.querySelector('[name=cc]'),chips=[...cc.children];cc.replaceChildren();const form=document.createElement('form');for(const node of [...fixture.querySelectorAll('[name=subjectbox],[name=to],[name=cc],[name=bcc]')])form.append(node);fixture.prepend(form);const row=document.createElement('div');row.className='aoD hl';row.textContent='3 recipients';fixture.addEventListener('keydown',event=>{if(event.ctrlKey&&event.shiftKey&&event.keyCode===67)cc.append(...chips);},{once:true});form.prepend(row);await gmailPage('prepare',payload);assert(fixture.querySelector('table'),'did not expand');});
 await test('an address that appears only in the signature does not count as a recipient',async()=>{const cc=fixture.querySelector('[name=cc]');cc.replaceChildren();fixture.querySelector('.gmail_signature').append(' '+payload.cc.join(' '));let blocked='';try{await gmailPage('prepare',payload);}catch(e){blocked=e.message;}assert(/Cc 缺少/.test(blocked),'signature passed as Cc: '+blocked);});
 await test('an account without a signature still prepares and sends',async()=>{fixture.querySelector('.gmail_signature').remove();const prepared=await gmailPage('prepare',payload);assert(fixture.querySelector('table'),'stopped without a signature');const result=await gmailPage('send',{...payload,...prepared});assert(result.confirmed,'not sent');});
+await test('text already in the body (Gmail "Help me write") is replaced, the signature stays',async()=>{
+  const body=fixture.querySelector('[contenteditable]'),sig=fixture.querySelector('.gmail_signature').outerHTML;
+  body.insertAdjacentHTML('afterbegin','<div class="help">Help me write</div><div>old text</div>');
+  const prepared=await gmailPage('prepare',payload);
+  assert(!body.textContent.includes('Help me write')&&!body.textContent.includes('old text'),'old content kept');
+  assert(fixture.querySelector('table')&&fixture.querySelector('.gmail_signature').outerHTML===sig,'table or signature wrong');
+  const result=await gmailPage('send',{...payload,...prepared});assert(result.confirmed,'not sent');
+});
+await test('an edited mail without the table is accepted',async()=>{
+  const edited={...messageTemplate(record,{edit:{to:payload.to.join(','),cc:payload.cc.join(','),subject:payload.subject,body:'Hello, no table here.'}}),...record,requestId:'fixture-edit'};
+  reset(edited);await gmailPage('prepare',edited);assert(fixture.querySelector('[contenteditable]').textContent.includes('Hello, no table here.'),'edited body missing');
+});
 await test('accepts extra Cc/Bcc added by another extension',async()=>{for(const name of ['cc','bcc']){const chip=document.createElement('div');chip.setAttribute('role','option');chip.dataset.hovercardId='added-by-other@example.com';fixture.querySelector(`[name=${name}]`).append(chip);}const prepared=await gmailPage('prepare',payload);assert(prepared.bodyHash,'extra recipients blocked the draft');});
 await test('blocks when a configured Cc is missing',async()=>{fixture.querySelector('[name=cc] [role=option]').remove();let blocked='';try{await gmailPage('prepare',payload);}catch(e){blocked=e.message;}assert(/Cc 缺少/.test(blocked),'missing Cc accepted: '+blocked);});
 const custom={...payload,to:['operations@example.com','freetime@example.com'],subject:`Detention LFD Inquiry - Container#${record.container} MBL#${record.mbl}`,
