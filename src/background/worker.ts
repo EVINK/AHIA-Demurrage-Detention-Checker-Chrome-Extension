@@ -361,9 +361,11 @@ const service=createService({storage:store,
 // 实验性功能 · 查柜.
 // The two write through the same TH_Apply script in 我的脚本, so they never run at the same time.
 // The OOCL Demurrage query (query page) writes K through TH_Apply too; 查柜 also uses it for OOCL containers.
-const oocl=createOocl({execute,loaded,notify,focusTab,busy:()=>chagui.busy()||matson.busy()});
+const oocl=createOocl({execute,loaded,notify,focusTab,busy:()=>chagui.busy()||matson.busy(),tasks:service});
 const chagui=createChagui({execute,loaded,notify,focusTab,busy:()=>matson.busy()||oocl.busy(),oocl});
 const matson=createMatson({execute,loaded,notify,busy:()=>chagui.busy()||oocl.busy()});
+// A worker that starts with an OOCL run still marked running lost it: mark it interrupted and free its records.
+oocl.state().catch(()=>{});
 const pendingOperations=new Set();let latestOperation='';
 async function persist(operation){if(operation.id===latestOperation)await chrome.storage.local.set({operation});}
 async function runOperation(message){
@@ -478,7 +480,7 @@ chrome.runtime.onMessage.addListener((message,sender,respond)=>{
     if(message.type==='matsonStart')return matson.start({apply:message.apply===true});
     if(message.type==='matsonState')return matson.state();
     if(message.type==='matsonApplyPreview')return matson.applyPreview();
-    if(message.type==='ooclStart')return oocl.start({items:message.items,apply:message.apply===true});
+    if(message.type==='ooclStart')return oocl.start({items:message.items,apply:message.apply===true,task:message.task});
     if(message.type==='ooclState')return oocl.state();
     if(message.type==='ooclApplyPreview')return oocl.applyPreview();
     if(message.type==='ooclAccount')return oocl.account();

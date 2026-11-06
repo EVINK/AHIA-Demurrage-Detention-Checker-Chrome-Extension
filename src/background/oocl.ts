@@ -29,8 +29,21 @@ const PREVIEW_STEPS=['oocl','draydog','baseline','plan'];
 const pause=ms=>new Promise(r=>setTimeout(r,ms));
 export const NO_ACCOUNT='还没有配置 OOCL 账号，请先在配置页填写账号密码。';
 
-export function createOocl({execute,loaded,notify,focusTab,busy=()=>false}){
-  let active=null,checking=null;
+const mmdd=iso=>iso?iso.slice(5).replace('-','/'):'—';
+// What 记录 shows for one container of a finished run.
+export function lookupDetail(result,reason,apply){
+  if(!result?.lfd)return reason||'没有查到 LFD';
+  const sheet=!result.row?(reason||'提柜表没有更新'):result.before===result.after?'提柜表不用改':`提柜表 ${result.before||'—'} → ${result.after}${apply?'':'（未写入）'}`;
+  return `LFD ${mmdd(result.lfd)} · SSL ${mmdd(result.ooclLfd)} · Draydog ${mmdd(result.draydogLfd)} · ${sheet}`;
+}
+const WRITE_STEPS=['note','apply','verify'];
+
+// tasks: the service (src/core/service.ts). Each run's containers get records in the ledger, the same locks a send
+// takes: they show on 记录 and keep the same container from being looked up twice.
+export function createOocl({execute,loaded,notify,focusTab,busy=()=>false,tasks=null}){
+  // seen: runs this worker started. A stored run still "running" that is not one of them was lost to a restart; one
+  // that is was only read just before it finished (its last save was on its way), which is not an interruption.
+  let active=null,checking=null;const seen=new Set();
   const save=run=>chrome.storage.local.set({ooclRun:{...run,updatedAt:Date.now()}});
   const stored=async()=>{const {ooclAccount:a=null}=await chrome.storage.local.get('ooclAccount');return a?.username&&a?.password?a:null;};
   async function account(){const {ooclAccount:a=null}=await chrome.storage.local.get('ooclAccount');return {username:a?.username||'',saved:Boolean(a?.username&&a?.password),checkedAt:a?.checkedAt||0};}
@@ -127,27 +140,49 @@ export function createOocl({execute,loaded,notify,focusTab,busy=()=>false}){
 
   async function state(){
     const {ooclRun:run=null}=await chrome.storage.local.get('ooclRun');
-    if(run?.status==='running'&&active!==run.id){
-      const stopped={...run,status:'error',error:'OOCL 查询被中断（浏览器或插件重启），请重新运行。',steps:run.steps.map(s=>s.status==='running'?{...s,status:'error'}:s)};
-      await save(stopped);return {run:stopped,account:await account()};
+    if(run?.status==='running'&&active!==run.id&&!seen.has(run.id)){
+      const stopped={...run,status:'error',error:'OOCL 查询被中断（浏览器或插件重启），请重新运行。',finishedAt:run.finishedAt||Date.now(),steps:run.steps.map(s=>s.status==='running'?{...s,status:'error'}:s)};
+      await save(stopped);await record(stopped,run.steps.find(s=>s.status==='running')?.key||'');return {run:stopped,account:await account()};
     }
     return {run,account:await account()};
   }
-  /** items [{container, mbl}] from the query page. */
-  async function start({items,apply=false}={}){
+  // Ledger records of a run that ended. Done → 已查询 / 已查询并更新 with each container's LFD; failed before
+  // anything was written → the locks are released, so it can simply run again; failed while writing → kept as 未完成.
+  async function record(run,current){
+    if(!run.requestId||!tasks)return;
+    if(run.status==='done'){
+      const results=Object.fromEntries((run.plan?.results||[]).map(r=>[r.container,r]));
+      const reasons=Object.fromEntries((run.plan?.skipped||[]).map(s=>[s.container,s.reason]));
+      await tasks.endLookup(run.requestId,entry=>({running:false,step:'',status:run.apply?'updated':'queried',runId:run.id,finishedAt:run.finishedAt,detail:lookupDetail(results[entry.container],reasons[entry.container],run.apply)})).catch(()=>{});
+    }else if(WRITE_STEPS.includes(current))await tasks.endLookup(run.requestId,{running:false,step:'',status:'failed',runId:run.id,finishedAt:run.finishedAt,detail:run.error||''}).catch(()=>{});
+    else if(run.fromPreview)await tasks.endLookup(run.requestId,{running:false,step:'',status:'queried',detail:run.error||''}).catch(()=>{});
+    else await tasks.endLookup(run.requestId,null);
+  }
+  const taskInfo=task=>({carrierId:String(task?.carrierId||'oocl'),carrierName:String(task?.carrierName||'OOCL'),inquiryType:String(task?.inquiryType||'demurrage'),typeLabel:String(task?.typeLabel||'Demurrage'),channel:'oocl-rtr'});
+  /** items [{container, mbl}] from the query page; task: the group's carrier and type, for the records. */
+  async function start({items,apply=false,task=null}={}){
     if(active)throw new Error('OOCL 查询正在进行中。');
     if(busy())throw new Error('查柜正在进行中，请等它完成。');
     const list=(Array.isArray(items)?items:[]).map(i=>({container:String(i?.container||'').toUpperCase().trim(),mbl:String(i?.mbl||'').toUpperCase().trim()})).filter(i=>/^[A-Z]{4}\d{7}$/.test(i.container));
     if(!list.length)throw new Error('没有要查询的 OOCL 柜号。');
     if(list.length>60)throw new Error('一次最多查询 60 个柜号。');
     if(!await stored())throw Object.assign(new Error(NO_ACCOUNT),{code:'account'});
-    const run=newRun(apply?OOCL_STEPS.map(s=>s[0]):PREVIEW_STEPS,{apply,items:list});
-    active=run.id;await save(run);
+    const info=taskInfo(task);
+    active='starting';
+    let requestId='';
+    try{requestId=tasks?await tasks.lockLookup({items:list,...info}):'';}catch(error){active=null;throw error;}
+    const run=newRun(apply?OOCL_STEPS.map(s=>s[0]):PREVIEW_STEPS,{apply,items:list,...info,requestId});
+    active=run.id;seen.add(run.id);await save(run);
     execute1(run).finally(()=>{active=null;});
     return run;
   }
+  // A step's progress, also shown on the records of the run's containers.
+  const stepper=run=>async(key,status,detail='')=>{
+    run.steps=run.steps.map(s=>s.key===key?{...s,status,detail}:s);await save(run);
+    if(status==='running'&&run.requestId&&tasks)tasks.updateTask(run.requestId,{step:OOCL_STEPS.find(s=>s[0]===key)?.[1]||''}).catch(()=>{});
+  };
   async function execute1(run){
-    const step=async(key,status,detail='')=>{run.steps=run.steps.map(s=>s.key===key?{...s,status,detail}:s);await save(run);};
+    const step=stepper(run);
     let current='oocl';
     try{
       // 1–4. OOCL, by bill of lading; a container its bill did not list is searched by its own number.
@@ -178,22 +213,24 @@ export function createOocl({execute,loaded,notify,focusTab,busy=()=>false}){
       current='plan';await step('plan','running');
       const planned=ooclPlan(run.items,{found,draydog,notes,baseline});
       run.plan=planned;
-      await step('plan','done',`K 列要改 ${planned.changes.length} 个，Draydog 要写 note ${planned.notes.length} 个${planned.skipped.length?`，${planned.skipped.length} 个需人工`:''}`);
+      await step('plan','done',`K 列要改 ${planned.changes.length} 个，Draydog 要写 SSL LFD ${planned.notes.length} 个${planned.skipped.length?`，${planned.skipped.length} 个需人工`:''}`);
       if(run.apply)await write(run,step,planned,c=>{current=c;});
-      finish(run);
-    }catch(error){fail(run,current,error);}
+    }catch(error){await fail(run,current,error);return;}
+    await finish(run,current);
   }
-  function finish(run){
-    run.status=run.steps.some(s=>s.status==='error')?'error':'done';run.finishedAt=Date.now();
-    if(run.status==='error')run.error='写入后复核有不符，请查看。';
-    save(run);
+  // The run's final save is awaited before it stops being the active run.
+  async function finish(run,current){
+    const failed=run.steps.find(s=>s.status==='error');
+    run.status=failed?'error':'done';run.finishedAt=Date.now();
+    if(failed)run.error=failed.key==='note'?'有 Draydog SSL LFD 没写上，请查看。':'写入后复核有不符，请查看。';
+    await save(run);await record(run,failed?.key||current);
     const lfds=(run.plan?.results||[]).filter(r=>r.lfd).map(r=>`${r.container} ${r.lfd.slice(5).replace('-','/')}`);
-    notify('lfd-oocl',-1,run.apply?'OOCL LFD 查询完成':'OOCL LFD 查询完成（预览）',lfds.length?lfds.slice(0,6).join('，'):'没有查到 LFD。');
+    try{notify('lfd-oocl',-1,run.apply?'OOCL LFD 查询完成':'OOCL LFD 查询完成（仅查询）',lfds.length?lfds.slice(0,6).join('，'):'没有查到 LFD。');}catch{}
   }
-  function fail(run,current,error){
+  async function fail(run,current,error){
     run.steps=run.steps.map(s=>s.key===current?{...s,status:'error',detail:error.message}:s);
-    run.status='error';run.error=error.message;run.finishedAt=Date.now();save(run);
-    notify('lfd-oocl',-1,'OOCL LFD 查询失败',error.message);
+    run.status='error';run.error=error.message;run.finishedAt=Date.now();await save(run);await record(run,current);
+    try{notify('lfd-oocl',-1,'OOCL LFD 查询失败',error.message);}catch{}
   }
   /** Draydog notes, then TH_Apply with the K cells, then read back. */
   async function write(run,step,planned,setCurrent){
@@ -230,13 +267,17 @@ export function createOocl({execute,loaded,notify,focusTab,busy=()=>false}){
     if(!preview||preview.status!=='done'||preview.apply||!preview.plan)throw new Error('没有可写入的预览，请先查询。');
     if(Date.now()-(preview.finishedAt||0)>PREVIEW_FRESH)throw new Error('预览已超过 30 分钟，表格可能有变化，请重新查询。');
     if(!preview.plan.changes.length&&!preview.plan.notes.length)throw new Error('预览里没有需要修改的。');
-    const run=newRun(['note','apply','verify'],{apply:true,fromPreview:preview.id,items:preview.items,plan:preview.plan});
-    active=run.id;await save(run);
+    // The preview's records become this run's: running again, then 已查询并更新.
+    const info={carrierId:preview.carrierId,carrierName:preview.carrierName,inquiryType:preview.inquiryType,typeLabel:preview.typeLabel,channel:preview.channel};
+    const run=newRun(WRITE_STEPS,{apply:true,fromPreview:preview.id,items:preview.items,plan:preview.plan,...info,requestId:preview.requestId||''});
+    active=run.id;seen.add(run.id);await save(run);
+    if(run.requestId&&tasks){tasks.adoptTask(run.requestId);await tasks.updateTask(run.requestId,{running:true,status:'preparing',step:'排队中'}).catch(()=>{});}
     (async()=>{
       let current='note';
-      const step=async(key,status,detail='')=>{run.steps=run.steps.map(s=>s.key===key?{...s,status,detail}:s);await save(run);};
-      try{await write(run,step,run.plan,c=>{current=c;});finish(run);}
-      catch(error){fail(run,current,error);}
+      const step=stepper(run);
+      try{await write(run,step,run.plan,c=>{current=c;});}
+      catch(error){await fail(run,current,error);return;}
+      await finish(run,current);
     })().finally(()=>{active=null;});
     return run;
   }

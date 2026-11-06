@@ -1,7 +1,7 @@
 // OOCL Demurrage LFD in the popup: the account form on the config page and the run on the query page. The run
 // and the account belong to the worker (src/background/oocl.ts); the password is sent once and never read back.
 import {reactive,ref,watch} from 'vue';
-import {ask,demo,status,ooclAccount,loadOoclAccount,resumeOocl,ooclStarted} from './store.ts';
+import {ask,demo,status,ooclAccount,loadOoclAccount,resumeOocl,ooclStarted,refreshState} from './store.ts';
 
 async function rpc(message:any){
   const response=await chrome.runtime.sendMessage(message);
@@ -55,7 +55,8 @@ export async function loadOocl(){
 let listening=false;
 export function watchOocl(){
   if(demo||listening)return;listening=true;
-  chrome.storage.onChanged.addListener((changes,area)=>{if(area==='local'&&changes.ooclRun)loadOocl();});
+  // The run's records (记录, the query page's locks) change with it.
+  chrome.storage.onChanged.addListener((changes,area)=>{if(area!=='local')return;if(changes.ooclRun)loadOocl();if(changes.ledger&&oocl.run)refreshState().catch(()=>{});});
   watch(ooclStarted,()=>loadOocl());
 }
 export async function applyPreviewOocl(){

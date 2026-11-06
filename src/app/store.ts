@@ -28,7 +28,7 @@ export const ask=text=>askDialog(text);
 
 // ---- Shared state
 const sources={sheet:'提柜表航司列','mbl-prefix':'MBL 前缀',manual:'手动选择'};
-const recordStatus={preparing:'准备中',draft:'草稿已生成 / 已填写未提交',sending:'发送中',sent:'已发送',uncertain:'结果待核实',needs_review:'未完成'};
+const recordStatus={preparing:'准备中',draft:'草稿已生成 / 已填写未提交',sending:'发送中',sent:'已发送',uncertain:'结果待核实',needs_review:'未完成',queried:'已查询（仅查询）',updated:'已查询并更新',failed:'写入未完成'};
 export const settings=shallowRef(copy(DEFAULT_SETTINGS));
 export const ledger=shallowRef({});
 export const message=reactive({text:'正在连接插件…',type:''});
@@ -159,10 +159,11 @@ export const groups=computed(()=>{
     const rows=list.map(entry=>{const lock=type?lockOf(entry,id,type):null;return {entry,lock:lock?{key:lock[0],status:(lock[1] as any).status}:null};});
     const ready=missing.length?[]:rows.filter(row=>!row.lock).map(row=>row.entry);
     const recipients=!typeEntry?'':channel==='one-chat'?`ONE 在线客服 · ${profile.chat?.email||''}`:channel==='cosco-portal'?`COSCO 工单 · Requester ${profile.portal?.requester||''}`:channel===OOCL_RTR?`OOCL 网站自动查询 · ${ooclAccount.saved?ooclAccount.username:'还没有配置账号'}`:[typeEntry.to.join(', '),typeEntry.cc.length?`Cc ${typeEntry.cc.join(', ')}`:''].filter(Boolean).join(' · ');
-    // OOCL Demurrage is looked up, not sent: no lock, every container goes (a second lookup is harmless).
-    const oocl=channel===OOCL_RTR,lookupReady=oocl&&!missing.length?rows.map(row=>row.entry):ready;
-    return {id,profile,name:profile?.name||id,type,typeLabel:typeEntry?.label||'',channel,many,missing,rows:oocl?rows.map(row=>({...row,lock:null})):rows,ready:lookupReady,recipients,
-      needsAccount:oocl&&!ooclAccount.saved,runs:many?(lookupReady.length?[lookupReady]:[]):lookupReady.map(entry=>[entry])};
+    // OOCL Demurrage is looked up, not sent, but it takes the same locks (owner, 11/6): a container being looked up
+    // or already looked up is not looked up again unless its record is released.
+    const oocl=channel===OOCL_RTR;
+    return {id,profile,name:profile?.name||id,type,typeLabel:typeEntry?.label||'',channel,many,missing,rows,ready,recipients,
+      needsAccount:oocl&&!ooclAccount.saved,runs:many?(ready.length?[ready]:[]):ready.map(entry=>[entry])};
   });
 });
 export const totals=computed(()=>{const ready=groups.value.filter(group=>group.ready.length);return {containers:ready.reduce((n,group)=>n+group.ready.length,0),carriers:ready.length};});
@@ -231,8 +232,9 @@ export const sending=reactive({});
 // OOCL Demurrage: one background lookup for the whole group. 'draft' only looks (no note, no sheet write).
 async function runOocl(group,mode){
   const items=group.ready.map(entry=>({container:entry.container,mbl:mblOf(entry)}));
-  try{await rpc({type:'ooclStart',items,apply:mode==='send'});return {queued:[],looked:items.map(i=>i.container),failed:[],duplicates:[]};}
-  catch(error){return {queued:[],failed:[`${items.map(i=>i.container).join('、')}：${t(error.message)}`],duplicates:[]};}
+  const task={carrierId:group.id,carrierName:group.name,inquiryType:group.type,typeLabel:group.typeLabel};
+  try{await rpc({type:'ooclStart',items,apply:mode==='send',task});return {queued:[],looked:items.map(i=>i.container),failed:[],duplicates:[]};}
+  catch(error){if(error.duplicate)return {queued:[],failed:[],duplicates:error.duplicate};return {queued:[],failed:[`${items.map(i=>i.container).join('、')}：${t(error.message)}`],duplicates:[]};}
 }
 async function runGroup(group,mode){
   if(group.channel===OOCL_RTR)return runOocl(group,mode);
@@ -275,7 +277,8 @@ export const sendGroup=(group,mode)=>dispatch([group],mode);
 export const sendAll=mode=>dispatch(groups.value.filter(group=>group.ready.length),mode);
 // Sends one container again although it is on record: its lock is released first, after the user agrees.
 export async function resendLocked(row){
-  if(!await ask(`${row.entry.container} 已有记录（${t(recordLabel(row.lock.status))}）。解除锁定后可以再次发送；如果之前其实已经发出，对方会收到重复的邮件 / 消息。确定解除？`))return;
+  const lookup=ledger.value[row.lock.key]?.channel===OOCL_RTR;
+  if(!await ask(lookup?`${row.entry.container} 已有 OOCL 查询记录（${t(recordLabel(row.lock.status))}）。解除锁定后可以再次查询。确定解除？`:`${row.entry.container} 已有记录（${t(recordLabel(row.lock.status))}）。解除锁定后可以再次发送；如果之前其实已经发出，对方会收到重复的邮件 / 消息。确定解除？`))return;
   try{await rpc({type:'release',key:row.lock.key});await refreshState();status('已解除该条记录的锁定。');}catch(error){status(error.message,'error');}
 }
 export function moveGroup(group,carrierId){for(const row of group.rows)row.entry.override=carrierId===row.entry.carrierId?'':carrierId;}
@@ -349,10 +352,10 @@ export async function openDraft(tabId){if(busy.value)return;try{await rpc({type:
 // Sending was blocked by existing records (duplicate lock): show them and offer a forced resend.
 export const duplicateDialog=reactive({show:false,lines:[],note:'',running:false,blocking:[],mode:''});
 function showDuplicate(blocking,mode){
-  const running=blocking.some(b=>b.running);
+  const running=blocking.some(b=>b.running),lookup=blocking.every(b=>ledger.value[b.key]?.channel===OOCL_RTR);
   Object.assign(duplicateDialog,{show:true,running,blocking,mode,
     lines:blocking.map(b=>`${b.container}：${t(recordStatus[b.status]||b.status)}${b.time?'（'+new Date(b.time).toLocaleString()+'）':''}`),
-    note:running?'该任务仍在后台进行，请先在「进行中」终止。':'「强制重发」会解除这条记录的锁定并重新发送；如果之前其实已经发出，对方会收到重复的邮件 / 消息。'});
+    note:running?(lookup?'这几个柜子的 OOCL 查询还在进行，请等它完成。':'该任务仍在后台进行，请先在「进行中」终止。'):lookup?'这几个柜子已经查过 OOCL LFD。「强制重发」会解除记录的锁定并重新查询。':'「强制重发」会解除这条记录的锁定并重新发送；如果之前其实已经发出，对方会收到重复的邮件 / 消息。'});
 }
 export function duplicateView(){duplicateDialog.show=false;showPage('history');}
 export async function duplicateForce(){
@@ -365,11 +368,12 @@ export async function duplicateForce(){
 const statuses={preparing:'准备中 / 中断待核实',draft:'草稿已生成 · 未自动发送',sending:'发送中 / 待核实',sent:'Gmail 已确认发送',uncertain:'发送结果待核实',needs_review:'准备失败，请检查草稿'};
 const chatStatuses={preparing:'准备中 / 中断待核实',draft:'客服已接入 · 消息未发送',sending:'联系客服中 / 待核实',sent:'已查询（客服已读）',uncertain:'客服消息结果待核实',needs_review:'消息未发送，请检查聊天页'};
 const portalStatuses={preparing:'准备中 / 中断待核实',draft:'工单已填写 · 未提交',sending:'等待人机验证 / 提交中',sent:'COSCO 工单已提交',uncertain:'工单提交结果待核实',needs_review:'工单未提交，请检查页面'};
+const ooclStatuses={preparing:'OOCL 查询进行中',queried:'OOCL 已查询（仅查询，未写入）',updated:'OOCL 已查询并更新',failed:'OOCL 写入未完成，请查看'};
 export const historyRows=computed(()=>Object.entries(ledger.value).sort((a:any,b:any)=>(b[1].time||0)-(a[1].time||0)).map(([key,entry]:any)=>{
-  const portal=entry.channel==='cosco-portal',chat=entry.channel==='one-chat',system=mailProgram(entry.mailClient);
+  const portal=entry.channel==='cosco-portal',chat=entry.channel==='one-chat',oocl=entry.channel===OOCL_RTR,system=mailProgram(entry.mailClient);
   return {key,entry,system,
     detail:`${entry.carrierName||'Maersk'} · ${typeTitle(entry)||'Demurrage'} · ${new Date(entry.time).toLocaleString()}`,
-    state:system&&entry.status==='draft'?'已打开邮件程序 · 待确认发送':system&&entry.status==='sent'?'已发送（用户确认）':(chat?chatStatuses:portal?portalStatuses:statuses)[entry.status]||entry.status,
+    state:oocl?(entry.running?`${ooclStatuses.preparing}${entry.step?` · ${entry.step}`:''}`:ooclStatuses[entry.status]||entry.status):system&&entry.status==='draft'?'已打开邮件程序 · 待确认发送':system&&entry.status==='sent'?'已发送（用户确认）':(chat?chatStatuses:portal?portalStatuses:statuses)[entry.status]||entry.status,
     suffix:(entry.ticketId?` #${entry.ticketId}`:'')+(entry.agent?` · ${entry.agent}`:''),
     recovered:entry.recovery?`重载 ${entry.recovery.reloads} 次后恢复`:'',
     diagnostics:entry.diagnostics||entry.recovery?{...entry.recovery&&{recovery:entry.recovery},...entry.diagnostics}:null,
@@ -378,6 +382,11 @@ export const historyRows=computed(()=>Object.entries(ledger.value).sort((a:any,b
 }));
 export async function releaseRecord(key,entry){
   if(busy.value)return;
+  if(entry.channel===OOCL_RTR){
+    if(!await ask(`解除 ${entry.container} 的锁定后可以再次查询 OOCL LFD。确定解除？`))return;
+    try{await rpc({type:'release',key});await refreshState();status('已解除该条记录的锁定。');}catch(error){status(error.message,'error');}
+    return;
+  }
   const first=entry.channel==='one-chat'?'请先检查 ONE 聊天页中消息是否已发送。':entry.channel==='cosco-portal'?'请先检查 COSCO 工单是否已提交（工单页或 Requester 邮箱的确认邮件）。':'请先检查 Gmail 已发送和草稿。';
   if(!await ask(`${first}\n\n解除 ${entry.container} 的锁定会允许再次生成同类邮件。确认已核实并需要重新生成？`))return;
   try{await rpc({type:'release',key});await refreshState();status('已解除该条记录的锁定。');}catch(error){status(error.message,'error');}
@@ -386,6 +395,8 @@ export async function releaseRecord(key,entry){
 export const taskGroups=computed(()=>{
   const groups=new Map();
   for(const entry of Object.values(ledger.value) as any[]){
+    // OOCL lookups show as their own card on the 进行中 page (TasksPage.vue), not as rows.
+    if(entry.channel===OOCL_RTR)continue;
     const attention=entry.interrupted||(mailProgram(entry.mailClient)&&entry.status==='draft')||['needs_review','uncertain','preparing','sending'].includes(entry.status);
     if(!entry.running&&!attention)continue;
     const id=entry.requestId||entry.container;if(!groups.has(id))groups.set(id,[]);groups.get(id).push(entry);
@@ -415,6 +426,12 @@ export async function resendTask(view,group){
 export async function deleteTask(view){
   if(!await ask(`删除 ${view.names} 的任务？会解除防重复锁，之后可以重新查询发送。${view.entry.status==='uncertain'?'\n\n注意：这个任务的结果待核实，消息可能已经发出，请先核实。':''}`))return;
   try{await rpc({type:'deleteTask',requestId:view.entry.requestId});status('任务已删除，可以重新发送。');await refreshState();}catch(error){status(error.message,'error');}
+}
+// A failed OOCL lookup (its locks already released): its containers go back on the query page to run again.
+export function refillLookup(containers){
+  showPage('query');
+  setContainers([...new Set([...parseContainers(query.text),...containers])]);
+  status('已填回查询页，确认后再点查询。');
 }
 // Put the containers back on the query page with the same type.
 function refill(containers,entry){

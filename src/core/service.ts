@@ -248,10 +248,27 @@ export function createService({storage, readSheet, prepareMail, sendMail, prepar
   const adoptTask=requestId=>{active.add(requestId);};
   const updateTask=(requestId,patch,{finished=false}={})=>serial(async()=>{
     const {ledger={}}=await storage.get(['ledger']);
-    for(const key of Object.keys(ledger))if(ledger[key].requestId===requestId)ledger[key]={...ledger[key],...patch,updatedAt:now()};
+    for(const key of Object.keys(ledger))if(ledger[key].requestId===requestId)ledger[key]={...ledger[key],...(typeof patch==='function'?patch(ledger[key]):patch),updatedAt:now()};
     await storage.set({ledger});if(finished)active.delete(requestId);
   });
-  return {active:()=>new Set(active),adoptTask,updateTask,cancel,releaseTask,markSent,job:requestId=>jobs.get(requestId)||Promise.reject(new Error('任务不存在。')),run,release:key=>serial(async()=>{
+  // OOCL Demurrage lookups (src/background/oocl.ts) take the same per-container locks as a send, so a container
+  // that is being looked up or already was is not looked up again unless its record is released.
+  const lockLookup=({items,carrierId,carrierName,inquiryType:type,typeLabel='',channel})=>serial(async()=>{
+    const {ledger={}}=await storage.get(['ledger']);
+    const blocking=Object.entries(ledger).filter(([,entry])=>items.some(item=>entry.container===item.container&&entry.mbl===item.mbl)&&(entry.carrierId||'maersk')===carrierId&&(entry.inquiryType||'demurrage')===type)
+      .map(([key,entry])=>({key,container:entry.container,status:entry.status,time:entry.time,requestId:entry.requestId,running:active.has(entry.requestId)}));
+    if(blocking.length)throw Object.assign(new Error(`${blocking.map(b=>b.container).join('、')} 已经查询过或正在查询。请先核对记录，避免重复。`),{duplicate:blocking});
+    const requestId=uuid(),time=now();
+    for(const item of items)ledger[JSON.stringify([item.container,item.mbl,carrierId,type])]={container:item.container,mbl:item.mbl,carrierId,carrierName,channel,inquiryType:type,typeLabel,requestId,status:'preparing',time,running:true,step:'排队中'};
+    await storage.set({ledger});active.add(requestId);return requestId;
+  });
+  // The lookup ended: patch → its records stay (and keep the lock); null → the locks are released (archived).
+  const endLookup=(requestId,patch)=>{
+    active.delete(requestId);
+    if(patch)return updateTask(requestId,patch,{finished:true});
+    return releaseTask(requestId).catch(()=>0);
+  };
+  return {active:()=>new Set(active),adoptTask,updateTask,lockLookup,endLookup,cancel,releaseTask,markSent,job:requestId=>jobs.get(requestId)||Promise.reject(new Error('任务不存在。')),run,release:key=>serial(async()=>{
     const {ledger={},archive=[]}=await storage.get(['ledger','archive']);
     if(!ledger[key])throw new Error('记录不存在。');
     if(active.has(ledger[key].requestId))throw new Error('该任务仍在后台进行，请先终止任务。');
