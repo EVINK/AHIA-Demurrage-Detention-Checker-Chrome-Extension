@@ -76,24 +76,36 @@ export async function gmailPage(action,payload){
     await pause(1000);await waitFor(()=>!recipientMismatch(),'',4000).catch(()=>{});
     if(recipientMismatch()){expandRecipients();await waitFor(()=>!recipientMismatch(),'',6000).catch(()=>{});}
     verify();
-    const originalSignature=signature?.outerHTML;
+    // Compared by what the reader sees (text and pictures). Gmail itself rewrites signature markup after the page
+    // loads (image proxy URLs and attributes, dir/data attributes), so the raw HTML is no reliable check.
+    const signatureState=()=>{const s=body.querySelector('.gmail_signature');return s?`${compact(s.textContent)}|${s.querySelectorAll('img').length}`:null;};
+    const originalSignature=signatureState();
     // Whatever the new compose body already holds (Gmail's "Help me write" prompt and the like) is replaced; only the
     // signature, with its "--" prefix, stays.
     body.focus();const selection=window.getSelection(),range=document.createRange();
-    let keep=signature?[...body.childNodes].find(node=>node.contains(signature)):null;
-    if(keep?.previousSibling?.classList?.contains('gmail_signature_prefix'))keep=keep.previousSibling;
+    // Looked up again: Gmail may have re-rendered the signature since it was first found, leaving that node detached.
+    const currentSignature=body.querySelector('.gmail_signature');
+    let keep=currentSignature?[...body.childNodes].find(node=>node.contains(currentSignature)):null;
+    // Gmail puts the "-- " prefix one or two nodes before the signature, often with a <br> between them.
+    for(let node=keep?.previousSibling;node;node=node.previousSibling){
+      if(node.classList?.contains('gmail_signature_prefix')){keep=node;break;}
+      if(!(node.nodeName==='BR'||(node.nodeType===Node.TEXT_NODE&&!node.nodeValue.trim())))break;
+    }
     range.setStart(body,0);if(keep)range.setEndBefore(keep);else range.setEnd(body,body.childNodes.length);
     if(!range.collapsed){selection.removeAllRanges();selection.addRange(range);document.execCommand('delete');}
     // Anything the delete left behind goes too.
     for(const node of [...body.childNodes]){if(keep&&(node===keep||keep.compareDocumentPosition(node)&Node.DOCUMENT_POSITION_FOLLOWING))break;node.remove();}
-    range.selectNodeContents(body);range.collapse(true);selection.removeAllRanges();selection.addRange(range);
+    // The caret goes into a fresh block of its own: placed at the very start of the body, the browser moves it into
+    // the first block, which is the signature (or its prefix), and the mail text would land inside the signature.
+    const holder=document.createElement('div');holder.append(document.createElement('br'));if(keep)body.insertBefore(holder,keep);else body.append(holder);
+    range.selectNodeContents(holder);range.collapse(true);selection.removeAllRanges();selection.addRange(range);
     if(!document.execCommand('insertHTML',false,payload.html+'<br><br>'))throw new Error('Gmail 未接受正文插入。');
     body.dispatchEvent(new InputEvent('input',{bubbles:true,inputType:'insertText'}));
     await pause(300);
     if((!payload.edited&&(!body.textContent.includes(payload.container)||!body.textContent.includes(payload.mbl)))||!compact(body.textContent).startsWith(compact(payload.bodyText)))throw new Error('正文插入验证失败。');
-    if(signature&&body.querySelector('.gmail_signature')?.outerHTML!==originalSignature)throw new Error('签名发生变化，已停止。');
+    if(originalSignature&&signatureState()!==originalSignature)throw new Error('签名发生变化，已停止。');
     body.dataset.lfdRequest=payload.requestId;verify();
-    return {ok:true,data:{bodyHash:await digest(body.innerHTML),signatureText:signature?.innerText||''}};
+    return {ok:true,data:{bodyHash:await digest(body.innerHTML),signatureText:body.querySelector('.gmail_signature')?.innerText||''}};
   }
   if(action!=='send')throw new Error('未知 Gmail 操作。');
   verify();

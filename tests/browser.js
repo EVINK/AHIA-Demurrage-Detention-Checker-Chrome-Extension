@@ -42,6 +42,26 @@ await test('text already in the body (Gmail "Help me write") is replaced, the si
   assert(fixture.querySelector('table')&&fixture.querySelector('.gmail_signature').outerHTML===sig,'table or signature wrong');
   const result=await gmailPage('send',{...payload,...prepared});assert(result.confirmed,'not sent');
 });
+await test('Gmail rewriting signature markup while waiting is not a signature change',async()=>{
+  const body=fixture.querySelector('[contenteditable]'),sig=fixture.querySelector('.gmail_signature');
+  sig.insertAdjacentHTML('beforeend','<img src="https://example.com/logo.png">');
+  // Gmail re-renders the signature (new node, proxied image, extra attributes) after the compose opens.
+  setTimeout(()=>{const fresh=sig.cloneNode(true);fresh.setAttribute('data-smartmail','gmail_signature');fresh.querySelector('img').src='https://ci3.googleusercontent.com/proxy/x';fresh.querySelector('img').className='CToWUd';sig.replaceWith(fresh);},300);
+  const prepared=await gmailPage('prepare',payload);
+  const now=fixture.querySelector('.gmail_signature');
+  assert(now&&now.textContent.includes('测试签名')&&now.querySelector('img'),'signature lost');
+  assert(!now.querySelector('table')&&body.querySelector('table'),'mail text went into the signature');
+  const result=await gmailPage('send',{...payload,...prepared});assert(result.confirmed,'not sent');
+});
+await test('the "--" prefix before a <br> and the signature both stay; mail text stays out of them',async()=>{
+  const body=fixture.querySelector('[contenteditable]');
+  body.innerHTML='<div dir="ltr"><br></div><br clear="all"><div><br></div><span class="gmail_signature_prefix">-- </span><br><div dir="ltr" class="gmail_signature"><b>Example signature</b><br>测试签名</div>';
+  await gmailPage('prepare',payload);
+  const prefix=body.querySelector('.gmail_signature_prefix'),sig=body.querySelector('.gmail_signature');
+  assert(prefix&&sig,'prefix or signature removed');
+  assert(!prefix.textContent.replace('-- ','').trim()&&!sig.querySelector('table'),'mail text inside prefix or signature');
+  assert(body.querySelector('table').compareDocumentPosition(prefix)&Node.DOCUMENT_POSITION_FOLLOWING,'table not before prefix');
+});
 await test('an edited mail without the table is accepted',async()=>{
   const edited={...messageTemplate(record,{edit:{to:payload.to.join(','),cc:payload.cc.join(','),subject:payload.subject,body:'Hello, no table here.'}}),...record,requestId:'fixture-edit'};
   reset(edited);await gmailPage('prepare',edited);assert(fixture.querySelector('[contenteditable]').textContent.includes('Hello, no table here.'),'edited body missing');
