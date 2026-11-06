@@ -39,12 +39,13 @@ onMounted(()=>{loadOocl();watchOocl();});
         </li>
       </ol>
       <table v-if="oocl.run.plan?.results?.length" class="container-table oocl-table">
-        <tr><th class="oocl-nowrap">{{t('柜号')}}</th><th class="oocl-value">{{t('状态')}}</th><th class="oocl-nowrap">SSL</th><th class="oocl-nowrap">Draydog</th><th class="oocl-nowrap">LFD</th><th class="oocl-nowrap">{{t('提柜表更新')}}</th></tr>
+        <tr><th class="oocl-nowrap">{{t('柜号')}}</th><th class="oocl-nowrap">{{t('码头')}}</th><th class="oocl-value">{{t('状态')}}</th><th class="oocl-nowrap">SSL</th><th class="oocl-nowrap">Draydog</th><th class="oocl-nowrap">LFD</th><th class="oocl-nowrap">{{t('提柜表更新')}}</th></tr>
         <tr v-for="r in oocl.run.plan.results" :key="r.container">
           <td class="mono oocl-nowrap">{{r.container}}</td>
+          <td class="oocl-nowrap">{{r.terminal}}</td>
           <td class="oocl-value">{{breakable(r.status)}}</td>
           <td class="oocl-nowrap">{{mmdd(r.ooclLfd)}}</td>
-          <td class="oocl-nowrap"><div v-if="r.draydogLfd">{{mmdd(r.draydogLfd)}}</div><div v-if="r.terminal" class="hint">{{r.terminal}}</div></td>
+          <td class="oocl-nowrap">{{mmdd(r.draydogLfd)}}</td>
           <td class="oocl-nowrap"><b>{{mmdd(r.lfd)}}</b></td>
           <td class="oocl-nowrap"><template v-if="r.row"><template v-if="r.before===r.after">{{t('不用改')}}</template><template v-else>{{r.before||'—'}} <span class="oocl-arrow">→</span> {{r.after}}</template></template></td>
         </tr>
@@ -60,7 +61,7 @@ onMounted(()=>{loadOocl();watchOocl();});
       <div v-for="group in section.groups" :key="group[0].requestId||group[0].container" class="task-row">
         <template v-for="task in [taskView(group)]" :key="task.names">
           <div>
-            <strong>{{task.names}}</strong>
+            <strong class="task-names"><template v-for="(item,i) in task.items" :key="item.container">{{i?'、':''}}{{item.container}}<span v-if="item.mbl" class="task-mbl">{{item.mbl}}</span></template></strong>
             <p>{{t(task.detail)}}</p>
             <div class="task-step" :class="{interrupted:!task.entry.running}">{{t(task.step)}}</div>
           </div>

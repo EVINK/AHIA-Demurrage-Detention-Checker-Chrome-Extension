@@ -395,7 +395,7 @@ export const taskGroups=computed(()=>{
 });
 export function taskView(group){
   const entry=group[0],minutes=Math.max(0,Math.round((Date.now()-(entry.time||Date.now()))/60000));
-  return {entry,names:group.map(e=>e.container).join('、'),
+  return {entry,names:group.map(e=>e.container).join('、'),items:group.map(e=>({container:e.container,mbl:e.mbl||''})),
     detail:`${entry.carrierName||''} · ${typeTitle(entry)} · ${new Date(entry.time).toLocaleTimeString()} 开始${entry.running?` · 已 ${minutes} 分钟`:''}`,
     step:entry.running?(entry.step||'进行中')+(entry.agent?` · ${entry.agent}`:''):mailProgram(entry.mailClient)&&entry.status==='draft'?'已打开邮件程序，发完后请点「我已发送」':entry.interrupted?'已中断，请打开页面核实结果':`${entry.status==='uncertain'?'结果待核实':'未完成'}：${entry.detail||''}`,
     openLabel:entry.channel==='one-chat'?'打开聊天':entry.channel==='cosco-portal'&&/人机验证/.test(entry.step||'')?'去验证':'打开页面',
