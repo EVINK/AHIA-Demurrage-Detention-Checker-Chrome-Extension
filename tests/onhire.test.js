@@ -80,7 +80,7 @@ test('On-Hire sends several containers of the same carrier in one email table; a
   assert.equal(mails[0].bodyText.split('\n').slice(-2).join('|'),'OOLU9995789\tOOLU4055290001|FFAU8502590\tOOLU4055290002');
   assert.match(mails[0].subject,/OOLU9995789, FFAU8502590/);
   assert.deepEqual(Object.values(db.ledger).map(e=>[e.container,e.status]),[['OOLU9995789','sent'],['FFAU8502590','sent']]);
-  await assert.rejects(service.run('OOLU9995789','send',{inquiryType:'demurrage',more:[{container:'FFAU8502590',mbl:'OOLU4055290002'}]}),/Demurrage 收件邮箱/);
+  await assert.rejects(service.run('OOLU9995789','send',{inquiryType:'demurrage',more:[{container:'FFAU8502590',mbl:'OOLU4055290002'}]}),/直接在 OOCL 网站查询/);
 });
 
 test('COSCO On-Hire ticket: Equipment fields, container count and list, a Container#/MBL# table row each',async()=>{

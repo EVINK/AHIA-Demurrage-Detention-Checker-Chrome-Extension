@@ -56,6 +56,25 @@ export async function draydogPage(action,payload){
       const trim=c=>JSON.parse(JSON.stringify(c,(key,value)=>key==='raw_data'?undefined:value));
       return {ok:true,data:{containers:containers.map(trim),unwatched:[...new Set(unwatched)],lineCheck:[...new Set(lineCheck)]}};
     }
+    // Notes (owner, 11/6: "SSL LFD mm/dd" for OOCL containers). Every note, newest first: the card shows only the latest.
+    if(action==='notes'){
+      const out={};
+      for(const number of numbers){
+        const list=await call(`/containers/${encodeURIComponent(number)}/notes/`);
+        out[number]=(list||[]).map(n=>({id:n.id,body:String(n.body||''),time:n.time||''}));
+      }
+      return {ok:true,data:out};
+    }
+    if(action==='addNote'){
+      const added=[],errors=[];
+      for(const note of payload?.notes||[]){
+        const number=String(note?.container||''),body=String(note?.body||'').trim();
+        if(!/^[A-Z]{4}\d{7}$/.test(number)||!body||body.length>200){errors.push({container:number,message:'note 内容无效'});continue;}
+        try{const saved=await call(`/containers/${encodeURIComponent(number)}/notes/`,{method:'POST',body:JSON.stringify({body})});added.push({container:number,id:saved?.id,body:saved?.body||body});}
+        catch(error){errors.push({container:number,message:error.message});}
+      }
+      return {ok:true,data:{added,errors}};
+    }
     if(action==='watch'){
       if(!numbers.length)return {ok:true,data:{container_numbers:[],errors:[]}};
       const data=await call('/containers/watch/',{method:'POST',body:JSON.stringify(numbers.map(container_number=>({container_number,port_complex:'la_lb'})))});

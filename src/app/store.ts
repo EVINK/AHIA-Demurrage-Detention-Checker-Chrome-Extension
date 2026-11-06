@@ -1,6 +1,6 @@
 // State and behavior of the popup. Pages only render what is here and call its actions.
 import {computed,nextTick,reactive,ref,shallowRef,watch} from 'vue';
-import {messageTemplate,portalTemplate,recognizeCarrier,containerNumber,COSCO_PORTAL,ONE_CHAT,DEFAULT_CARRIERS,chatTemplate,addressList,INQUIRY_TYPES,inquiryChannel,findType,resolveType,missingConfiguration,supportsManyContainers,standardBody,standardSubject,newInquiryType,newProfile,carrierLabel,channelsFor} from '../core/core.ts';
+import {messageTemplate,portalTemplate,recognizeCarrier,containerNumber,COSCO_PORTAL,ONE_CHAT,DEFAULT_CARRIERS,chatTemplate,addressList,INQUIRY_TYPES,inquiryChannel,findType,resolveType,missingConfiguration,supportsManyContainers,standardBody,standardSubject,newInquiryType,newProfile,carrierLabel,channelsFor,OOCL_RTR} from '../core/core.ts';
 import {DEFAULT_SETTINGS,validateSettings,createConfig,parseConfig} from '../core/config.ts';
 import {translate,resolveLanguage} from '../core/i18n.ts';
 
@@ -158,15 +158,19 @@ export const groups=computed(()=>{
     const many=Boolean(type)&&supportsManyContainers(profile,type),missing=!profile?['carrier']:type?missingConfiguration(profile,type):['type'];
     const rows=list.map(entry=>{const lock=type?lockOf(entry,id,type):null;return {entry,lock:lock?{key:lock[0],status:(lock[1] as any).status}:null};});
     const ready=missing.length?[]:rows.filter(row=>!row.lock).map(row=>row.entry);
-    const recipients=!typeEntry?'':channel==='one-chat'?`ONE 在线客服 · ${profile.chat?.email||''}`:channel==='cosco-portal'?`COSCO 工单 · Requester ${profile.portal?.requester||''}`:[typeEntry.to.join(', '),typeEntry.cc.length?`Cc ${typeEntry.cc.join(', ')}`:''].filter(Boolean).join(' · ');
-    return {id,profile,name:profile?.name||id,type,typeLabel:typeEntry?.label||'',channel,many,missing,rows,ready,recipients,runs:many?(ready.length?[ready]:[]):ready.map(entry=>[entry])};
+    const recipients=!typeEntry?'':channel==='one-chat'?`ONE 在线客服 · ${profile.chat?.email||''}`:channel==='cosco-portal'?`COSCO 工单 · Requester ${profile.portal?.requester||''}`:channel===OOCL_RTR?`OOCL 网站自动查询 · ${ooclAccount.saved?ooclAccount.username:'还没有配置账号'}`:[typeEntry.to.join(', '),typeEntry.cc.length?`Cc ${typeEntry.cc.join(', ')}`:''].filter(Boolean).join(' · ');
+    // OOCL Demurrage is looked up, not sent: no lock, every container goes (a second lookup is harmless).
+    const oocl=channel===OOCL_RTR,lookupReady=oocl&&!missing.length?rows.map(row=>row.entry):ready;
+    return {id,profile,name:profile?.name||id,type,typeLabel:typeEntry?.label||'',channel,many,missing,rows:oocl?rows.map(row=>({...row,lock:null})):rows,ready:lookupReady,recipients,
+      needsAccount:oocl&&!ooclAccount.saved,runs:many?(lookupReady.length?[lookupReady]:[]):lookupReady.map(entry=>[entry])};
   });
 });
 export const totals=computed(()=>{const ready=groups.value.filter(group=>group.ready.length);return {containers:ready.reduce((n,group)=>n+group.ready.length,0),carriers:ready.length};});
 export const sendAllLabel=computed(()=>{const {containers,carriers}=totals.value;return containers?`全部发送 · ${containers} 个柜号${carriers>1?` · ${carriers} 家${kind.value}`:''}`:'全部发送';});
-const channelNames={email:'Gmail 邮件','cosco-portal':'COSCO 工单','one-chat':'ONE 在线客服'};
+const channelNames={email:'Gmail 邮件','cosco-portal':'COSCO 工单','one-chat':'ONE 在线客服','oocl-rtr':'OOCL 网站查询'};
 export const channelName=group=>group.channel==='email'&&mailProgram(settings.value.mailClient)?'电脑邮件程序':channelNames[group.channel];
 export function groupLabels(group){
+  if(group.channel===OOCL_RTR)return {send:'查询并更新',draft:'仅查询（预览）'};
   if(group.channel==='one-chat')return {send:'发送 ONE 消息',draft:'转人工但不发送'};
   if(group.channel==='cosco-portal')return {send:'提交工单',draft:'仅填写工单'};
   if(mailProgram(settings.value.mailClient))return {send:'打开邮件程序',draft:''};
@@ -197,7 +201,7 @@ const mailOf=(group,edit=null)=>{
 // COSCO tickets and ONE chats take a body only.
 const editFields=edit=>edit.mailOnly?{to:edit.to,cc:edit.cc,subject:edit.subject,body:edit.body}:{body:edit.body};
 // Several COSCO tickets (one per container) would all get the first one's text: not editable then.
-export const canEditMail=group=>!group.missing.length&&previewItems(group).length>0&&(group.channel!=='cosco-portal'||group.many||previewItems(group).length===1);
+export const canEditMail=group=>group.channel!==OOCL_RTR&&!group.missing.length&&previewItems(group).length>0&&(group.channel!=='cosco-portal'||group.many||previewItems(group).length===1);
 export function startEdit(group){
   const current=editOf(group);
   if(current){current.editing=true;return;}
@@ -215,7 +219,7 @@ export function finishEdit(group){
 export function discardEdit(group){delete mailEdits[group.id];}
 export function previewOf(group){
   const items=previewItems(group);
-  if(!items.length||group.missing.length)return null;
+  if(!items.length||group.missing.length||group.channel===OOCL_RTR)return null;
   try{
     const edit=editOf(group),sent=mailOf(group,edit?editFields(edit):null),edited=Boolean(edit);
     if(group.channel==='one-chat')return {to:`${sent.firstName} ${sent.lastName} · ${sent.email}`,subject:'',html:'',lines:sent.messages,edited};
@@ -224,7 +228,14 @@ export function previewOf(group){
   }catch(error){return {error:error.message,edited:Boolean(editOf(group))};}
 }
 export const sending=reactive({});
+// OOCL Demurrage: one background lookup for the whole group. 'draft' only looks (no note, no sheet write).
+async function runOocl(group,mode){
+  const items=group.ready.map(entry=>({container:entry.container,mbl:mblOf(entry)}));
+  try{await rpc({type:'ooclStart',items,apply:mode==='send'});return {queued:[],looked:items.map(i=>i.container),failed:[],duplicates:[]};}
+  catch(error){return {queued:[],failed:[`${items.map(i=>i.container).join('、')}：${t(error.message)}`],duplicates:[]};}
+}
 async function runGroup(group,mode){
+  if(group.channel===OOCL_RTR)return runOocl(group,mode);
   const queued=[],failed=[],duplicates=[];
   const edit=canEditMail(group)?editOf(group):null;
   for(const run of group.runs){
@@ -241,15 +252,21 @@ async function runGroup(group,mode){
 }
 async function dispatch(list,mode){
   if(busy.value)return;
+  // OOCL with no account yet: the config page first; the lookup starts by itself once the account checks out.
+  const noAccount=list.find(group=>group.channel===OOCL_RTR&&group.needsAccount);
+  if(noAccount&&list.length>1)list=list.filter(group=>group!==noAccount);
+  else if(noAccount){pendingOocl.group=noAccount.id;pendingOocl.mode=mode;configureCarrier(noAccount);status('请先填写 OOCL 账号密码，点「确定并检查连通性」，通过后自动开始查询。');return;}
+  if(mode==='send'&&list.some(group=>group.channel===OOCL_RTR)&&!await ask('查询 OOCL 的 Demurrage LFD 并更新：Draydog 没有这条 note 的写一条「SSL LFD mm/dd」，OOCL 和 Draydog 的 LFD 取较早的写入提柜表 K 列（写之前核对格子没被人改过）。继续？'))return;
   busy.value=true;for(const group of list)sending[group.id]=true;
   status('正在加入后台任务…','running');
   const results=[];
   try{for(const group of list)results.push(await runGroup(group,mode));}
   finally{busy.value=false;for(const group of list)delete sending[group.id];}
-  const queued=results.flatMap(result=>result.queued),failed=results.flatMap(result=>result.failed),duplicates=results.flatMap(result=>result.duplicates);
+  const queued=results.flatMap(result=>result.queued),failed=results.flatMap(result=>result.failed),duplicates=results.flatMap(result=>result.duplicates),looked=results.flatMap(result=>result.looked||[]);
   if(queued.length)setContainers(parseContainers(query.text).filter(container=>!queued.includes(container)));
-  const parts=[...(queued.length?[`已加入后台任务：${queued.join('、')}。`]:[]),...failed.map(line=>`未发送 ${line}`)];
+  const parts=[...(queued.length?[`已加入后台任务：${queued.join('、')}。`]:[]),...(looked.length?[`OOCL 查询已在后台开始：${looked.join('、')}，结果显示在下方。`]:[]),...failed.map(line=>`未发送 ${line}`)];
   if(parts.length)status(parts.join(' '),failed.length?'error':'success');
+  if(looked.length)ooclStarted.value++;
   await refreshState().catch(()=>{});
   if(duplicates.length)showDuplicate(duplicates,mode);
 }
@@ -261,6 +278,19 @@ export async function resendLocked(row){
   try{await rpc({type:'release',key:row.lock.key});await refreshState();status('已解除该条记录的锁定。');}catch(error){status(error.message,'error');}
 }
 export function moveGroup(group,carrierId){for(const row of group.rows)row.entry.override=carrierId===row.entry.carrierId?'':carrierId;}
+// OOCL account (kept by the worker in chrome.storage.local, password never returned here) and a lookup waiting
+// for it: after 「确定并检查连通性」 succeeds, the waiting lookup starts (src/app/oocl.ts).
+export const ooclAccount=reactive({username:'',saved:false,checkedAt:0});
+export const pendingOocl=reactive({group:'',mode:''});
+export const ooclStarted=ref(0);
+export async function loadOoclAccount(){if(demo)return;try{Object.assign(ooclAccount,await rpc({type:'ooclAccount'}));}catch{}}
+export function resumeOocl(){
+  const {group:id,mode}=pendingOocl;if(!id)return false;
+  Object.assign(pendingOocl,{group:'',mode:''});
+  const group=groups.value.find(g=>g.id===id&&g.channel===OOCL_RTR&&g.ready.length);
+  if(!group)return false;
+  showPage('query');dispatch([group],mode||'draft');return true;
+}
 // The config field for each missing item; the first one missing is scrolled to, focused and highlighted.
 const MISSING_FIELDS={to:'carrierTo',requester:'portalRequester',reference:'portalReference',bodyTemplate:'bodyTemplate',subjectTemplate:'subjectTemplate'};
 export function highlightField(id){
@@ -278,7 +308,7 @@ export function highlightField(id){
 export function configureCarrier(group){
   if(!group.profile){openAddProfile(group.name);return;}
   showPage('config');flushSave();if(group.type)ui.type[group.id]=group.type;renderProfile(group.id);
-  const target=(group.missing||[]).map(key=>MISSING_FIELDS[key]).find(Boolean);
+  const target=group.needsAccount?'ooclUsername':(group.missing||[]).map(key=>MISSING_FIELDS[key]).find(Boolean);
   if(target==='portalReference'||target==='portalRequester')setOpen('advanced',true);
   nextTick(()=>{document.getElementById('page-config').scrollTop=0;if(target)highlightField(target);else focusField('carrierTo');});
 }
@@ -295,10 +325,12 @@ export async function refreshState({initial=false}={}){
   if(initial){
     settings.value=validateSettings(state.settings);applyLanguage(settings.value.language);
     if(state.openTarget==='labs'){ui.page='labs';ui.scroll.labs=0;}
+    if(state.openTarget==='query')ui.page='query';
     if(state.openTarget==='autoCc'){ui.page='labs';ui.scroll.labs=0;if(!isOpen('autoCcSection'))ui.open=[...ui.open,'autoCcSection'];openedAutoCc=true;}
   }
   setLedger(state.ledger);
   if(initial){
+    await loadOoclAccount();
     const saved=storedInput();
     query.inquiryType=typeOptions.value.some(option=>option.value===saved.inquiryType)?saved.inquiryType:settings.value.defaultInquiryType;
     setContainers(Array.isArray(saved.containers)?saved.containers:saved.container?[saved.container]:[]);
@@ -416,7 +448,7 @@ const isBuiltinType=id=>Object.hasOwn(INQUIRY_TYPES,id);
 export const customType=computed(()=>Boolean(currentType.value)&&!isBuiltinType(currentType.value.id));
 export const profileOptions=computed(()=>profiles.value.map(p=>({label:p.name,value:p.id})));
 export const editTypeOptions=computed(()=>(currentProfile.value?.types||[]).map(type=>({label:type.label,value:type.id})));
-export const channelOptions=computed(()=>[['email','Gmail 邮件'],['cosco-portal','COSCO 工单网站（需手动完成人机验证）'],['one-chat','ONE 在线客服聊天']]
+export const channelOptions=computed(()=>[['email','Gmail 邮件'],['cosco-portal','COSCO 工单网站（需手动完成人机验证）'],['one-chat','ONE 在线客服聊天'],['oocl-rtr','OOCL 网站自动查询 LFD']]
   .filter(([value])=>channelsFor(editingId.value).includes(value)).map(([value,label])=>({value,label:t(label)})));
 // COSCO's ticket site and ONE's chat belong to those two; everyone else only sends email.
 export const channelVisible=computed(()=>Boolean(currentType.value)&&channelsFor(editingId.value).length>1);
@@ -635,7 +667,7 @@ export async function boot(){
   document.addEventListener('visibilitychange',()=>{if(document.hidden)flushSave();});
   if(demo)return;
   // The Gmail button asks a page that is already open to show the section.
-  chrome.runtime.onMessage.addListener(request=>{if(request?.type==='showAutoCc')showAutoCcSection();if(request?.type==='showLabs')showPage('labs');});
+  chrome.runtime.onMessage.addListener(request=>{if(request?.type==='showAutoCc')showAutoCcSection();if(request?.type==='showLabs')showPage('labs');if(request?.type==='showQuery')showPage('query');});
   // Another window of the plugin changed something. The field being typed in is left alone.
   chrome.storage.onChanged.addListener((changes,area)=>{
     if(area!=='local'||!changes.settings?.newValue||saveTimer||pendingWrites)return;

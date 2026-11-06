@@ -3,6 +3,7 @@ import {createService,retryBlankChat,waitForAgent} from '../core/service.ts';
 import {readKdocsPage} from '../injected/kdocs.ts';
 import {createChagui} from './chagui.ts';
 import {createMatson} from './matson.ts';
+import {createOocl} from './oocl.ts';
 import {gmailPage} from '../injected/gmail.ts';
 import {coscoPage} from '../injected/cosco.ts';
 import {onePage} from '../injected/one.ts';
@@ -91,6 +92,8 @@ chrome.notifications.onClicked.addListener(id=>{
   if(id==='lfd-test'){chrome.notifications.clear(id).catch(()=>{});notify('lfd-test-ok',-1,'插件已收到点击','通知点击正常，COSCO 人机验证和 ONE 客服回复的通知点击后会打开对应小窗。');return;}
   // 查柜 notices (finished, failed, waiting for an answer on a new hold word) open the 实验性功能 page.
   if((id.startsWith('lfd-chagui')&&id!=='lfd-chagui-login')||id==='lfd-matson'){chrome.notifications.clear(id).catch(()=>{});openPlugin('labs').catch(()=>{});return;}
+  // OOCL LFD results show on the query page.
+  if(id==='lfd-oocl'){chrome.notifications.clear(id).catch(()=>{});openPlugin('query').catch(()=>{});return;}
   // The worker may have restarted since the notification was shown, so the tab id is also part of the id.
   const tabId=noticeTabs.get(id)??Number(id.match(/^lfd-.*-(\d+)$/)?.[1]);if(!Number.isInteger(tabId))return;
   showTab(tabId).catch(()=>{});chrome.notifications.clear(id).catch(()=>{});
@@ -357,8 +360,10 @@ const service=createService({storage:store,
 // Operations run concurrently; only the newest is persisted for a reopened popup to restore.
 // 实验性功能 · 查柜.
 // The two write through the same TH_Apply script in 我的脚本, so they never run at the same time.
-const chagui=createChagui({execute,loaded,notify,focusTab,busy:()=>matson.busy()});
-const matson=createMatson({execute,loaded,notify,busy:()=>chagui.busy()});
+// The OOCL Demurrage query (query page) writes K through TH_Apply too; 查柜 also uses it for OOCL containers.
+const oocl=createOocl({execute,loaded,notify,focusTab,busy:()=>chagui.busy()||matson.busy()});
+const chagui=createChagui({execute,loaded,notify,focusTab,busy:()=>matson.busy()||oocl.busy(),oocl});
+const matson=createMatson({execute,loaded,notify,busy:()=>chagui.busy()||oocl.busy()});
 const pendingOperations=new Set();let latestOperation='';
 async function persist(operation){if(operation.id===latestOperation)await chrome.storage.local.set({operation});}
 async function runOperation(message){
@@ -400,7 +405,7 @@ async function openPlugin(target){
   if(contexts.length){
     const open=contexts.find(context=>context.tabId>=0);
     if(open){await chrome.windows.update(open.windowId,{focused:true});await chrome.tabs.update(open.tabId,{active:true});}
-    await chrome.runtime.sendMessage({type:target==='labs'?'showLabs':'showAutoCc'}).catch(()=>{});
+    await chrome.runtime.sendMessage({type:target==='labs'?'showLabs':target==='query'?'showQuery':'showAutoCc'}).catch(()=>{});
     return true;
   }
   await chrome.storage.session.set({openTarget:target});
@@ -473,6 +478,12 @@ chrome.runtime.onMessage.addListener((message,sender,respond)=>{
     if(message.type==='matsonStart')return matson.start({apply:message.apply===true});
     if(message.type==='matsonState')return matson.state();
     if(message.type==='matsonApplyPreview')return matson.applyPreview();
+    if(message.type==='ooclStart')return oocl.start({items:message.items,apply:message.apply===true});
+    if(message.type==='ooclState')return oocl.state();
+    if(message.type==='ooclApplyPreview')return oocl.applyPreview();
+    if(message.type==='ooclAccount')return oocl.account();
+    if(message.type==='ooclSaveAccount')return oocl.saveAccount({username:message.username,password:message.password});
+    if(message.type==='ooclClearAccount')return oocl.clearAccount();
     if(message.type==='settings'){
       // Config auto-saves while lookups run; a running job keeps the settings it started with.
       const settings=validateSettings(message.settings);

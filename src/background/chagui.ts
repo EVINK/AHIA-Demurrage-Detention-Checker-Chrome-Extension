@@ -8,6 +8,7 @@
 import {airScriptPage} from '../injected/airscript.ts';
 import {draydogPage} from '../injected/draydog.ts';
 import {observe,parseBaseline,plan,statusWords,SHOWN,unknownHolds,validHoldRules,duplicateRows,businessRows} from '../core/chagui-rules.ts';
+import {needsOocl,notedLfd,sslNote} from '../core/oocl-rules.ts';
 
 export const PICKUP_URL='https://www.kdocs.cn/l/ce3LmgRtHK2F';
 export const TEMPLATE_URL='https://www.kdocs.cn/l/cl7RhcdagjJs';
@@ -24,6 +25,7 @@ export const STEPS=[
   ['draydog','打开 Draydog 并检查登录'],
   ['track','未追踪的柜子 Start Tracking'],
   ['status','读取 Draydog 状态'],
+  ['oocl','OOCL 柜子查 Demurrage LFD'],
   ['baseline','读取提柜表'],
   ['plan','计算要改的格子和要移动的行'],
   ['apply','写入提柜表'],
@@ -31,7 +33,7 @@ export const STEPS=[
   ['save','保存缓存和本轮记录']
 ];
 // The owner approved Start Tracking (11/3), so a preview tracks too; it never writes the sheet.
-export const PREVIEW_STEPS=['push','read','cache','draydog','track','status','baseline','plan','save'];
+export const PREVIEW_STEPS=['push','read','cache','draydog','track','status','oocl','baseline','plan','save'];
 const pause=ms=>new Promise(r=>setTimeout(r,ms));
 
 // The cache follows the owner's existing 查柜 cache (schemaVersion 1, built by the manual agent runs), so that file
@@ -81,7 +83,7 @@ export function importCache(current,text){
 /** Container count written by ListA_Push, from its log line "List A 已写入：… | 363 柜". */
 export const pushedCount=line=>{const m=String(line).match(/\|\s*(\d+)\s*柜\s*$/);return m?Number(m[1]):null;};
 
-export function createChagui({execute,loaded,notify,focusTab,busy=()=>false}){
+export function createChagui({execute,loaded,notify,focusTab,busy=()=>false,oocl=null}){
   let active=null;
   const get=async()=>(await chrome.storage.local.get('chaguiRun')).chaguiRun||null;
   const save=run=>chrome.storage.local.set({chaguiRun:{...run,updatedAt:Date.now()}});
@@ -205,6 +207,44 @@ export function createChagui({execute,loaded,notify,focusTab,busy=()=>false}){
     if(!build)throw new Error(`插件内的 ${file} 脚本缺少版本号。`);
     return {code,build};
   }
+  /** 查柜 step 5b. Mutates the statuses: an OOCL date found becomes the note's date, so the plan's earliest-LFD rule
+   * takes it in. → {notes:[{container, body}] to write with the sheet, results, detail}. Never stops the run. */
+  async function checkOocl(statuses,tabId,report){
+    const empty=detail=>({notes:[],results:[],detail});
+    let candidates=needsOocl(statuses);
+    if(!oocl||!candidates.length)return empty('没有要查的 OOCL 柜子（都已有 SSL LFD，或不是 OOCL）');
+    // An older note may hold the SSL LFD: the card shows only the newest one.
+    const numbers=candidates.map(s=>s.container);
+    const notes=tabId?await execute(tabId,draydogPage,['notes',{numbers}],'MAIN'):await withTab(DRAYDOG_URL,'https://app.draydog.com/',id=>execute(id,draydogPage,['notes',{numbers}],'MAIN'));
+    for(const s of candidates){const iso=notedLfd(notes[s.container],s.lfd?Date.parse(s.lfd):Date.now());if(iso)s.noteLfd=iso;}
+    candidates=candidates.filter(s=>!s.noteLfd);
+    const already=numbers.length-candidates.length,also=already?`；${already} 个旧 note 里已有 SSL LFD`:'';
+    if(!candidates.length)return empty(`${already} 个 OOCL 柜子旧 note 里已有 SSL LFD，不用再查`);
+    if(!await oocl.hasAccount())return empty(`${candidates.length} 个 OOCL 柜子没有 SSL LFD，但还没配置 OOCL 账号，这次按 Draydog 的 LFD${also}`);
+    await report(`在 OOCL 查 ${candidates.length} 个柜子`);
+    let result;
+    try{
+      result=await oocl.lookup(candidates.map(s=>s.mbl||s.container));
+      const missing=candidates.filter(s=>!result.found[s.container]&&s.mbl);
+      if(missing.length)Object.assign(result.found,(await oocl.lookup(missing.map(s=>s.container))).found);
+    }catch(error){return empty(`OOCL 查询失败，这次按 Draydog 的 LFD${also}：${error.message}`);}
+    const out=[],results=[];
+    for(const s of candidates){
+      const row=result.found[s.container];
+      results.push({container:s.container,mbl:s.mbl,status:row?.status||'',ooclLfd:row?.lfd||'',draydogLfd:s.lfd||s.lineLfd||''});
+      if(!row?.lfd)continue;
+      s.noteLfd=row.lfd;s.ooclLfd=row.lfd;
+      out.push({container:s.container,body:sslNote(row.lfd)});
+    }
+    return {notes:out,results,detail:`查了 ${candidates.length} 个，${out.length} 个有 LFD${also}`};
+  }
+  /** The OOCL notes of a write. A failed note does not stop the sheet write; it is reported. → containers noted. */
+  async function writeNotes(notes){
+    if(!notes?.length||!oocl)return [];
+    const added=await oocl.addNotes(notes);
+    if(added.errors.length)notify('lfd-chagui-notes',-1,'有 Draydog note 没写上',added.errors.map(e=>`${e.container} ${e.message}`).join('；'));
+    return added.added.map(a=>a.container);
+  }
   const readPickup=async script=>parseBaseline((await withTab(PICKUP_URL,'https://www.kdocs.cn/',tabId=>execute(tabId,airScriptPage,[{title:'TH_ReadPickup',group:'mine',install:script,expect:{type:'chunks'},timeout:120000}],'MAIN'))).rows);
 
   async function execute1(run){
@@ -272,6 +312,11 @@ export function createChagui({execute,loaded,notify,focusTab,busy=()=>false}){
       }
       const appointed=statuses.filter(s=>s.category==='Appointed').map(s=>s.container),bookable=statuses.filter(s=>s.category==='Bookable').map(s=>s.container);
       await step('status','done',`${statuses.length} 个有数据；Appointed ${appointed.length}，Bookable ${bookable.length}${status.unwatched.length&&!run.apply?`；${status.unwatched.length} 个未追踪`:''}`);
+      // 5b. OOCL containers with no "SSL LFD" note yet (owner, 11/6): look the LFD up on OOCL; the note is written
+      // with the sheet. One already checked is not looked up again: its note's date takes part in the LFD as before.
+      current='oocl';await step('oocl','running');
+      const ooclNotes=await checkOocl(statuses,draydogTab,detail=>step('oocl','running',detail));
+      await step('oocl','done',ooclNotes.detail);
       if(draydogTab)await chrome.tabs.remove(draydogTab).catch(()=>{});draydogTab=null;
       cache=recordObserved(cache,statuses,observedAt);await chrome.storage.local.set({chaguiCache:cache});
       // 6. 提柜表 baseline.
@@ -286,10 +331,11 @@ export function createChagui({execute,loaded,notify,focusTab,busy=()=>false}){
       const duplicates=duplicateRows(statuses,baseline);
       const chosen=duplicates.length?await askRows(run,step,duplicates):{};
       const planned=plan(statuses,baseline,{holdRules,chosen});
-      run.plan={changes:planned.changes,moves:planned.moves,skipped:planned.skipped,appointed,bookable};
+      run.plan={changes:planned.changes,moves:planned.moves,skipped:planned.skipped,appointed,bookable,notes:ooclNotes.notes,oocl:ooclNotes.results};
       const cellCount=planned.changes.reduce((n,c)=>n+c.cells.length,0);
-      await step('plan','done',`${planned.changes.length} 个柜子 ${cellCount} 个格子要改，${planned.moves.length} 行要移动${planned.skipped.length?`，${planned.skipped.length} 个需人工`:''}`);
+      await step('plan','done',`${planned.changes.length} 个柜子 ${cellCount} 个格子要改，${planned.moves.length} 行要移动${ooclNotes.notes.length?`，Draydog 要写 note ${ooclNotes.notes.length} 个`:''}${planned.skipped.length?`，${planned.skipped.length} 个需人工`:''}`);
       let applied=null,verified=null;
+      if(run.apply&&ooclNotes.notes.length){current='apply';await step('apply','running','在 Draydog 写 SSL LFD note');run.notesAdded=await writeNotes(ooclNotes.notes);}
       if(run.apply&&(planned.changes.length||planned.moves.length)){
         // Write: TH_Apply with this run's data.
         current='apply';await step('apply','running');
@@ -333,7 +379,7 @@ export function createChagui({execute,loaded,notify,focusTab,busy=()=>false}){
     const {chaguiRun:preview}=await chrome.storage.local.get('chaguiRun');
     if(!preview||preview.status!=='done'||preview.apply||!preview.plan)throw new Error('没有可写入的预览，请先点「预览」。');
     if(Date.now()-(preview.finishedAt||0)>PREVIEW_FRESH)throw new Error('预览已超过 30 分钟，表格可能有变化，请重新预览。');
-    if(!preview.plan.changes.length&&!preview.plan.moves.length)throw new Error('预览里没有需要修改的。');
+    if(!preview.plan.changes.length&&!preview.plan.moves.length&&!preview.plan.notes?.length)throw new Error('预览里没有需要修改的。');
     const keys=['apply','verify','save'];
     const run={id:Date.now().toString(36),status:'running',apply:true,fromPreview:preview.id,startedAt:Date.now(),plan:preview.plan,
       steps:STEPS.filter(([key])=>keys.includes(key)).map(([key,label])=>({key,label,status:'waiting',detail:''}))};
@@ -347,6 +393,11 @@ export function createChagui({execute,loaded,notify,focusTab,busy=()=>false}){
     try{
       const planned=run.plan;
       await step('apply','running');
+      if(planned.notes?.length)run.notesAdded=await writeNotes(planned.notes);
+      if(!planned.changes.length&&!planned.moves.length){
+        await step('apply','done',`Draydog 写了 ${run.notesAdded.length} 条 note，表格不用改`);await step('verify','done','无需复核');await step('save','done','');
+        run.status='done';run.finishedAt=Date.now();await save(run);notify('lfd-chagui',-1,'查柜完成',`Draydog 写了 ${run.notesAdded.length} 条 note。`);return;
+      }
       const template=await bundled('TH_Apply.js');
       const payload={id:run.id+'a',changes:planned.changes.map(({container,mbl,cells,pick})=>({container,mbl,...(pick?{pick}:{}),cells:cells.map(({col,column,before,after})=>({col,column,before,after}))})),moves:planned.moves.map(({container,mbl,from,terminal,pick})=>({container,mbl,from,terminal,...(pick?{pick}:{})}))};
       const code=template.code.replace('const PAYLOAD = null;',`const PAYLOAD = ${JSON.stringify(payload)};`);
@@ -373,33 +424,37 @@ export function createChagui({execute,loaded,notify,focusTab,busy=()=>false}){
     }
   }
 
-  async function draydog(run,step){
-    const tab=await chrome.tabs.create({url:DRAYDOG_URL,active:false});
-    const who=auth=>`${auth.user}${auth.organization?' · '+auth.organization:''}`;
-    let ok=false;
-    try{
-      await loaded(tab.id,'https://app.draydog.com/');
-      let auth=await execute(tab.id,draydogPage,['auth'],'MAIN');
-      if(auth.loggedIn){ok=true;return {who:who(auth),tabId:tab.id};}
-      // Signed out: show the login page and wait. The user signs in; the plugin never types credentials.
-      if(!/\/login/.test(auth.url))await chrome.tabs.update(tab.id,{url:DRAYDOG_URL+'login'});
-      await focusTab(tab.id).catch(()=>{});
-      notify('lfd-chagui-login',tab.id,'请登录 Draydog','查柜需要 Draydog 账号。请在打开的页面登录，登录后插件自动继续。',true);
-      await step('draydog','running','等待登录 Draydog');
-      const end=Date.now()+LOGIN_WAIT;
-      while(Date.now()<end){
-        await pause(3000);
-        try{await chrome.tabs.get(tab.id);}catch{throw new Error('Draydog 登录页已关闭，查柜停止。');}
-        try{auth=await execute(tab.id,draydogPage,['auth'],'MAIN');}catch{continue;}
-        await save(run);
-        if(auth.loggedIn){chrome.notifications.clear('lfd-chagui-login').catch(()=>{});ok=true;return {who:who(auth),tabId:tab.id};}
-      }
-      throw new Error('等待 Draydog 登录超时（10 分钟）。');
-    }finally{
-      if(!ok)await chrome.tabs.remove(tab.id).catch(()=>{});
-    }
-  }
+  const draydog=(run,step)=>openDraydog({execute,loaded,notify,focusTab},async detail=>{if(detail)await step('draydog','running',detail);else await save(run);});
   return {busy:()=>Boolean(active),start,applyPreview,state,importFile,exportFile,resolveHolds,resolveRows,stopWaiting,holdRules:loadHoldRules,setHoldRules:saveHoldRules};
+}
+
+/** Opens Dray Dog in a background tab and checks the sign-in. Signed out: shows the login page and waits; the user
+ * signs in, the plugin never types Dray Dog credentials. onWait(detail) reports the wait (and is called while
+ * waiting with no detail). → {who, tabId}; the caller closes the tab. Shared by 查柜 and the OOCL query. */
+export async function openDraydog({execute,loaded,notify,focusTab},onWait=async()=>{}){
+  const tab=await chrome.tabs.create({url:DRAYDOG_URL,active:false});
+  const who=auth=>`${auth.user}${auth.organization?' · '+auth.organization:''}`;
+  let ok=false;
+  try{
+    await loaded(tab.id,'https://app.draydog.com/');
+    let auth=await execute(tab.id,draydogPage,['auth'],'MAIN');
+    if(auth.loggedIn){ok=true;return {who:who(auth),tabId:tab.id};}
+    if(!/\/login/.test(auth.url))await chrome.tabs.update(tab.id,{url:DRAYDOG_URL+'login'});
+    await focusTab(tab.id).catch(()=>{});
+    notify('lfd-chagui-login',tab.id,'请登录 Draydog','需要 Draydog 账号。请在打开的页面登录，登录后插件自动继续。',true);
+    await onWait('等待登录 Draydog');
+    const end=Date.now()+LOGIN_WAIT;
+    while(Date.now()<end){
+      await pause(3000);
+      try{await chrome.tabs.get(tab.id);}catch{throw new Error('Draydog 登录页已关闭，已停止。');}
+      try{auth=await execute(tab.id,draydogPage,['auth'],'MAIN');}catch{continue;}
+      await onWait();
+      if(auth.loggedIn){chrome.notifications.clear('lfd-chagui-login').catch(()=>{});ok=true;return {who:who(auth),tabId:tab.id};}
+    }
+    throw new Error('等待 Draydog 登录超时（10 分钟）。');
+  }finally{
+    if(!ok)await chrome.tabs.remove(tab.id).catch(()=>{});
+  }
 }
 
 /** Step 14: every planned cell that was written now shows its target, and every move landed. */

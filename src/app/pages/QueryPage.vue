@@ -1,5 +1,7 @@
 <script setup lang="ts">
+import {computed,onMounted} from 'vue';
 import {NButton,NInput,NSelect,NTag} from 'naive-ui';
+import {oocl,loadOocl,watchOocl,applyPreviewOocl,dismissOocl,ooclWriting} from '../oocl.ts';
 import {canEditMail,discardEdit,editOf,finishEdit,startEdit} from '../store.ts';
 import {busy,channelName,configureCarrier,containersInput,entryNote,groupLabels,groups,kind,lookup,moveGroup,pendingCount,previewOf,profileChoices,query,recordLabel,removeEntry,resendLocked,sendAll,sendGroup,sendAllLabel,sending,setManualMbl,setOverride,t,totals,typeOptions,chooseType,unresolved} from '../store.ts';
 
@@ -8,6 +10,14 @@ const missingNames={carrier:'船公司配置',type:'查询类型',to:'收件邮�
 const editHint='{{table}} 处会放入柜号表格。这里的修改只用于这一次发送，不会改动配置里的模板。';
 const chatEditHint='每个柜号一行消息，顺序和上面的柜号一致。这里的修改只用于这一次发送，不会改动配置里的模板。';
 const missingText=group=>group.missing.map(key=>t(missingNames[key]||key)).join(' · ');
+// OOCL Demurrage LFD run (src/app/oocl.ts): steps, then per container OOCL's, Draydog's and the earlier date.
+const stateLabel={waiting:'等待',running:'进行中',done:'完成',error:'失败'};
+const running=computed(()=>oocl.run?.status==='running');
+const runLabel=computed(()=>({running:'OOCL 查询进行中',done:'OOCL 查询完成',error:'OOCL 查询失败'}[oocl.run?.status]||''));
+const canWriteOocl=computed(()=>{const r=oocl.run;return Boolean(r&&r.status==='done'&&!r.apply&&r.plan&&(r.plan.changes.length||r.plan.notes.length));});
+const mmdd=(iso:string)=>iso?iso.slice(5).replace('-','/'):'';
+const timeText=(ms:number)=>ms?new Date(ms).toLocaleTimeString():'';
+onMounted(()=>{loadOocl();watchOocl();});
 </script>
 
 <template>
@@ -38,6 +48,36 @@ const missingText=group=>group.missing.map(key=>t(missingNames[key]||key)).join(
         </div>
       </div>
 
+      <div v-if="oocl.run" id="ooclRun" class="group-card oocl-run">
+        <div class="group-head">
+          <strong>{{t('OOCL Demurrage LFD')}}</strong>
+          <span class="hint">{{t(runLabel)}}<template v-if="!oocl.run.apply"> · {{t('预览')}}</template> · {{timeText(oocl.run.startedAt)}}</span>
+          <n-button v-if="!running" class="row-remove" size="tiny" quaternary :title="t('关闭')" @click="dismissOocl">×</n-button>
+        </div>
+        <ol class="labs-steps">
+          <li v-for="step in oocl.run.steps" :key="step.key" :class="step.status">
+            <span class="labs-state">{{t(stateLabel[step.status]||step.status)}}</span>
+            <span>{{t(step.label)}}</span>
+            <p v-if="step.detail">{{t(step.detail)}}</p>
+          </li>
+        </ol>
+        <table v-if="oocl.run.plan?.results?.length" class="container-table oocl-table">
+          <tr><th>{{t('柜号')}}</th><th>MBL</th><th>{{t('OOCL 状态')}}</th><th>SSL LFD</th><th>{{t('Draydog LFD')}}</th><th>LFD</th><th>K</th><th>Draydog note</th></tr>
+          <tr v-for="r in oocl.run.plan.results" :key="r.container">
+            <td class="mono">{{r.container}}</td><td class="mono">{{r.mbl}}</td><td>{{r.status}}</td><td>{{mmdd(r.ooclLfd)}}</td>
+            <td>{{mmdd(r.draydogLfd)}}<span v-if="r.terminal" class="hint"> {{r.terminal}}</span></td>
+            <td><b>{{mmdd(r.lfd)}}</b></td>
+            <td>{{r.row?(r.before===r.after?t('不用改'):`${r.before||'—'} → ${r.after}`):''}}</td>
+            <td>{{t(r.note)}}</td>
+          </tr>
+        </table>
+        <p v-for="item in oocl.run.plan?.skipped||[]" :key="item.container+item.reason" class="hint labs-skip">{{item.container}}<template v-if="item.mbl"> ({{item.mbl}})</template>：{{t(item.reason)}}</p>
+        <div v-if="canWriteOocl" class="group-actions">
+          <n-button id="ooclApplyPreview" type="primary" size="small" :loading="ooclWriting" :disabled="ooclWriting||running" @click="applyPreviewOocl">{{t('按这次结果更新')}}</n-button>
+          <span class="hint">{{t('直接写入上面这些改动，不再重新查询。')}}</span>
+        </div>
+      </div>
+
       <div v-for="(group,index) in groups" :key="group.id" class="group-card" :data-carrier="group.id">
         <div class="group-head">
           <n-select class="group-carrier" size="small" filterable :value="group.id" :options="profileChoices" :consistent-menu-width="false" @update:value="value=>moveGroup(group,value)"/>
@@ -57,6 +97,8 @@ const missingText=group=>group.missing.map(key=>t(missingNames[key]||key)).join(
             <td class="row-remove"><n-button size="tiny" quaternary type="error" :title="t('移除这个柜号')" @click="removeEntry(row.entry)">×</n-button></td>
           </tr>
         </table>
+        <div v-if="group.needsAccount" class="notice missing"><span>{{t('还需要配置：')}}</span><strong>{{t('OOCL 账号')}}</strong><n-button size="tiny" @click="configureCarrier(group)">{{t('配置 OOCL')}}</n-button></div>
+        <p v-if="group.channel==='oocl-rtr'" class="hint">{{t('按提单号在 OOCL 网站查 Demurrage LFD；「查询并更新」会给 Draydog 加 SSL LFD note，并把 OOCL 与 Draydog 中较早的 LFD 写入提柜表 K 列。')}}</p>
         <div v-if="group.missing.length" class="notice missing"><span>{{t('还需要配置：')}}</span><strong>{{missingText(group)}}</strong><n-button size="tiny" @click="configureCarrier(group)">{{t(group.profile?`配置 ${group.name}`:`新增或选择${kind}`)}}</n-button></div>
         <p v-if="group.channel==='cosco-portal'&&!group.many&&group.ready.length>1" class="hint">{{t('逐个提交，每张需人机验证')}}</p>
         <details v-if="previewOf(group)" class="group-preview" :open="groups.length===1&&!unresolved.length">

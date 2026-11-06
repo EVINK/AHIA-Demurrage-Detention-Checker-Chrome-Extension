@@ -153,7 +153,8 @@ export function observe(c,now=Date.now(),{lineCheck=false,holdRules=DEFAULT_HOLD
     lfd:lineCheck?null:c.last_free_date||status?.last_free_date||null,lineCheck,lineLfd:c.line_last_free_date||status?.line_last_free_date||null,
     note:c.note_body||'',noteLfd:noteLfd(c.note_body,c.last_free_date?Date.parse(c.last_free_date):now),
     appointment:appointment?{status:appointment.status,start:appointment.window_start,end:appointment.window_end||null,...laParts(appointment.window_start)}:null,
-    position,eta:c.vessel_eta||status?.eta||null,location:status?.location||'',tags:c.tags||[],mbl:c.master_bl||status?.master_bill_of_lading||''
+    position,eta:c.vessel_eta||status?.eta||null,location:status?.location||'',tags:c.tags||[],mbl:c.master_bl||status?.master_bill_of_lading||'',
+    line:String(c.shipping_line||'')
   };
 }
 

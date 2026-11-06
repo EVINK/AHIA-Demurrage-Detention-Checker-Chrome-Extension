@@ -6,7 +6,8 @@ import {addHoldRule,answerHolds,answerRows,rowChoices,markAllPickable,applyPrevi
 
 const running=computed(()=>['running','waiting'].includes(chagui.run?.status));
 // The write button under a finished preview that has changes (the worker also refuses a stale one).
-const canWritePreview=computed(()=>{const r=chagui.run;return Boolean(r&&r.status==='done'&&!r.apply&&r.plan&&(r.plan.changes.length||r.plan.moves.length));});
+const canWritePreview=computed(()=>{const r=chagui.run;return Boolean(r&&r.status==='done'&&!r.apply&&r.plan&&(r.plan.changes.length||r.plan.moves.length||r.plan.notes?.length));});
+const mmdd=(iso:string)=>iso?iso.slice(5).replace('-','/'):'';
 const pending=computed(()=>chagui.run?.status==='waiting'?chagui.run.pending?.holds||[]:[]);
 const pendingRows=computed(()=>chagui.run?.status==='waiting'?chagui.run.pending?.rows||[]:[]);
 // Each new word starts as "a hold", with a suggested B column word the owner can change.
@@ -106,6 +107,16 @@ onMounted(()=>{loadChagui();watchChagui();loadHoldRules();loadMatson();watchMats
           </table>
           <p v-else class="hint">{{t('没有需要修改的')}}</p>
           <p v-for="item in chagui.run.plan.skipped" :key="item.container+item.reason" class="hint labs-skip">{{item.container}}：{{t(item.reason)}}</p>
+          <template v-if="chagui.run.plan.oocl?.length">
+            <p class="hint"><b>{{t('OOCL 柜子（之前没有 SSL LFD）')}}</b></p>
+            <table>
+              <tr><th>{{t('柜号')}}</th><th>MBL</th><th>{{t('OOCL 状态')}}</th><th>SSL LFD</th><th>{{t('Draydog LFD')}}</th><th>Draydog note</th></tr>
+              <tr v-for="o in chagui.run.plan.oocl" :key="o.container">
+                <td>{{o.container}}</td><td>{{o.mbl}}</td><td>{{o.status||t('没有查到')}}</td><td>{{mmdd(o.ooclLfd)}}</td><td>{{mmdd(o.draydogLfd)}}</td>
+                <td>{{o.ooclLfd?(chagui.run.notesAdded?.includes(o.container)?t('已写'):chagui.run.apply?t('未写'):`SSL LFD ${mmdd(o.ooclLfd)}`):''}}</td>
+              </tr>
+            </table>
+          </template>
           <div v-if="canWritePreview" class="history-buttons labs-buttons">
             <n-button id="applyPreview" type="primary" size="small" :disabled="starting||running" @click="applyPreviewChagui">{{t('按预览写入')}}</n-button>
             <span class="hint">{{t('直接写入上面这些改动，不再重新查询。')}}</span>

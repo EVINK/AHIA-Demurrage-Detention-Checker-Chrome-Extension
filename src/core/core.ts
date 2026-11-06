@@ -18,10 +18,13 @@ export const COSCO_PORTAL=Object.freeze({requester:'service@darwinpacific.com',s
 export const COSCO_ON_HIRE=Object.freeze({url:'https://coscoshippingla.freshdesk.com/support/tickets/new',type:'Equipment',service:'On / Off Hire',region:'Southern California'});
 export const COSCO_ON_HIRE_BODY='Dear {{steam shipping line}},\n\nPlease onhire below containers to LBCT,PCT,ETS,FMS,APM\n\n{{table}}';
 const TICKET_HOSTS=['support.cosco-usa.com','coscoshippingla.freshdesk.com'];
-export const CHANNELS=['email','cosco-portal','one-chat'];
-// These two are one company's own website: nobody else's inquiry may go there.
-export const CHANNEL_OWNERS=Object.freeze({'cosco-portal':'cosco','one-chat':'one'});
-export const channelsFor=profileId=>CHANNELS.filter(channel=>!CHANNEL_OWNERS[channel]||CHANNEL_OWNERS[channel]===profileId);
+export const CHANNELS=['email','cosco-portal','one-chat','oocl-rtr'];
+// These are one company's own website: nobody else's inquiry may go there. OOCL's built-in id is carrier-13fb1222.
+// oocl-rtr (owner, 11/6): the plugin reads OOCL's Demurrage LFD itself from rtr.home.oocl.com; nothing is sent.
+export const OOCL_IDS=Object.freeze(['carrier-13fb1222','oocl']);
+export const CHANNEL_OWNERS=Object.freeze({'cosco-portal':['cosco'],'one-chat':['one'],'oocl-rtr':OOCL_IDS});
+export const channelsFor=profileId=>CHANNELS.filter(channel=>!CHANNEL_OWNERS[channel]||CHANNEL_OWNERS[channel].includes(profileId));
+export const OOCL_RTR='oocl-rtr';
 // ONE takes LFD inquiries through the live chat on one-line.com (Salesforce messaging, transferred to an agent).
 export const ONE_CHAT=Object.freeze({firstName:'LET',lastName:'TANG',email:'service@darwinpacific.com',country:'United States',message:'Please advise {{type}} LFD for {{container}} / {{mbl}}'});
 export const PORTAL_INQUIRY_TYPE='detention';
@@ -62,13 +65,14 @@ export function resolveType(profile,requested){
 /** Several containers in one message: email, ONE chat and the COSCO On-Hire ticket. Other COSCO tickets take one container each. */
 export function supportsManyContainers(profile,id){
   const type=findType(profile,id);if(!type)return false;
-  return type.channel==='email'||type.channel==='one-chat'||(type.channel==='cosco-portal'&&id===ON_HIRE);
+  return type.channel==='email'||type.channel==='one-chat'||type.channel===OOCL_RTR||(type.channel==='cosco-portal'&&id===ON_HIRE);
 }
 /** What still has to be filled in before this type can go out. */
 export function missingConfiguration(profile,id){
   const type=findType(profile,id);
   if(!type)return ['type'];
-  if(type.channel==='one-chat')return [];
+  // The OOCL account is kept apart from the settings (chrome.storage.local `ooclAccount`); the popup checks it.
+  if(type.channel==='one-chat'||type.channel===OOCL_RTR)return [];
   // The Detention ticket needs PD INV / BL / BKG / HOU # / SCAC Code; On-Hire's SCAC Code stays optional.
   if(type.channel==='cosco-portal')return [...(!profile.portal?.requester?['requester']:[]),...(id!==ON_HIRE&&!profile.portal?.reference?['reference']:[]),...(!type.bodyTemplate?['bodyTemplate']:[])];
   return [...(!type.to.length?['to']:[]),...(!type.bodyTemplate?['bodyTemplate']:[]),...(!type.subjectTemplate?['subjectTemplate']:[])];
@@ -172,7 +176,10 @@ function normalizeProfile(profile,label){
   const id=profile.id.trim().toLowerCase();
   if(id==='auto'||!/^[a-z][a-z0-9_-]{0,63}$/.test(id))throw new Error(`${label} ID 无效（auto 为保留名称）。`);
   const builtin=DEFAULT_CARRIERS.find(item=>item.id===id);
-  const types=(Array.isArray(profile.types)?profile.types:legacyTypes(profile,id)).map(type=>typeFields(type,id));
+  // OOCL Demurrage became an automatic lookup (v1.1.0): an OOCL Demurrage email with no recipient could not go
+  // anywhere, so it moves to oocl-rtr. One with recipients the user filled in stays email.
+  const types=(Array.isArray(profile.types)?profile.types:legacyTypes(profile,id)).map(type=>typeFields(type,id))
+    .map(type=>OOCL_IDS.includes(id)&&type.id==='demurrage'&&type.channel==='email'&&!type.to.length?{...type,channel:OOCL_RTR}:type);
   if(new Set(types.map(type=>type.id)).size!==types.length)throw new Error(`${label}的查询类型重复。`);
   const uses=channel=>types.some(type=>type.channel===channel);
   const portal=uses('cosco-portal')?portalFields(profile.portal??builtin?.portal??COSCO_PORTAL):undefined;

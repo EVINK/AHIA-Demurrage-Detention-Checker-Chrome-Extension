@@ -1,0 +1,50 @@
+// OOCL Demurrage LFD in the popup: the account form on the config page and the run on the query page. The run
+// and the account belong to the worker (src/background/oocl.ts); the password is sent once and never read back.
+import {reactive,ref,watch} from 'vue';
+import {ask,demo,status,ooclAccount,loadOoclAccount,resumeOocl,ooclStarted} from './store.ts';
+
+async function rpc(message:any){
+  const response=await chrome.runtime.sendMessage(message);
+  if(!response?.ok)throw new Error(response?.error||'插件没有响应。');
+  return response.data;
+}
+export const ooclForm=reactive({username:'',password:'',checking:false,result:'',ok:false});
+export function fillOoclForm(){ooclForm.username=ooclAccount.username;ooclForm.password='';ooclForm.result=ooclAccount.saved?(ooclAccount.checkedAt?`已保存 · 上次检查通过 ${new Date(ooclAccount.checkedAt).toLocaleString()}`:'已保存'):'';ooclForm.ok=ooclAccount.saved;}
+/** 确定并检查连通性: saves the account (an empty password keeps the saved one) and signs in once. */
+export async function checkOocl(){
+  if(demo){status('演示模式不会连接 OOCL。');return;}
+  ooclForm.checking=true;ooclForm.result='正在登录 OOCL 检查…';ooclForm.ok=false;
+  try{
+    Object.assign(ooclAccount,await rpc({type:'ooclSaveAccount',username:ooclForm.username,password:ooclForm.password}));
+    ooclForm.password='';ooclForm.ok=true;ooclForm.result='连通性正常，账号已保存在本机插件里。';
+    status('OOCL 账号检查通过。','success');
+    resumeOocl();
+  }catch(error){ooclForm.result=(error as Error).message;status((error as Error).message,'error');await loadOoclAccount();}
+  finally{ooclForm.checking=false;}
+}
+export async function clearOocl(){
+  if(!await ask('删除插件里保存的 OOCL 账号密码？'))return;
+  try{Object.assign(ooclAccount,await rpc({type:'ooclClearAccount'}));fillOoclForm();status('OOCL 账号已删除。');}catch(error){status((error as Error).message,'error');}
+}
+
+export const oocl=reactive<{run:any,loaded:boolean}>({run:null,loaded:false});
+export const ooclWriting=ref(false);
+export async function loadOocl(){
+  if(demo){oocl.loaded=true;return;}
+  try{const data=await rpc({type:'ooclState'});oocl.run=data.run;Object.assign(ooclAccount,data.account);oocl.loaded=true;}catch(error){status((error as Error).message,'error');}
+}
+let listening=false;
+export function watchOocl(){
+  if(demo||listening)return;listening=true;
+  chrome.storage.onChanged.addListener((changes,area)=>{if(area==='local'&&changes.ooclRun)loadOocl();});
+  watch(ooclStarted,()=>loadOocl());
+}
+export async function applyPreviewOocl(){
+  if(demo){status('演示模式不会写表。');return;}
+  if(!await ask('按这次查询结果更新？Draydog 写 SSL LFD note，提柜表 K 列写入较早的 LFD（写之前核对格子没被人改过）。'))return;
+  ooclWriting.value=true;
+  try{await rpc({type:'ooclApplyPreview'});status('正在按查询结果写入。');await loadOocl();}
+  catch(error){status((error as Error).message,'error');}
+  finally{ooclWriting.value=false;}
+}
+export async function dismissOocl(){if(!demo)await chrome.storage.local.remove('ooclRun').catch(()=>{});oocl.run=null;}

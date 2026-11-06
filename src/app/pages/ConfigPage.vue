@@ -1,5 +1,8 @@
 <script setup lang="ts">
+import {watch} from 'vue';
 import {NButton,NInput,NInputNumber,NSelect} from 'naive-ui';
+import {ooclForm,fillOoclForm,checkOocl,clearOocl} from '../oocl.ts';
+import {ooclAccount} from '../store.ts';
 import {addProfile,addType,adding,channelChanged,channelOptions,channelVisible,clearCache,closeAddProfile,closeAddType,copyScript,currentProfile,currentType,customType,defaultCarrierOptions,defaultTypeOptions,deleteDisabled,deleteProfile,deleteType,downloadScript,editChannel,editTypeOptions,editingId,editingType,exportConfig,flushSave,form,importInput,importText,isOpen,kind,openAddProfile,openAddType,openDefaultApps,profileOptions,restoreDefaults,saveLine,scriptFallback,selectProfile,selectType,setOpen,t,terminalMode,testNotification,useStandardTemplate} from '../store.ts';
 
 // Kept here because their {{tokens}} cannot sit inside a template expression.
@@ -7,6 +10,8 @@ const TYPE_HINT='{{Type}} 显示为这个名称',SUBJECT_HINT='须含 {{containe
 const mailClients=()=>[{value:'gmail',label:t('Gmail 网页（推荐）')},{value:'program',label:t('电脑默认邮件程序（自动填写，手动发送）')}];
 const mailPrograms=()=>[{value:'foxmail',label:t('Foxmail（正文分行 + 带框表格）')},{value:'outlook',label:t('Outlook（纯文本，柜号与 MBL 逐行）')}];
 const field=id=>({id,autocomplete:'off'});
+// The OOCL account form follows the saved account (the password is never shown back).
+watch(()=>[editChannel.value,ooclAccount.username,ooclAccount.saved,ooclAccount.checkedAt],()=>{if(!ooclForm.checking)fillOoclForm();},{immediate:true});
 const toggle=(id,event)=>setOpen(id,event.target.open);
 </script>
 
@@ -46,7 +51,19 @@ const toggle=(id,event)=>setOpen(id,event.target.open);
         <div><label class="field-label" for="carrierCc">{{t('抄送 Cc')}}</label><n-input v-model:value="form.cc" :input-props="field('carrierCc')" :placeholder="t('多个邮箱用逗号分隔')"/></div>
       </div>
       <div v-show="editChannel==='email'" id="subjectFields"><label class="field-label" for="subjectTemplate">{{t('主题模板')}} <span>{{t(SUBJECT_HINT)}}</span></label><n-input v-model:value="form.subject" :input-props="field('subjectTemplate')" :maxlength="400"/></div>
-      <div v-show="editChannel!=='one-chat'" id="bodyFields">
+      <div v-if="editChannel==='oocl-rtr'" id="ooclFields" class="oocl-fields">
+        <p class="hint">{{t('插件用这个账号登录 OOCL Real Time Release（rtr.home.oocl.com），按提单号读取 Demurrage LFD，不发邮件。账号密码只保存在本机插件里，不会导出。')}}</p>
+        <div class="field-pair">
+          <div><label class="field-label" for="ooclUsername">{{t('OOCL 账号（邮箱）')}}</label><n-input v-model:value="ooclForm.username" :input-props="{...field('ooclUsername'),name:'oocl-username'}" :maxlength="254"/></div>
+          <div><label class="field-label" for="ooclPassword">{{t('密码')}}</label><n-input v-model:value="ooclForm.password" type="password" show-password-on="click" :input-props="{...field('ooclPassword'),autocomplete:'new-password'}" :maxlength="200" :placeholder="ooclAccount.saved?t('已保存，不改就留空'):''"/></div>
+        </div>
+        <div class="history-buttons labs-buttons">
+          <n-button id="ooclCheck" type="primary" size="small" :loading="ooclForm.checking" :disabled="ooclForm.checking||!ooclForm.username.trim()||(!ooclForm.password&&!ooclAccount.saved)" @click="checkOocl">{{t('确定并检查连通性')}}</n-button>
+          <n-button v-if="ooclAccount.saved" size="small" tertiary type="error" :disabled="ooclForm.checking" @click="clearOocl">{{t('删除账号')}}</n-button>
+        </div>
+        <p v-if="ooclForm.result" id="ooclResult" class="hint" :class="{ok:ooclForm.ok}">{{t(ooclForm.result)}}</p>
+      </div>
+      <div v-show="editChannel!=='one-chat'&&editChannel!=='oocl-rtr'" id="bodyFields">
         <div class="label-row"><label class="field-label" for="bodyTemplate">{{t('正文模板')}} <span>{{t(BODY_HINT)}}</span></label><n-button id="standardTemplate" text size="tiny" @click="useStandardTemplate">{{t('使用标准模板')}}</n-button></div>
         <n-input v-model:value="form.body" type="textarea" :input-props="field('bodyTemplate')" :rows="6" :maxlength="10000"/>
         <p class="token-help">{{t('可用：')}} <code v-for="token in ['{{carrier}}','{{steam shipping line}}','{{type}}','{{Type}}','{{container}}','{{mbl}}','{{s}}','{{table}}']" :key="token" v-text="token"></code></p>

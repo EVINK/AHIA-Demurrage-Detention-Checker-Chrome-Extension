@@ -12,7 +12,7 @@ Inquiries go out by Gmail, by the COSCO ticket website, or by ONE's live chat. A
 
 - Never send a real email, submit a real ticket or contact a real agent in testing without the owner's explicit permission. Use draft mode. Note that ONE's "draft" reaches a real human agent.
 - Never write to the KDocs sheet. The extension only reads it.
-- Never type the owner's credentials or solve a captcha. COSCO's reCAPTCHA is always solved by the user.
+- Never type the owner's credentials or solve a captcha. COSCO's reCAPTCHA is always solved by the user. One exception the owner asked for (11/6): the OOCL account the owner saves on the config page, which the plugin types into OOCL's own sign-in page (see v1.1.0).
 - The main button really sends. There is no test mode any more.
 - Email templates and content are never translated.
 - Injected page functions (`gmailPage`, `coscoPage`, `onePage`, `readKdocsPage`) must stay self-contained. They run through `chrome.scripting.executeScript({func})`, so they cannot use imports or closures.
@@ -278,6 +278,8 @@ Debugging: a reinstalled unpacked extension kept running its old service worker 
 
 **v1.0.0 (owner, 11/6).** Version raised to 1.0.0, no code change. Version rule from now on: a small change raises the last number, a larger feature the middle one; the last two stop at 9 and carry over (1.0.9 → 1.1.0, 1.9.9 → 2.0.0); only the first may go past 9. Every version bump is also packed (owner, 11/6): build, then zip the contents of `dist\extension` (manifest.json at the zip root) as `dist\trucker-helper-v<version>.zip`; zips are not committed.
 
+**v1.1.0, OOCL Demurrage LFD (owner, 11/6).** OOCL's Demurrage type has a new channel `oocl-rtr` (OOCL ids only: `carrier-13fb1222`, `oocl`): nothing is sent, the plugin reads the LFD itself. A saved OOCL Demurrage email with no To moves to it on read (`normalizeProfile`); Detention is untouched. Files: `src/core/oocl-rules.ts` (rules, tests/oocl-rules.test.js), `src/injected/oocl.ts`, `src/background/oocl.ts` (flow, state `ooclRun`, notification `lfd-oocl` opens the query page), `src/app/oocl.ts`, strings in `src/core/i18n-oocl.ts`. Site: OOCL Real Time Release `https://rtr.home.oocl.com/` (same app as COSCO's rtr.lines.coscoshipping.com), sign-in by Keycloak at `exiamfw.home.oocl.com` (form `#username` `#password`, cookie checkbox `#agree`, `#kc-login`; no captcha). Signed in, `GET /api/check` is 200; search `GET /api/todo/search/<MBL or container>` → `{cntrData:[{cntrNum,checkDigit,cntrStatus,relStatus,lfdUtc:'YYYYMMDDHHmmss.SSS' UTC,pickupTz,blNum,…}],messages}`; the page shows the LFD only for On Train / Discharged / At Location / Out for Delivery / Empty Returned, in pickupTz, and a time before 06:00 counts as the day before (`rtrDate`). Sign-out: `/api/frm/sso/logout` → `{data:<url>}`. Account: chrome.storage.local `ooclAccount` {username,password,checkedAt}, never in settings or the export, password never returned to the popup; config page OOCL Demurrage shows 账号 / 密码 / 「确定并检查连通性」 (signs an older session out, signs in, checks /api/check). Query page: the OOCL Demurrage group has 「查询并更新」 and 「仅查询（预览）」; with no account it jumps to that config field and starts the lookup by itself once the check passes (`pendingOocl`). Run: OOCL by MBL (bare digits get OOLU; a container missing from its bill is searched by its number) → Draydog (`openDraydog`, shared with 查柜, now exported from chagui.ts; new page actions `notes` and `addNote` = `GET/POST /containers/{n}/notes/`) → 提柜 → plan: note "SSL LFD mm/dd" unless that exact note exists, LFD = earlier of OOCL and Draydog (terminal or line LFD), written to K of the container's only business row; preview writes nothing, 「按这次结果更新」 writes the preview within 30 min. 查柜 got step `oocl` after `status`: Appointed / Bookable OOCL containers (Draydog line OOL…, or MBL OOLU…) whose notes (all of them, not only the newest the card shows) have no SSL LFD are looked up on OOCL; the date becomes the note date so the existing earliest-LFD rule takes it; the notes go with the write (also from 按预览写入). No account or an OOCL failure never stops 查柜: it says so and uses Draydog's LFD. 查柜, Matson and OOCL never run at once (shared TH_Apply). Host permissions added for the two OOCL hosts. Checked: OOCL's sign-in page and site code (11/6); not yet run with the owner's real account.
+
 ## Known limitations
 
 - Gmail, COSCO, ONE and KDocs are driven through their page structure, so a site redesign can stop any flow. Failures stop with a message rather than guess.
@@ -288,7 +290,7 @@ Debugging: a reinstalled unpacked extension kept running its old service worker 
 - Translations were written by an agent and not reviewed by a native speaker with trucking knowledge.
 - The sheet has no terminal data, so terminal mode never auto-detects.
 - Carriers in the sheet with no config: MATSON, YML, HEDE, KMTC. The owner chose not to configure them for now.
-- OOCL and HMM have no Demurrage or Detention recipients in the supplied config, so only On-Hire works.
+- HMM has no Demurrage or Detention recipients in the supplied config, so only On-Hire works. OOCL Detention likewise; OOCL Demurrage is looked up on OOCL's site since v1.1.0.
 
 ## Not verified on real services
 

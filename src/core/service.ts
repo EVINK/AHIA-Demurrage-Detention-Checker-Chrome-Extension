@@ -114,6 +114,7 @@ export function createService({storage, readSheet, prepareMail, sendMail, prepar
     const type=resolveType(carrier,requestedType)||carrier.types[0]?.id||requestedType;
     const channel=inquiryChannel(carrier,type),portal=channel==='cosco-portal',chat=channel==='one-chat',typeLabel=findType(carrier,type)?.label;
     if(mode==='identify')return {...record,carrierId:carrier.id,carrierName:carrier.name,channel,inquiryType:type,typeLabel,configurationMissing:missingConfiguration(carrier,type)};
+    if(channel==='oocl-rtr')throw new Error(`${carrier.name} ${typeLabel||''} 由插件直接在 OOCL 网站查询，不发邮件。请在查询页点「查询 LFD」。`);
     const more=Array.isArray(options.more)?options.more:[];
     if(more.length&&(!supportsManyContainers(carrier,type)||mode==='identify'))throw new Error('这个查询类型一次只能查询一个柜号。');
     // Extra containers must be cached ONE records of the same carrier (or explicitly carry a manual MBL).
