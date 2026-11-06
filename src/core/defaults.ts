@@ -39,7 +39,7 @@ export const DEFAULT_CARRIERS=[
     {"id":"detention","label":"Detention","channel":"email","to":[],"cc":[],"subjectTemplate":"{{Type}} LFD Inquiry - Container{{s}}#{{container}} MBL{{s}}#{{mbl}}","bodyTemplate":""},
     {"id":"on-hire","label":"On-Hire","channel":"email","to":["erica.kwon@hmm21.com","psweqp@hmm21.com"],"cc":["truck@darwinpacific.com","service@darwinpacific.com"],"subjectTemplate":"Request On-Hire to PIER A - HMM - Containers#[{{container}}] MBLs#[{{mbl}}]","bodyTemplate":"Dear {{steam shipping line}},\n\nPlease on-hire below containers to Pier A.\n\n{{table}}"}
   ]},
-  {id:"carrier-13fb1222",name:"OOCL",greeting:"OOCL",aliases:["OOCL"],mblPrefixes:[],types:[
+  {id:"carrier-13fb1222",name:"OOCL",greeting:"OOCL",aliases:["OOCL"],mblPrefixes:["OOLU"],types:[
     {"id":"demurrage","label":"Demurrage","channel":"oocl-rtr","to":[],"cc":[],"subjectTemplate":"{{Type}} LFD Inquiry - Container{{s}}#{{container}} MBL{{s}}#{{mbl}}","bodyTemplate":""},
     {"id":"detention","label":"Detention","channel":"email","to":[],"cc":[],"subjectTemplate":"{{Type}} LFD Inquiry - Container{{s}}#{{container}} MBL{{s}}#{{mbl}}","bodyTemplate":""},
     {"id":"on-hire","label":"On-Hire","channel":"email","to":["lgbeqp@oocl.com"],"cc":["truck@darwinpacific.com","service@darwinpacific.com"],"subjectTemplate":"On-Hire Request - OOCL - Container{{s}}#{{container}} MBL{{s}}#{{mbl}}","bodyTemplate":"Dear {{steam shipping line}},\n\nPlease on-hire below container{{s}}to PCT.\n\n{{table}}"}
