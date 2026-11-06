@@ -11,7 +11,7 @@
 //   7. discharged: the discharge time is the ETA, no schedule lookup;
 //   8. AVAILABLE as the latest event and no hold → A ✔. Matson needs no appointment.
 // Matson shows every time in Los Angeles time; the API gives instants, shown here in Los Angeles time too.
-import {businessRows} from './chagui-rules.ts';
+import {businessRows,placeMoves} from './chagui-rules.ts';
 
 const TZ='America/Los_Angeles';
 const pad=n=>String(n).padStart(2,'0');
@@ -133,9 +133,16 @@ export function matsonList(baseline){
   return {containers:out,skipped};
 }
 
-/** Cell changes for TH_Apply: A (✔ only when available and no hold; never overwrites other A content) and B. */
-export function matsonPlan(items){
-  const changes=[],skipped=[],observed=[];
+/** Cell changes for TH_Apply: A (✔ only when available and no hold; never overwrites other A content) and B.
+ * Moves (owner, 11/6): a container whose B now shows an ETA with a time ("ETA mm/dd HH:MM") and whose row is below
+ * 未放行 moves under 按码头排 (in 未排程), after the last MATSON row there — the same move as 查柜. A row with a note
+ * row under it is left for a person, as in 查柜. `baseline`: parseBaseline of the 提柜 read. */
+export function matsonPlan(items,baseline=null){
+  const changes=[],skipped=[],observed=[],moves=[];
+  const one=list=>list?.length===1?list[0]:null;
+  const markers=baseline?.markers||{};
+  const section={unscheduled:one(markers.unscheduled),unreleased:one(markers.unreleased),byTerminal:one(markers.byTerminal),cancelled:one(markers.cancelled)};
+  const markerRows=Object.values(markers).flat();
   for(const {container,row,observation:o,arrival,error} of items){
     if(error||!o){skipped.push({container,mbl:row.C,reason:error||'Matson 查不到这个柜号（提单号不对或已超过 90 天）'});continue;}
     const words=matsonWords(o,arrival);
@@ -145,6 +152,13 @@ export function matsonPlan(items){
     if(B!==String(row.B))cells.push({col:'B',column:2,before:row.B,beforeText:String(row.B),after:B,afterText:B});
     if(row.A===''||row.A==='✔'){const A=o.available?'✔':'';if(A!==row.A)cells.push({col:'A',column:1,before:row.A,beforeText:row.A,after:A,afterText:A});}
     if(cells.length)changes.push({container,mbl:row.C,row:row.row,cells});
+    if(baseline&&section.unreleased&&row.row>section.unreleased&&words.length===1&&/^ETA \d{2}\/\d{2} \d{2}:\d{2}$/.test(words[0])){
+      if(!section.byTerminal||section.byTerminal>section.unreleased){skipped.push({container,mbl:row.C,reason:'找不到“按码头排”分区，没有移动'});continue;}
+      const next=baseline.rows.find(r=>r.row===row.row+1);
+      if(next&&!/^[A-Z]{4}\d{7}$/.test(next.D)&&!markerRows.includes(next.row)){skipped.push({container,mbl:row.C,reason:'这一行下面还有附属行，需要人工移动'});continue;}
+      moves.push({container,mbl:row.C,from:row.row,terminal:row.P||MATSON_TERMINAL});
+    }
   }
-  return {changes,moves:[],skipped,observed};
+  if(baseline)placeMoves(moves,baseline.rows,section);
+  return {changes,moves,skipped,observed};
 }

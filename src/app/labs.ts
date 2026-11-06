@@ -132,7 +132,7 @@ export function watchMatson(){
 }
 export async function startMatson(apply=false){
   if(demo){status('演示模式不会运行查柜。');return;}
-  if(apply&&!await ask('查 Matson 柜子并写入提柜表：只改 B 列（ETA / HOLD 等）和 A 列 ✔。写之前会核对每个格子没被人改过。继续？'))return;
+  if(apply&&!await ask('查 Matson 柜子并写入提柜表：改 B 列（ETA / HOLD 等）和 A 列 ✔，并把有 ETA 时刻、在未放行下面的整行移到按码头排的 MATSON 旁边。写之前会核对每个格子没被人改过。继续？'))return;
   matsonStarting.value=true;
   try{await rpc({type:'matsonStart',apply});status(apply?'查柜已在后台开始。':'预览已在后台开始，不会写表。');await loadMatson();}
   catch(error){status((error as Error).message,'error');}

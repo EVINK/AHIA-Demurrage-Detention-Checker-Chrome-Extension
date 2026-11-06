@@ -32,7 +32,16 @@ const COLUMN_NAMES:Record<string,string>={A:'放行',B:'查验信息',G:'摆置'
 const colLabel=(col:string)=>COLUMN_NAMES[col]?`${col}（${t(COLUMN_NAMES[col])}）`:col;
 const scripts=['ListA_Push.js','TH_ReadV2.js','TH_ReadPickup.js','TH_Apply.js'];
 const matsonRunning=computed(()=>matson.run?.status==='running');
-const canWriteMatson=computed(()=>{const r=matson.run;return Boolean(r&&r.status==='done'&&!r.apply&&r.plan?.changes.length);});
+const canWriteMatson=computed(()=>{const r=matson.run;return Boolean(r&&r.status==='done'&&!r.apply&&(r.plan?.changes.length||r.plan?.moves?.length));});
+// Matson changes plus row moves (old row ↓ new row), the same way as the 查柜 table.
+const matsonRows=computed(()=>{
+  const plan=matson.run?.plan;if(!plan)return [];
+  const moves=new Map((plan.moves||[]).map((m:any)=>[m.container,m]));
+  const rowText=(container:string,row:number)=>{const m:any=moves.get(container);return m?.to?`${m.from}\n↓\n${m.to}`:String(row);};
+  const items=plan.changes.map((c:any)=>({container:c.container,mbl:c.mbl,cells:c.cells,move:moves.get(c.container),rowText:rowText(c.container,c.row)}));
+  for(const m of plan.moves||[])if(!plan.changes.some((c:any)=>c.container===m.container))items.push({container:m.container,mbl:m.mbl,cells:[{col:'—',beforeText:'',afterText:''}],move:m,rowText:rowText(m.container,m.from)});
+  return items;
+});
 const matsonLabel=computed(()=>({running:'Matson 查柜进行中',done:'上次 Matson 查柜完成',error:'上次 Matson 查柜失败'}[matson.run?.status]||''));
 onMounted(()=>{loadChagui();watchChagui();loadHoldRules();loadMatson();watchMatson();});
 </script>
@@ -184,7 +193,7 @@ onMounted(()=>{loadChagui();watchChagui();loadHoldRules();loadMatson();watchMats
       <div class="section-top labs-feature-head">
         <div>
           <h3>{{t('查 Matson 柜子')}}</h3>
-          <p class="hint">{{t('提柜表里码头是 MATSON、A 列为空的柜子，用 C 列提单号在 Matson 官网查状态和船期：B 列写 ETA（已卸船写卸船时间）或 HOLD 及之后的每个状态，AVAILABLE 且没有 Hold 时 A 列打 ✔。预览只计算要改什么，不写表。')}}</p>
+          <p class="hint">{{t('提柜表里码头是 MATSON、A 列为空的柜子，用 C 列提单号在 Matson 官网查状态和船期：B 列只写时间最近的一个状态（ETA，已卸船用卸船时间；或 HOLD 等），AVAILABLE 且没有 Hold 时 A 列打 ✔；有了具体 ETA 时刻、还在未放行下面的整行移到按码头排的 MATSON 旁边。预览只计算要改什么，不写表。')}}</p>
         </div>
         <div class="history-buttons">
           <n-button id="matsonPreview" :loading="(matsonStarting||matsonRunning)&&!matson.run?.apply" :disabled="matsonStarting||matsonRunning" @click="startMatson(false)">{{t('预览')}}</n-button>
@@ -204,10 +213,10 @@ onMounted(()=>{loadChagui();watchChagui();loadHoldRules();loadMatson();watchMats
         </ol>
         <details v-if="matson.run.plan" class="labs-sub labs-plan" :open="!matson.run.apply">
           <summary>{{t(matson.run.apply?'本轮改动':'预览：将要做的改动')}}</summary>
-          <table v-if="matson.run.plan.changes.length">
+          <table v-if="matsonRows.length">
             <tr><th>{{t('柜号')}}</th><th>MBL</th><th>{{t('行')}}</th><th>{{t('列')}}</th><th>{{t('原值')}}</th><th>{{t('新值')}}</th></tr>
-            <template v-for="c in matson.run.plan.changes" :key="c.container">
-              <tr v-for="(cell,i) in c.cells" :key="cell.col"><td>{{i?'':c.container}}</td><td>{{i?'':c.mbl}}</td><td class="labs-row">{{i?'':c.row}}</td><td>{{colLabel(cell.col)}}</td><td>{{cell.beforeText}}</td><td>{{cell.afterText}}</td></tr>
+            <template v-for="c in matsonRows" :key="c.container">
+              <tr v-for="(cell,i) in c.cells" :key="cell.col"><td>{{i?'':c.container}}</td><td>{{i?'':c.mbl}}</td><td class="labs-row labs-moved" :title="i||!c.move?'':t(`移到按码头排（${c.move.terminal}）`)">{{i?'':c.rowText}}</td><td>{{cell.col==='—'?'—':colLabel(cell.col)}}</td><td>{{cell.beforeText}}</td><td>{{cell.afterText}}</td></tr>
             </template>
           </table>
           <p v-else class="hint">{{t('没有需要修改的')}}</p>

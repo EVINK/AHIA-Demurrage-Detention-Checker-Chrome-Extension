@@ -82,11 +82,11 @@ export function createMatson({execute,loaded,notify,busy=()=>false}){
       await step('schedule','done',lookedUp.length?`${lookedUp.length} 个柜子，找到到港时间 ${lookedUp.filter(i=>i.arrival).length} 个`:'都已卸船，无需查船期');
       // Plan.
       current='plan';await step('plan','running');
-      const planned=matsonPlan(items);
+      const planned=matsonPlan(items,baseline);
       planned.skipped=[...list.skipped,...planned.skipped];
       run.plan=planned;
       const cellCount=planned.changes.reduce((n,c)=>n+c.cells.length,0);
-      await step('plan','done',`${planned.changes.length} 个柜子 ${cellCount} 个格子要改${planned.skipped.length?`，${planned.skipped.length} 个需人工`:''}`);
+      await step('plan','done',`${planned.changes.length} 个柜子 ${cellCount} 个格子要改，${planned.moves.length} 行要移动${planned.skipped.length?`，${planned.skipped.length} 个需人工`:''}`);
       if(run.apply)await write(run,step,planned,c=>{current=c;});
       run.status=run.steps.some(s=>s.status==='error')?'error':'done';run.finishedAt=Date.now();
       if(run.status==='error')run.error='写表后复核有不符，请查看。';
@@ -101,16 +101,21 @@ export function createMatson({execute,loaded,notify,busy=()=>false}){
   /** TH_Apply with this plan (cells only, no moves), then read back and compare. */
   async function write(run,step,planned,setCurrent){
     setCurrent('apply');
-    if(!planned.changes.length){await step('apply','done','没有需要修改的');await step('verify','done','无需复核');return;}
+    const moves=planned.moves||[];
+    if(!planned.changes.length&&!moves.length){await step('apply','done','没有需要修改的');await step('verify','done','无需复核');return;}
     await step('apply','running');
     const template=await bundled('TH_Apply.js');
-    const payload={id:run.id+'m',changes:planned.changes.map(({container,mbl,cells})=>({container,mbl,cells:cells.map(({col,column,before,after})=>({col,column,before,after}))})),moves:[]};
+    const payload={id:run.id+'m',changes:planned.changes.map(({container,mbl,cells})=>({container,mbl,cells:cells.map(({col,column,before,after})=>({col,column,before,after}))})),moves:moves.map(({container,mbl,from,terminal})=>({container,mbl,from,terminal}))};
     const code=template.code.replace('const PAYLOAD = null;',`const PAYLOAD = ${JSON.stringify(payload)};`);
     const result=await withTab(PICKUP_URL,'https://www.kdocs.cn/',tabId=>execute(tabId,airScriptPage,[{title:'TH_Apply',group:'mine',install:{code,build:template.build,always:true},expect:{type:'chunks'},timeout:300000}],'MAIN'));
     const applied=result.rows.map(r=>JSON.parse(r));
     run.written=applied.reduce((n,r)=>n+(r.applied?.length||0),0);
     const skipped=applied.reduce((n,r)=>n+(r.skipped?.length||0),0);
-    await step('apply','done',`写入 ${run.written} 个格子${skipped?`，跳过 ${skipped} 个`:''}`);
+    // Where rows really landed (the plan's `to` is a forecast).
+    for(const move of moves){const real=applied.find(r=>r.container===move.container&&r.move)?.move;move.to=real?.to||null;move.done=Boolean(real?.to);}
+    const moved=moves.filter(m=>m.done).length;
+    await save(run);
+    await step('apply','done',`写入 ${run.written} 个格子，移动 ${moved} 行${skipped?`，跳过 ${skipped} 个`:''}`);
     setCurrent('verify');await step('verify','running');
     const verified=verify(planned,applied,await readPickup());
     await step('verify',verified.problems.length?'error':'done',verified.problems.length?`${verified.problems.length} 处与预期不符：${verified.problems.slice(0,3).join('；')}`:`${verified.ok.length} 个柜子核对无误`);
@@ -122,7 +127,7 @@ export function createMatson({execute,loaded,notify,busy=()=>false}){
     const {matsonRun:preview}=await chrome.storage.local.get('matsonRun');
     if(!preview||preview.status!=='done'||preview.apply||!preview.plan)throw new Error('没有可写入的预览，请先点「预览」。');
     if(Date.now()-(preview.finishedAt||0)>PREVIEW_FRESH)throw new Error('预览已超过 30 分钟，表格可能有变化，请重新预览。');
-    if(!preview.plan.changes.length)throw new Error('预览里没有需要修改的。');
+    if(!preview.plan.changes.length&&!preview.plan.moves?.length)throw new Error('预览里没有需要修改的。');
     const run={...newRun(['apply','verify']),apply:true,fromPreview:preview.id,plan:preview.plan};
     active=run.id;await save(run);
     (async()=>{

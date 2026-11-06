@@ -74,6 +74,29 @@ test('column B keeps the team text and replaces only its own words',()=>{
   assert.equal(matsonPlan([{container:'MATU2650593',row:{row:12,A:'✔',B:'ETA 11/04 13:39',C:'8112198000'},observation:o}]).changes.length,0);
 });
 
+test('a row under 未放行 with an ETA time moves next to the MATSON rows under 按码头排',()=>{
+  const r=(row,A,B,C,D,P)=>[row,A,B,C,D,'','','','','','','',P];
+  const baseline=parseBaseline([
+    r(3,'','','','未排程 ↓',''),
+    r(4,'','按码头排','','',''),
+    r(5,'','','MATS1111111000','MATU1111111','MATSON'),
+    r(6,'','','22222222','TGHU2222222','APM'),
+    r(7,'','','','未放行 ↓',''),
+    r(8,'','','MATS8051982000','MATU2590663','MATSON'),
+    r(9,'','','MATS8112198000','MATU2650593','MATSON'),
+    r(10,'','取消DO','','','')]);
+  const held=observeMatson('MATU2590663',[{vessel:'DKI',voyage:102,direction:'E',vesselETA:'11/04/26',originCode:'SHA',containerNumber:'MATU259066',checkDigit:'3',events:[
+    {date:Date.parse('2026-10-24T18:05:00Z'),status:'CONTAINER ON HOLD - Customs Clearance'},{date:Date.parse('2026-10-25T04:00:00Z'),status:'LOAD TO VESSEL DKI'}]}]);
+  const avail=observeMatson('MATU2650593',available);
+  const row=n=>baseline.rows.find(x=>x.row===n);
+  const plan=matsonPlan([{container:'MATU2590663',row:row(8),observation:held,arrival:{text:'11/04 08:00',key:'2026-11-04 08:00'}},
+    {container:'MATU2650593',row:row(9),observation:avail}],baseline);
+  // Both now show "ETA mm/dd HH:MM": both move, each after the last MATSON row (5, then the first moved row).
+  assert.deepEqual(plan.moves.map(m=>[m.container,m.from,m.to]),[['MATU2590663',8,6],['MATU2650593',9,7]]);
+  // Without an exact time (Matson's ETA day only) the row stays.
+  assert.equal(matsonPlan([{container:'MATU2590663',row:row(8),observation:{...held,hold:false}}],baseline).moves.length,0);
+});
+
 test('the list: MATSON rows above 取消DO with A blank everywhere, like ListA_Push',()=>{
   const r=(row,A,B,C,D,P)=>[row,A,B,C,D,'','','','','','','',P];
   const baseline=parseBaseline([
