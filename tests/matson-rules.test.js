@@ -34,8 +34,19 @@ test('on hold, not discharged: HOLD, the events after it, and the schedule ETA',
   const q=scheduleQuery(o);
   assert.deepEqual(q,{origin:'SHA',start:'10222026',end:'12012026'});
   const arrival=arrivalOf(o,SCHEDULE);
-  assert.equal(arrival,'11/04 08:00');
-  assert.deepEqual(matsonWords(o,arrival),['HOLD 10/24 11:05','LOAD 10/24 21:00','ETA 11/04 08:00']);
+  assert.deepEqual(arrival,{text:'11/04 08:00',key:'2026-11-04 08:00'});
+  // One status, the latest time (owner, 11/6).
+  assert.deepEqual(matsonWords(o,arrival),['ETA 11/04 08:00']);
+  // No schedule: Matson's ETA day is still later than the hold and the loading.
+  assert.deepEqual(matsonWords(o),['ETA 11/04']);
+  // An ETA already in the past: the latest event wins.
+  assert.deepEqual(matsonWords(o,{text:'10/20 08:00',key:'2026-10-20 08:00'}),['LOAD 10/24 21:00']);
+});
+
+test('old hand-written Matson statuses are replaced by the one status',()=>{
+  assert.equal(matsonCell('VSL ETA: 11/08',['ETA 11/08 12:30']),'ETA 11/08 12:30');
+  assert.equal(matsonCell('HOLD RELEASED',['ETA 11/05 05:26']),'ETA 11/05 05:26');
+  assert.equal(matsonCell('倉儲 VSL ETA: 11/08,HOLD 10/28 11:37,LOAD 10/28 23:04',['ETA 11/08 12:30']),'倉儲,ETA 11/08 12:30');
 });
 
 test('released, discharged and AVAILABLE: ETA is the discharge time, A gets ✔',()=>{

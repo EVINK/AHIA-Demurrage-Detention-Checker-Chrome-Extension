@@ -47,8 +47,10 @@ const holdReason=status=>String(status||'').replace(/\s+/g,' ').split(' - ').sli
 /** Words this feature adds and removes in column B: "<word> mm/dd[ HH:MM]". Anything else in B stays. */
 export const MANAGED=/(^|[\s,，;；])(ETA|HOLD|RELEASED|Discharge|LOAD|OUTGATE|INGATE|AVAILABLE)\s+\d{1,2}\/\d{1,2}(?:\s+\d{1,2}:\d{2})?(?=$|[\s,，;；])/gi;
 /** Column B: drop this feature's earlier words, keep the team's text, append the new words. */
+// Older hand-written Matson statuses the single status replaces (owner's sheet, 11/6): "VSL ETA: 11/08", "HOLD RELEASED".
+export const LEGACY=/(^|[\s,，;；])(VSL\s*ETA\s*[:：]?\s*\d{1,2}\/\d{1,2}(?:\s+\d{1,2}:\d{2})?|HOLD\s+RELEASED)(?=$|[\s,，;；])/gi;
 export function matsonCell(current,words){
-  let text=String(current||'').replace(MANAGED,'$1');
+  let text=String(current||'').replace(MANAGED,'$1').replace(LEGACY,'$1');
   text=text.replace(/\s*[,，]\s*([,，]\s*)+/g,',').replace(/^[\s,，;；]+|[\s,，;；]+$/g,'').replace(/ {2,}/g,' ');
   return words.length?(text?`${text},${words.join(',')}`:words.join(',')):text;
 }
@@ -85,23 +87,34 @@ export function scheduleQuery(o,now=Date.now()){
 }
 export const queryKey=q=>`${q.origin}|${q.start}|${q.end}`;
 
-/** The vessel's arrival in the schedule ("Wednesday 11/04/2026 08:00") → "11/04 08:00", or ''. */
+/** The vessel's arrival in the schedule ("Wednesday 11/04/2026 08:00") → {text:"11/04 08:00", key:"2026-11-04 08:00"}
+ * (Los Angeles wall time), or ''. */
 export function arrivalOf(o,schedule){
   if(!o?.vvd)return '';
   const row=(schedule||[]).find(r=>String(r.vvd||'').toUpperCase()===o.vvd.toUpperCase());
-  const m=String(row?.arrive||'').match(/(\d{1,2})\/(\d{1,2})\/\d{4}\s+(\d{1,2}):(\d{2})/);
-  return m?`${pad(m[1])}/${pad(m[2])} ${pad(m[3])}:${m[4]}`:'';
+  const m=String(row?.arrive||'').match(/(\d{1,2})\/(\d{1,2})\/(\d{4})\s+(\d{1,2}):(\d{2})/);
+  return m?{text:`${pad(m[1])}/${pad(m[2])} ${pad(m[4])}:${m[5]}`,key:`${m[3]}-${pad(m[1])}-${pad(m[2])} ${pad(m[4])}:${m[5]}`}:'';
 }
+const keyOf=ms=>{const t=laTime(ms);return `${t.date} ${t.hhmm}`;};
 
-/** Column B words for a container. `arrival`: "mm/dd HH:MM" from the schedule ('' when not found). */
+/** Column B: one word, the status with the latest time (owner, 11/6: "只保留一个状态(最近的时间)"). Candidates: the
+ * ETA (schedule arrival, the discharge time once discharged, else Matson's ETA day) and, while on hold, HOLD and
+ * every event after it. `arrival` comes from arrivalOf. */
 export function matsonWords(o,arrival=''){
-  // Discharged: the discharge time is the ETA. Otherwise the schedule's arrival, else Matson's ETA day.
-  const fallback=String(o.vesselEta||'').match(/^(\d{1,2})\/(\d{1,2})/);
-  const eta=o.discharged?stamp(o.discharged):arrival||(fallback?`${pad(fallback[1])}/${pad(fallback[2])}`:'');
-  if(!o.hold)return eta?[`ETA ${eta}`]:[];
-  // On hold: HOLD and every event after it, then the ETA while the vessel has not discharged.
-  const after=o.events.filter(e=>e.date>o.holdSince&&!['HOLD','RELEASED'].includes(e.word)).map(e=>`${e.word} ${stamp(e.date)}`);
-  return [`HOLD ${stamp(o.holdSince)}`,...after,...(!o.discharged&&eta?[`ETA ${eta}`]:[])];
+  const candidates=[];
+  if(o.discharged)candidates.push({word:`ETA ${stamp(o.discharged)}`,key:keyOf(o.discharged)});
+  else if(arrival)candidates.push({word:`ETA ${arrival.text}`,key:arrival.key});
+  else{
+    const m=String(o.vesselEta||'').match(/^(\d{1,2})\/(\d{1,2})\/(\d{2,4})/);
+    if(m)candidates.push({word:`ETA ${pad(m[1])}/${pad(m[2])}`,key:`${m[3].length===2?'20'+m[3]:m[3]}-${pad(m[1])}-${pad(m[2])} 00:00`});
+  }
+  if(o.hold){
+    candidates.push({word:`HOLD ${stamp(o.holdSince)}`,key:keyOf(o.holdSince)});
+    for(const e of o.events)if(e.date>o.holdSince&&!['HOLD','RELEASED'].includes(e.word))candidates.push({word:`${e.word} ${stamp(e.date)}`,key:keyOf(e.date)});
+  }
+  if(!candidates.length)return [];
+  // Latest time wins; on a tie the later candidate (an event over the ETA it equals).
+  return [candidates.reduce((best,c)=>c.key>=best.key?c:best).word];
 }
 
 /** The Matson containers to check, from the 提柜 baseline (parseBaseline): the same filter as ListA_Push. */
@@ -112,7 +125,7 @@ export function matsonList(baseline){
   const out=[],skipped=[];
   for(const [container,found] of businessRows(baseline)){
     if(excluded.has(container)||!found.some(r=>r.P.toUpperCase()===MATSON_TERMINAL))continue;
-    if(found.length>1){skipped.push({container,reason:`提柜表里有 ${found.length} 行这个柜号，请人工确认`});continue;}
+    if(found.length>1){skipped.push({container,mbl:[...new Set(found.map(r=>r.C).filter(Boolean))].join(' / '),reason:`提柜表里有 ${found.length} 行这个柜号，请人工确认`});continue;}
     const row=found[0],bl=blNumber(row.C);
     if(!bl){skipped.push({container,reason:'提柜表 C 列没有 Matson 提单号'});continue;}
     out.push({container,bl,row});
@@ -124,7 +137,7 @@ export function matsonList(baseline){
 export function matsonPlan(items){
   const changes=[],skipped=[],observed=[];
   for(const {container,row,observation:o,arrival,error} of items){
-    if(error||!o){skipped.push({container,reason:error||'Matson 查不到这个柜号（提单号不对或已超过 90 天）'});continue;}
+    if(error||!o){skipped.push({container,mbl:row.C,reason:error||'Matson 查不到这个柜号（提单号不对或已超过 90 天）'});continue;}
     const words=matsonWords(o,arrival);
     observed.push({container,bl:row.C,row:row.row,vessel:o.vvd,latest:o.latest,hold:o.hold,holdReasons:o.holdReasons,available:o.available,words:words.join(',')});
     const cells=[];

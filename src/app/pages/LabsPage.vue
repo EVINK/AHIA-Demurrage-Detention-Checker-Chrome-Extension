@@ -194,24 +194,24 @@ onMounted(()=>{loadChagui();watchChagui();loadHoldRules();loadMatson();watchMats
         <details v-if="matson.run.plan" class="labs-sub labs-plan" :open="!matson.run.apply">
           <summary>{{t(matson.run.apply?'本轮改动':'预览：将要做的改动')}}</summary>
           <table v-if="matson.run.plan.changes.length">
-            <tr><th>{{t('柜号')}}</th><th>{{t('行')}}</th><th>{{t('列')}}</th><th>{{t('原值')}}</th><th>{{t('新值')}}</th></tr>
+            <tr><th>{{t('柜号')}}</th><th>MBL</th><th>{{t('行')}}</th><th>{{t('列')}}</th><th>{{t('原值')}}</th><th>{{t('新值')}}</th></tr>
             <template v-for="c in matson.run.plan.changes" :key="c.container">
-              <tr v-for="(cell,i) in c.cells" :key="cell.col"><td>{{i?'':c.container}}</td><td class="labs-row">{{i?'':c.row}}</td><td>{{colLabel(cell.col)}}</td><td>{{cell.beforeText}}</td><td>{{cell.afterText}}</td></tr>
+              <tr v-for="(cell,i) in c.cells" :key="cell.col"><td>{{i?'':c.container}}</td><td>{{i?'':c.mbl}}</td><td class="labs-row">{{i?'':c.row}}</td><td>{{colLabel(cell.col)}}</td><td>{{cell.beforeText}}</td><td>{{cell.afterText}}</td></tr>
             </template>
           </table>
           <p v-else class="hint">{{t('没有需要修改的')}}</p>
-          <p v-for="item in matson.run.plan.skipped" :key="item.container+item.reason" class="hint labs-skip">{{item.container}}：{{t(item.reason)}}</p>
+          <p v-for="item in matson.run.plan.skipped" :key="item.container+item.reason" class="hint labs-skip">{{item.container}}<template v-if="item.mbl"> ({{item.mbl}})</template>：{{t(item.reason)}}</p>
           <div v-if="canWriteMatson" class="history-buttons labs-buttons">
             <n-button id="matsonApplyPreview" type="primary" size="small" :disabled="matsonStarting||matsonRunning" @click="applyPreviewMatson">{{t('按预览写入')}}</n-button>
             <span class="hint">{{t('直接写入上面这些改动，不再重新查询。')}}</span>
           </div>
         </details>
-        <details v-if="matson.run.plan?.observed?.length" class="labs-sub labs-plan">
+        <details v-if="matson.run.plan?.observed?.length" class="labs-sub labs-plan" open>
           <summary>{{t('Matson 状态')}}（{{matson.run.plan.observed.length}}）</summary>
           <table>
-            <tr><th>{{t('柜号')}}</th><th>{{t('船名航次')}}</th><th>{{t('最新状态')}}</th><th>Hold</th><th>{{t('B 列')}}</th></tr>
+            <tr><th>{{t('柜号')}}</th><th>MBL</th><th>{{t('船名航次')}}</th><th>{{t('最新状态')}}</th><th>Hold</th><th>{{t('B 列')}}</th></tr>
             <tr v-for="o in matson.run.plan.observed" :key="o.container">
-              <td>{{o.container}}</td><td>{{o.vessel}}</td><td>{{o.latest}}</td><td>{{o.hold?(o.holdReasons.join(', ')||'HOLD'):''}}</td><td>{{o.words}}</td>
+              <td>{{o.container}}</td><td>{{o.bl}}</td><td>{{o.vessel}}</td><td>{{o.latest}}</td><td>{{o.hold?(o.holdReasons.join(', ')||'HOLD'):''}}</td><td>{{o.words}}</td>
             </tr>
           </table>
         </details>
